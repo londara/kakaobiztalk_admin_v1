@@ -1,0 +1,112 @@
+REQ_ID,type,requirement,source,priority,verification,use_case,business_rule,defect_ref,status
+FR-MSG-001,Functional,"Reject unauthenticated requests on list and detail services","WSVC.biztalk_admin_40_l001.xml <login>N</login>; PM AMB-01",Must,"Security test + E2E",UC-MSG-001;UC-MSG-002,BR-002,D1,SPECIFIED
+FR-MSG-002,Functional,"Search by request datetime range (required) plus msgkey/sender/recipient/status/type/table-type/result-code/institution","biztalk_admin_40_view.jsp form; biztalk_admin_40.js getDat()",Must,E2E,UC-MSG-001,,,SPECIFIED
+FR-MSG-003,Functional,"Union live and archive tables for all four message classes (8 sources)",IDO.KKB_MSG_L002,Must,"Integration test per table",UC-MSG-001,,,SPECIFIED
+FR-MSG-004,Functional,"Result grid presents 12 columns",biztalk_admin_40.js drawGrid(),Must,E2E,UC-MSG-001,,,SPECIFIED
+FR-MSG-005,Functional,"STATUS rendered 1=미전송 2=전송완료 3=톡결과수신 4=문자결과수신 6=큐입력; unmapped shown verbatim",biztalk_admin_40.js STATUS renderer,Must,Unit,UC-MSG-001,,,SPECIFIED
+FR-MSG-006,Functional,"MSG_TYPE AT/FT/empty and TABLE_TYPE SMS/MMS/empty","biztalk_admin_40_view.jsp select options",Must,Unit,UC-MSG-001,,,SPECIFIED
+FR-MSG-007,Functional,"Server-side pagination with total count",PM CONFLICT-01,Must,"Integration + load",UC-MSG-001,,D7,SPECIFIED
+FR-MSG-008,Functional,"MSGKEY search matches correctly for keys of any length",IDO.KKB_MSG_L002 to_char(MSGKEY 9),Must,Unit,UC-MSG-001,,D2,SPECIFIED
+FR-MSG-009,Functional,"Sender/recipient search labels match underlying columns","biztalk_admin_40_view.jsp vs biztalk_admin_40.js",Must,E2E,UC-MSG-001,,D3,SPECIFIED
+FR-MSG-010,Functional,"Recipient number and result code searches are functional","biztalk_admin_40.js vs WSVC.biztalk_admin_40_l001",Must,Integration,UC-MSG-001,,D4,SPECIFIED
+FR-MSG-011,Functional,"Uniform date boundary across all 8 sources (inclusive start exclusive end)",IDO.KKB_MSG_L002 KKO_MMS_MSG_LOG BETWEEN,Must,"Integration boundary test",UC-MSG-001,,D6,SPECIFIED
+FR-MSG-012,Functional,"Range validation compares full datetime not time-of-day",biztalk_admin_40.js sTime/eTime,Must,Unit,UC-MSG-001,,D8,SPECIFIED
+FR-MSG-013,Functional,"Search period capped at 31 days",PM CONFLICT-01 (31 days, approved at G1),Must,Unit,UC-MSG-001,,,SPECIFIED
+FR-MSG-014,Functional,"MSGKEY link opens message detail",biztalk_admin_40.js fn_getDetail(),Must,E2E,UC-MSG-001;UC-MSG-002,,,SPECIFIED
+FR-MSG-015,Functional,"Empty optional criteria mean no filter on that field",IDO.KKB_MSG_L002 CASE WHEN clauses,Must,Integration,UC-MSG-001,,,SPECIFIED
+FR-MSG-016,Functional,"Rows with NULL sender number are not silently dropped",IDO.KKB_MSG_L002 CALLBACK LIKE clause,Should,Integration,UC-MSG-001,,D4-side,SPECIFIED
+FR-MSG-017,Functional,"Search results exportable",Analogy with screens 20/30,Could,E2E,UC-MSG-001,,,PENDING-AMB-07
+FR-MSGD-001,Functional,"Detail service requires authentication and tenant ownership","WSVC.biztalk_admin_41_l001.xml; PM AMB-02",Must,Security test,UC-MSG-002,BR-006,,SPECIFIED
+FR-MSGD-002,Functional,"Detail query selected by MSG_TYPE x TABLE_TYPE across 4 table pairs",biztalk_admin_41_l001_act.jsp,Must,"Integration 4 paths",UC-MSG-002,,,SPECIFIED
+FR-MSGD-003,Functional,"MSG_TYPE and TABLE_TYPE mandatory; unrecognised MSG_TYPE rejected",biztalk_admin_41_l001_act.jsp else-branch,Must,Unit,UC-MSG-002,,,SPECIFIED
+FR-MSGD-004,Functional,"Detail presents all 19 declared fields","WSVC.biztalk_admin_41_l001 out-rule vs 4 IDOs; PM AMB-04",Must,"Integration per field",UC-MSG-002,,D9,SPECIFIED
+FR-MSGD-005,Functional,"Timestamps render as YYYY-MM-DD HH:MM:SS","IDO.KKO_SMS/KKF_SMS/KKF_MMS YYYYY pattern",Must,Unit,UC-MSG-002,,D5,SPECIFIED
+FR-MSGD-006,Functional,"Image button and failure information presented in dedicated sections",biztalk_admin_41.js commented tab handlers,Should,E2E,UC-MSG-002,,D9,SPECIFIED
+FR-MSGD-007,Functional,"MSG BUTTON_JSON FAILED_MSG displayed read-only",biztalk_admin_41.js disabled MSG,Must,E2E,UC-MSG-002,,,SPECIFIED
+FR-MSGD-008,Functional,"Explicit not-found state when no record matches",biztalk_admin_41.js fn_loadData(),Should,E2E,UC-MSG-002,,,SPECIFIED
+FR-TEN-001,Functional,"Tenant identifier derived from session; client-supplied value ignored",PM AMB-02,Must,"Integration + security",UC-MSG-001;UC-MSG-002,BR-006,,SPECIFIED
+FR-TEN-002,Functional,"Client-company user sees only own institution records with no selector",PM AMB-02,Must,"Integration cross-tenant",UC-MSG-001,BR-006,,SPECIFIED
+FR-TEN-003,Functional,"Operator may select any institution or all",PM AMB-02,Must,E2E,UC-MSG-001,,,SPECIFIED
+FR-TEN-004,Functional,"Institution list endpoint restricted to operator roles",biztalk_admin_40.js fn_getIsList() USE_YN=ALL,Must,Security test,UC-MSG-001,BR-006,,SPECIFIED
+NFR-PERF-01,NFR-Performance,"List query P95 < 3s over a 31-day range",Approved at G1 (AMB-08),Must,Load test,UC-MSG-001,,,SPECIFIED
+NFR-PERF-02,NFR-Performance,"Default page size 50 max 500",Derived from FR-MSG-007,Must,Load test,UC-MSG-001,,,SPECIFIED
+NFR-PERF-03,NFR-Performance,"Detail query P95 < 1s",Approved at G1 (AMB-08),Must,Load test,UC-MSG-002,,,SPECIFIED
+NFR-PERF-04,NFR-Performance,"Decryption limited to returned page rows where plan permits",IDO.KKB_MSG_L002 decrypt per row,Should,Query plan review,UC-MSG-001,,,SPECIFIED
+NFR-SEC-AUTH,NFR-Security,"Every message-history service requires an authenticated session","WSVC 40_l001 login=N; 전자금융감독규정",Must,Security audit,UC-MSG-001;UC-MSG-002,BR-002,D1,SPECIFIED
+NFR-SEC-TENANT,NFR-Security,"Tenant isolation enforced server-side on every query path",PM AMB-02; proposal RISK-003,Must,"Security test + code review",UC-MSG-001;UC-MSG-002,BR-006,,SPECIFIED
+NFR-SEC-PII,NFR-Security,"Sender and recipient numbers masked in all responses","IDO masking(decrypt(...)); 개인정보보호법",Must,Security audit,UC-MSG-001;UC-MSG-002,BR-007,,SPECIFIED
+NFR-SEC-PII-02,NFR-Security,"Unmasked phone values never returned logged or exported",개인정보보호법,Must,"Static analysis + audit",UC-MSG-001;UC-MSG-002,BR-007,,SPECIFIED
+NFR-SEC-LOG,NFR-Security,"No PII or secret in application logs","biztalk_admin_40_l001_act.jsp debug logging",Must,Static analysis,UC-MSG-001;UC-MSG-002,BR-007,,SPECIFIED
+NFR-SEC-CHANNEL,NFR-Security,"All client traffic over TLS",Proposal section 3 internet-facing,Must,Security audit,UC-MSG-001;UC-MSG-002,,,SPECIFIED
+NFR-SEC-INJ,NFR-Security,"All query parameters bound never concatenated",IDO named binds,Must,Static analysis,UC-MSG-001;UC-MSG-002,,,SPECIFIED
+NFR-OPS-AUDIT,NFR-Operations,"Audit record per service invocation replacing Jex mntLogYn",WSVC mntLogYn=Y,Must,Operational audit,UC-MSG-001;UC-MSG-002,BR-005,,SPECIFIED
+NFR-OPS-AUDIT-02,NFR-Operations,"Audit records retained for the statutory term",전자금융감독규정 / ISMS-P,Must,Operational audit,UC-MSG-001;UC-MSG-002,BR-016,,PENDING-OI-02
+NFR-OPS-TIME,NFR-Operations,"Service time-window gating mechanism implemented",WSVC tmUseYn/strTm/endTm,Should,Unit,UC-MSG-001;UC-MSG-002,BR-003,,SPECIFIED
+NFR-COMPAT-01,NFR-Compatibility,"Current Chrome Edge Safari supported",Assumed AMB-09,Should,Compatibility test,UC-MSG-001;UC-MSG-002,,,ASSUMED
+NFR-USE-01,NFR-Usability,"Search criteria preserved when returning from detail to list",UX derived,Should,E2E,UC-MSG-001;UC-MSG-002,,,SPECIFIED
+CONST-TECH-01,Constraint,"Java 17+ Spring Boot 3.x MyBatis React",Proposal section 11 / ADR-001,Must,Architecture review,UC-MSG-001;UC-MSG-002,,,SPECIFIED
+CONST-DATA-01,Constraint,"Existing BIZTALK_DB PostgreSQL schema reused unchanged",Proposal section 6,Must,Architecture review,UC-MSG-001;UC-MSG-002,,,SPECIFIED
+CONST-DATA-02,Constraint,"DB functions decrypt() and masking() remain the mechanism for phone data",IDO.KKB_MSG_L002 and 4 detail IDOs,Must,Architecture review,UC-MSG-001;UC-MSG-002,BR-007,,SPECIFIED
+CONST-DATA-03,Constraint,"MSGKEY is integer; non-numeric input rejected before the database",IDO.KKO_SMS_MSG_L001 CAST,Must,Unit,UC-MSG-002,,,SPECIFIED
+CONST-LEGAL-01,Constraint,"Recipient and sender numbers are PII - masked in UI logs and exports",개인정보보호법,Must,Security audit,UC-MSG-001;UC-MSG-002,BR-007,,SPECIFIED
+CONST-LEGAL-02,Constraint,"Audit log retention per 전자금융감독규정 / ISMS-P",전자금융감독규정,Must,Operational audit,UC-MSG-001;UC-MSG-002,BR-016,,PENDING-OI-02
+CONST-SEC-01,Constraint,"No endpoint may rely on network perimeter as access control",Proposal RISK-006,Must,Security audit,UC-MSG-001;UC-MSG-002,,,SPECIFIED
+FR-LOGIN-001,Functional,"Authenticate with email + password + 6-digit Google OTP","apm_0001_01_view.jsp; apc_login_proc_act.jsp; PM AMB-L01",Must,E2E,UC-LOGIN-001,BR-002,,SPECIFIED
+FR-LOGIN-002,Functional,"Nonexistent email and wrong password give identical response",apc_login_proc_act.jsp WCI00018,Must,Security test,UC-LOGIN-001,,,SPECIFIED
+FR-LOGIN-003,Functional,"Five password failures lock the account",apc_login_proc_act.jsp LOGIN_ATTEMPT,Must,Integration,UC-LOGIN-001,,,SPECIFIED
+FR-LOGIN-004,Functional,"Successful login resets both failure counters",apc_login_proc_act.jsp USER_LDGR_U009,Must,Integration,UC-LOGIN-001,,,SPECIFIED
+FR-LOGIN-005,Functional,"Passwords stored with Argon2id",apc_login_proc_act.jsp unsalted SHA-256,Must,Security audit + review,UC-LOGIN-001,BR-015,L2,SPECIFIED
+FR-LOGIN-008,Functional,"Account without OTP key directed to registration",apc_login_proc_act.jsp ADM_00001,Must,E2E,UC-LOGIN-001;UC-LOGIN-002,,,SPECIFIED
+FR-LOGIN-009,Functional,"OTP code must be exactly 6 numeric digits",apc_login_proc_act.jsp ADM_00023,Must,Unit,UC-LOGIN-001,,,SPECIFIED
+FR-LOGIN-010,Functional,"Five OTP failures lock the account",apc_login_proc_act.jsp OTP_FAIL_CNT,Must,Integration,UC-LOGIN-001,,,SPECIFIED
+FR-LOGIN-011,Functional,"OTP verification tolerates plus/minus one 30-second step",GoogleOTP.checkCode window=0,Must,Unit,UC-LOGIN-001,,L3,SPECIFIED
+FR-LOGIN-012,Functional,"90-day dormancy blocks login",apc_login_proc_act.jsp ADM_00004,Must,Integration,UC-LOGIN-001,,,SPECIFIED
+FR-LOGIN-013,Functional,"Membership status 0/2/8/9 blocks login with distinct messages",apc_login_proc_act.jsp JNNG_STTS,Must,Integration,UC-LOGIN-001,,,SPECIFIED
+FR-LOGIN-014,Functional,"Password older than 90 days forces change",apc_login_proc_act.jsp LAST_CHNG_PWD_DT,Must,Integration,UC-LOGIN-001,,,SPECIFIED
+FR-LOGIN-015,Functional,"Initial password forces change",apc_login_proc_act.jsp PWD_INIT_YN,Must,Integration,UC-LOGIN-001,,,SPECIFIED
+FR-LOGIN-016,Functional,"Duplicate login terminates the earlier session",apc_login_proc_act.jsp UserSessionDAO,Must,Integration,UC-LOGIN-001,,,SPECIFIED
+FR-LOGIN-017,Functional,"Session registered with server IP and user agent",apc_login_proc_act.jsp UserSessionVO,Must,Integration,UC-LOGIN-001,,,SPECIFIED
+FR-LOGIN-018,Functional,"Group membership determines role GRP_0 operator GRP_1 user",apc_login_proc_act.jsp USER_GRP_JNNG_INFM_R001,Must,Integration,UC-LOGIN-001;UC-LOGIN-003,,,SPECIFIED
+FR-LOGIN-019,Functional,"Client IP taken from a trusted source not arbitrary headers",apc_login_proc_act.jsp getClientIpAddress,Must,Security test,UC-LOGIN-001,,L7,SPECIFIED
+FR-LOGIN-020,Functional,"Last-login timestamp updated on success",apc_login_proc_act.jsp USER_LDGR_U010,Must,Integration,UC-LOGIN-001,,,SPECIFIED
+FR-LOGIN-021,Functional,"Admin login notification uses configured recipients not source constants",apc_login_proc_act.jsp hardcoded numbers,Should,Integration,UC-LOGIN-001,,L1,SPECIFIED
+FR-LOGIN-022,Functional,"Remember-email option stores only the email",apm_0001_01.js cookie ap.eml,Should,E2E,UC-LOGIN-001,,,SPECIFIED
+FR-LOGIN-023,Functional,"Logout invalidates session server-side and in the store",Derived,Must,E2E,UC-LOGIN-001,,,SPECIFIED
+FR-LOGIN-024,Functional,"IP allowlist actually enforced",apm_0001_01_view.jsp redirect commented out,Must,Security test,UC-LOGIN-001,,L5,PENDING-AMB-L03
+FR-LOGIN-025,Functional,"Failed logins rate-limited per account and per source",Derived from internet exposure,Must,Security test,UC-LOGIN-001,,,SPECIFIED
+FR-OTP-001,Functional,"Only accounts without an OTP key may register one",apm_1001_03_r001_act.jsp,Must,Integration,UC-LOGIN-002,,,SPECIFIED
+FR-OTP-002,Functional,"OTP secret is 160-bit from a secure RNG Base32 encoded",GoogleOTP.generate 10-byte key,Must,Review + unit,UC-LOGIN-002,,L8,SPECIFIED
+FR-OTP-003,Functional,"Registration presents Base32 secret and otpauth QR",GoogleOTP.generate,Must,E2E,UC-LOGIN-002,,,SPECIFIED
+FR-OTP-004,Functional,"QR generated locally; secret never sent to a third party",GoogleOTP.getQRBarcodeURL plain HTTP,Must,Security audit + review,UC-LOGIN-002,,L4,SPECIFIED
+FR-OTP-005,Functional,"Registration completes only after one valid code is submitted",Derived,Must,E2E,UC-LOGIN-002,,,SPECIFIED
+FR-OTP-006,Functional,"Registration rejected when a key already exists",apm_1001_03_r001_act.jsp ADM_00026,Must,Integration,UC-LOGIN-002,,,SPECIFIED
+FR-OTP-007,Functional,"Operator may reset a user OTP registration after out-of-band verification",PM AMB-L02,Must,E2E,UC-LOGIN-003,,,SPECIFIED
+FR-OTP-008,Functional,"Every OTP reset records actor target time and reason",PM AMB-L02,Must,Integration,UC-LOGIN-003,BR-005,,SPECIFIED
+FR-OTP-009,Functional,"Registration requires passing dormancy and status checks",apm_1001_03_r001_act.jsp,Must,Integration,UC-LOGIN-002,,,SPECIFIED
+FR-PWD-001,Functional,"User can change password; forced flow reuses the screen",apa_0010_04.act,Must,E2E,UC-LOGIN-001,,,SPECIFIED
+FR-PWD-002,Functional,"Password change requires the current password",Derived,Must,Integration,UC-LOGIN-001,,,SPECIFIED
+FR-PWD-003,Functional,"Password strength actually validated",apm_0001_01_r001_act.jsp Cracklib commented out,Must,Unit,UC-LOGIN-001,,L6,SPECIFIED
+FR-PWD-004,Functional,"New password may not repeat the previous N passwords",Derived (N assumed 3),Should,Integration,UC-LOGIN-001,,,PENDING-AMB-L04
+FR-PWD-005,Functional,"Password length minimum 12 maximum at least 64",apm_0001_01_view.jsp maxlength 15,Must,Unit,UC-LOGIN-001,,L9,SPECIFIED
+FR-PWD-006,Functional,"Successful change updates LAST_CHNG_PWD_DT and clears PWD_INIT_YN",apc_login_proc_act.jsp,Must,Integration,UC-LOGIN-001,,,SPECIFIED
+NFR-SEC-AUTH-L01,NFR-Security,"Two factors mandatory for every account; no single-factor path",PM AMB-L01 + 전자금융감독규정,Must,Security audit,UC-LOGIN-001,,,SPECIFIED
+NFR-SEC-AUTH-L02,NFR-Security,"Google OTP is the only second factor",PM AMB-L01,Must,Security audit,UC-LOGIN-001,,,SPECIFIED
+NFR-SEC-AUTH-L03,NFR-Security,"TOTP conforms to RFC 6238 HMAC-SHA1 30s 6 digits plus/minus 1 step",GoogleOTP.java,Must,Unit,UC-LOGIN-001;UC-LOGIN-002,,,SPECIFIED
+NFR-SEC-PII-L01,NFR-Security,"OTP secret encrypted at rest and never re-exposed by any API",Derived,Must,Security audit,UC-LOGIN-002,BR-007,,SPECIFIED
+NFR-SEC-PII-L02,NFR-Security,"Personal fields in session masked where displayed or logged",apc_login_proc_act.jsp CLPH_NO in session,Must,Security audit,UC-LOGIN-001,BR-007,,SPECIFIED
+NFR-SEC-LOG-L01,NFR-Security,"No credential OTP code secret session id or personal field in logs",apc_login_proc_act.jsp debug logging,Must,Static analysis,UC-LOGIN-001;UC-LOGIN-002;UC-LOGIN-003,BR-007,,SPECIFIED
+NFR-SEC-SESSION-L01,NFR-Security,"Session cookie HttpOnly Secure SameSite; id regenerated on login",ADR-008,Must,Security test,UC-LOGIN-001,,,SPECIFIED
+NFR-SEC-SESSION-L02,NFR-Security,"Session expires after 30 minutes of inactivity",Assumed AMB-L05,Must,Integration,UC-LOGIN-001,,,ASSUMED
+NFR-SEC-CHANNEL-L01,NFR-Security,"All authentication traffic over TLS 1.2+",Proposal section 3,Must,Security audit,UC-LOGIN-001;UC-LOGIN-002,,,SPECIFIED
+NFR-SEC-SECRET-L01,NFR-Security,"No secret key phone number or recipient list in source",apc_login_proc_act.jsp hardcoded values,Must,gitleaks + review,UC-LOGIN-001,,L1,SPECIFIED
+NFR-PERF-L01,NFR-Performance,"Login response P95 under 1s including OTP verification",Derived,Must,Load test,UC-LOGIN-001,,,ASSUMED
+NFR-OPS-AUDIT-L01,NFR-Operations,"Every authentication event audited and retained 5 years",ADR-006 + 전자금융감독규정,Must,Operational audit,UC-LOGIN-001;UC-LOGIN-002;UC-LOGIN-003,BR-005;BR-016,,SPECIFIED
+NFR-OPS-AUDIT-L02,NFR-Operations,"Audit records contain no credential material",Derived,Must,Static analysis,UC-LOGIN-001,BR-007,,SPECIFIED
+NFR-USE-L01,NFR-Usability,"Login completes in one screen and one submission",apm_0001_01_view.jsp,Should,E2E,UC-LOGIN-001,,,SPECIFIED
+NFR-USE-L02,NFR-Usability,"Error messages actionable without disclosing account existence",Derived,Should,Review,UC-LOGIN-001,,,SPECIFIED
+CONST-SEC-L01,Constraint,"Existing password hashes cannot be migrated; all users must reset",apc_login_proc_act.jsp unsalted SHA-256,Must,Review,UC-LOGIN-001,,L2,SPECIFIED
+CONST-SEC-L02,Constraint,"No secret or personal contact detail in source or version control",apc_login_proc_act.jsp,Must,gitleaks,UC-LOGIN-001,,L1,SPECIFIED
+CONST-DATA-L01,Constraint,"Existing user schema reused; PWD and OTP_KEY formats change and need migration",USER_LDGR_R006,Must,Review,UC-LOGIN-001;UC-LOGIN-002,,,SPECIFIED
+CONST-TECH-L01,Constraint,"Java 17+ Spring Boot 3.x Spring Security",ADR-001 + ADR-008,Must,Architecture review,UC-LOGIN-001,,,SPECIFIED
+CONST-LEGAL-L01,Constraint,"전자금융감독규정 two factors for administrative access and access records",전자금융감독규정,Must,Security audit,UC-LOGIN-001,,,SPECIFIED
+CONST-LEGAL-L02,Constraint,"개인정보보호법 CLPH_NO FLNM EML are personal information",개인정보보호법,Must,Security audit,UC-LOGIN-001,BR-007,,SPECIFIED

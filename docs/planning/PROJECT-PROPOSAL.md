@@ -146,7 +146,7 @@ The low throughput figure is the single biggest simplifier in this project: it r
 | RISK-004 | **Scope vs. capacity gap.** 12–18 person-months of scope against 6–12 available (§8) | H | H |
 | RISK-005 | **Credential scheme.** Legacy login uses MD5 (`weauth/security/md5`) and SEED (`weauth/security/seed`). MD5-based credential handling cannot pass a G3 security audit, and will now be internet-facing. Replacement is mandatory — an explicit, approved exception to "preserve business behavior" | H | H |
 | RISK-006 | **망분리 vs. external exposure.** 전자금융감독규정 network-separation duties conflict with exposing one role-based application to external client companies while it also serves operator fee administration. Requires an architecture decision (separate deployments or strict network tiering), not a permissions setting | M | H |
-| RISK-007 | **Character encoding.** Legacy sources are EUC-KR/CP949. Every ported file needs conversion, and the new stack must be UTF-8 end to end. Cheap if planned, expensive if discovered mid-build | L | H |
+| RISK-007 | **Isolated source corruption.** *(Corrected 2026-08-14 — originally recorded as an EUC-KR/CP949 conversion risk; the sources are in fact UTF-8, so no bulk conversion is needed.)* A few files contain stray corrupted bytes, e.g. `type="tex<Hangul>t"` inside an HTML attribute in `biztalk_admin_40_view.jsp`. Per-file repair during porting, not a systematic problem | L | M |
 
 ## 11. Preferred technology stack (reference — fixed by ADR-001 in Skill 3)
 

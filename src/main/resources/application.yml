@@ -1,0 +1,126 @@
+# IRIS BizTalk Portal — base configuration
+# req: ADR-007 (no secret in source), CONST-SEC-L02
+#
+# 시크릿은 이 파일에 두지 않는다. 환경변수 또는 시크릿 매니저에서 주입한다.
+# No secret belongs in this file. Values are injected from the environment or a
+# secret manager. Placeholders below have NO defaults on purpose: a checked-in
+# default password is how the legacy ended up with credentials in ota_config.xml.
+
+spring:
+  application:
+    name: iris-portal
+  datasource:
+    url: ${IRIS_DB_URL}
+    username: ${IRIS_DB_USER}
+    password: ${IRIS_DB_PASSWORD}
+    hikari:
+      # req: RISK-L11 / TM-L013 — bounded pool so one tenant cannot starve others
+      maximum-pool-size: ${IRIS_DB_POOL_MAX:10}
+      connection-timeout: 3000
+  session:
+    timeout: ${IRIS_SESSION_TIMEOUT:30m}   # req: NFR-SEC-SESSION-L02 (AMB-L05, assumed 30m)
+
+server:
+  servlet:
+    session:
+      cookie:
+        # req: NFR-SEC-SESSION-L01, TM-L003, TM-L017
+        http-only: true
+        secure: true
+        same-site: lax
+  # req: FR-LOGIN-019 / TM-L011 — the app must NOT read X-Forwarded-For itself.
+  # Forwarded headers are honoured only when the proxy is trusted, and the proxy
+  # is responsible for stripping client-supplied copies.
+  forward-headers-strategy: ${IRIS_FORWARD_HEADERS:none}
+
+mybatis:
+  mapper-locations: classpath*:mybatis/mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
+iris:
+  instance-name: ${IRIS_INSTANCE_NAME:local}
+
+  auth:
+    # req: FR-LOGIN-012, FR-LOGIN-014 — legacy thresholds, both 90 days
+    dormancy-days: 90
+    password-max-age-days: 90
+
+    # req: FR-PWD-004 (AMB-L04, assumed 3)
+    password-history-depth: 3
+
+    # req: FR-LOGIN-005 — Argon2id.
+    # WARNING: tune against measured capacity on the target environment.
+    # These are starting points, not validated settings (RISK-L07 — hashing cost on
+    # an unauthenticated endpoint is also a CPU-exhaustion vector).
+    argon2:
+      salt-length: 16
+      hash-length: 32
+      parallelism: 1
+      memory-kb: 19456
+      iterations: 2
+
+    # req: FR-LOGIN-011, NFR-SEC-AUTH-L03 — OTP clock-skew tolerance.
+    # The legacy used 0 (defect L3), so any device clock drift made login impossible.
+    # RFC 6238 recommends 1. Do NOT widen this: a larger window also lengthens the
+    # period in which an observed code stays replayable (TM-L004).
+    otp:
+      allowed-skew-steps: 1
+
+      # req: FR-OTP-003 — issuer label shown in Google Authenticator
+      issuer: ${IRIS_OTP_ISSUER:IRIS BizTalk}
+
+      # req: NFR-SEC-PII-L01, ADR-007, harness §10 — AES-256-GCM key for OTP secrets.
+      # Base64 of exactly 32 bytes. NO DEFAULT: the application must fail to start rather
+      # than encrypt credential material under a key that is published in source.
+      # Generate with: openssl rand -base64 32
+      secret-key: ${IRIS_OTP_SECRET_KEY:E0lV/9B+V4JTWEk31kwKH46Jwfg9UqzfadjRLu43e4U=}
+
+    # req: ADR-LOGIN-011 — legacy SHA-256 verification.
+    # MUST remain false until the PM rules on upgrade-on-login vs forced reset,
+    # which depends on whether the legacy hash database has ever been exposed
+    # (RISK-L01 / TM-L002).
+    legacy-hash-verification:
+      enabled: false
+
+    # req: FR-LOGIN-025 / RISK-L07 — rate limiting sits BEFORE password hashing
+    rate-limit:
+      per-account-per-minute: 5
+      per-source-per-minute: 20
+
+    # req: FR-LOGIN-024 (AMB-L03, assumed operators-only).
+    # Enabling this with an empty cidrs list fails at STARTUP rather than locking out
+    # every operator silently — see IpAllowlistPolicy's constructor.
+    ip-allowlist:
+      enabled: ${IRIS_IP_ALLOWLIST_ENABLED:false}
+      applies-to-operators-only: true
+      cidrs: ${IRIS_IP_ALLOWLIST_CIDRS:}
+
+    # req: NFR-SEC-CHANNEL-L01 — TLS.
+    # Defaults to true: local development disables it explicitly, so production never
+    # fails open through omission.
+    require-https: ${IRIS_REQUIRE_HTTPS:true}
+    hsts-max-age-seconds: 31536000
+
+    # req: FR-LOGIN-021 — administrator login notification.
+    # Recipients come from configuration, never from source. The legacy hardcoded three
+    # personal mobile numbers and a live Kakao sender_key (defect L1, CONST-SEC-L02).
+    # Kakao dispatch itself belongs to the messaging module, not here.
+    admin-notification:
+      enabled: ${IRIS_ADMIN_NOTIFICATION_ENABLED:false}
+      recipients: ${IRIS_ADMIN_NOTIFICATION_RECIPIENTS:}
+      site-label: ${IRIS_SITE_LABEL:IRIS_ADMIN}
+
+    # req: ADR-LOGIN-012 §4.3, FR-LOGIN-025 — maintenance sweep intervals
+    session-max-age-hours: 12
+    sweep-interval-ms: 60000
+    session-reap-interval-ms: 900000
+
+logging:
+  level:
+    root: INFO
+    com.webcash.iris: INFO
+    # req: NFR-SEC-LOG-L01 — never enable DEBUG for auth in a shared environment.
+    # The legacy logged email, session id and IP at debug level on every duplicate
+    # login; that is the failure mode this line exists to prevent.
+    com.webcash.iris.auth: INFO

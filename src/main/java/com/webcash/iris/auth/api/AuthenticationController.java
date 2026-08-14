@@ -1,0 +1,178 @@
+package com.webcash.iris.auth.api;
+
+import com.webcash.iris.auth.domain.AuthenticationService;
+import com.webcash.iris.auth.domain.RateLimiter;
+import com.webcash.iris.auth.session.SessionRegistry;
+import com.webcash.iris.common.audit.AuditEvent;
+import com.webcash.iris.common.audit.AuditService;
+import com.webcash.iris.common.tenant.TenantContextFilter;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * 인증 REST 엔드포인트. / Authentication REST endpoints.
+ *
+ * <p>이 컨트롤러의 두 엔드포인트는 시스템의 유일한 미인증 진입점이며, 인터넷에
+ * 직접 노출된다. 레거시에서 가장 많이 공격받는 표면이었고 신규에서도 그렇다.</p>
+ * <p>The two endpoints here are the system's only unauthenticated entry point and are
+ * directly internet-facing — the most-probed surface in the legacy and in the
+ * replacement alike.</p>
+ *
+ * // source: apc_login_proc_act.jsp, apm_0001_01.js
+ * // req: FR-LOGIN-001, FR-LOGIN-016, FR-LOGIN-017, FR-LOGIN-019, FR-LOGIN-023
+ */
+@RestController
+@RequestMapping("/api/auth")
+public class AuthenticationController {
+
+    private final AuthenticationService authentication;
+    private final SessionRegistry sessions;
+    private final RateLimiter rateLimiter;
+    private final AuditService audit;
+
+    /**
+     * 컨트롤러 생성. / Creates the controller.
+     *
+     * @param authentication 인증 서비스 / the authentication service
+     * @param sessions       세션 레지스트리 / the session registry
+     * @param rateLimiter    속도 제한 / the rate limiter
+     * @param audit          감사 서비스 / the audit service
+     */
+    public AuthenticationController(AuthenticationService authentication,
+                                    SessionRegistry sessions,
+                                    RateLimiter rateLimiter,
+                                    AuditService audit) {
+        this.authentication = authentication;
+        this.sessions = sessions;
+        this.rateLimiter = rateLimiter;
+        this.audit = audit;
+    }
+
+    /**
+     * 로그인. / Logs in.
+     *
+     * <p>인증 성공 후 <b>세션 식별자를 재생성</b>한다. 레거시는
+     * {@code request.getSession()} 을 그대로 사용해 인증 전 세션을 승격시켰고, 이는
+     * 세션 고정(session fixation) 공격 경로였다(TM-L003).</p>
+     * <p>The session id is <b>regenerated</b> after authentication succeeds. The legacy
+     * reused {@code request.getSession()}, promoting the pre-authentication session —
+     * a session-fixation opening (TM-L003).</p>
+     *
+     * @param body    로그인 요청 / the login request
+     * @param request HTTP 요청 / the HTTP request
+     * @return 로그인 결과 / the login result
+     */
+    // req: FR-LOGIN-001, FR-LOGIN-016, FR-LOGIN-017, NFR-SEC-SESSION-L01
+    @PostMapping("/login")
+    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest body,
+                                               HttpServletRequest request) {
+        String sourceIp = trustedSourceIp(request);
+        String correlationId = UUID.randomUUID().toString();
+
+        // 속도 제한을 가장 먼저 판정한다. Argon2id 해싱보다 <b>앞</b>에 있어야 의미가 있다 —
+        // 순서가 뒤바뀌면 요청 폭주가 그대로 CPU 소모로 이어진다(RISK-L07, TM-L016).
+        // The rate limit is evaluated first. It is only meaningful <b>ahead</b> of Argon2id
+        // hashing: reversed, a request flood turns straight into CPU exhaustion.
+        rateLimiter.checkAndRecord(body.email(), sourceIp);
+
+        var result = authentication.authenticate(
+                body.email(), body.password(), body.otpCode(), sourceIp, correlationId);
+
+        if (result.passwordChangeRequired()) {
+            // 세션을 확립하지 않는다. 비밀번호 변경 전에는 어떤 자원에도 접근할 수 없다.
+            // No session is established: nothing is reachable until the password changes.
+            return ResponseEntity.ok(new LoginResponse(true, false, false));
+        }
+
+        // 세션 고정 방지 — 인증 성공 시점에 식별자를 교체한다.
+        // Session fixation defence: replace the id at the moment authentication succeeds.
+        request.changeSessionId();
+        var session = request.getSession();
+        String sessionId = session.getId();
+
+        // 테넌트 컨텍스트의 근거를 세션에 심는다. TenantContextFilter 가 매 요청에서 이
+        // 값들을 읽어 조회 범위를 결정한다(FR-TEN-001).
+        //
+        // 이용기관 코드를 <b>세션에</b> 두는 이유: 매 요청마다 DB 를 다시 읽으면 조회
+        // 경로에 왕복이 추가되고, 요청 파라미터에서 받으면 그것이 곧 레거시의 결함이다
+        // (TM-004 — 클라이언트가 보낸 ID 를 그대로 사용).
+        //
+        // The tenant context's basis is placed in the session; TenantContextFilter reads these
+        // on every request to determine query scope. Re-reading the database per request would
+        // add a round trip to the query path, and taking it from a request parameter is exactly
+        // the legacy defect (TM-004).
+        session.setAttribute(TenantContextFilter.SESSION_USER_ID, body.email());
+        session.setAttribute(TenantContextFilter.SESSION_INSTITUTION,
+                result.account().institutionCode());
+        session.setAttribute(TenantContextFilter.SESSION_OPERATOR, result.operator());
+
+        Optional<?> displaced = sessions.register(
+                body.email(), sessionId, sourceIp, request.getHeader("User-Agent"));
+
+        return ResponseEntity.ok(
+                new LoginResponse(false, result.operator(), displaced.isPresent()));
+    }
+
+    /**
+     * 로그아웃. / Logs out.
+     *
+     * @param request HTTP 요청 / the HTTP request
+     * @return 204 응답 / a 204 response
+     */
+    // req: FR-LOGIN-023
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(HttpServletRequest request) {
+        var session = request.getSession(false);
+        if (session != null) {
+            String sessionId = session.getId();
+            sessions.invalidate(sessionId);
+            session.invalidate();
+            audit.recordAuth(currentPrincipal(request), AuditEvent.ACTION_LOGOUT,
+                    AuditEvent.Outcome.OK, null, trustedSourceIp(request), null);
+        }
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * 신뢰 가능한 출처 IP 를 반환한다. / Returns the trusted source address.
+     *
+     * <p><b>레거시 결함 L7 대응.</b> 레거시 {@code getClientIpAddress()} 는
+     * {@code X-Forwarded-For}, {@code HTTP_VIA} 등 11개 헤더 중 처음 값이 있는 것을
+     * 그대로 사용했다. 모두 클라이언트가 임의로 설정할 수 있는 값이므로, 로그인 이력과
+     * IP 기반 통제가 위조 가능했다.</p>
+     * <p><b>Fixes legacy defect L7.</b> The legacy took the first non-empty value from
+     * 11 request headers including {@code X-Forwarded-For} and {@code HTTP_VIA} — all
+     * client-settable, making login history and any IP-based control forgeable.</p>
+     *
+     * <p>여기서는 소켓 주소만 사용한다. 프록시 뒤에서 실제 클라이언트 IP 가 필요하면
+     * Spring 의 {@code forward-headers-strategy} 를 <b>신뢰된 프록시에 한해</b> 활성화한다
+     * — 애플리케이션이 헤더를 직접 읽는 일은 없다.</p>
+     * <p>Only the socket address is used. Where the real client address is needed behind
+     * a proxy, Spring's {@code forward-headers-strategy} is enabled <b>for trusted
+     * proxies only</b> — the application never reads the header itself.</p>
+     *
+     * @param request HTTP 요청 / the HTTP request
+     * @return 출처 IP / the source address
+     */
+    // source: apc_login_proc_act.jsp — getClientIpAddress(), 11 client-controlled headers
+    // req: FR-LOGIN-019
+    private String trustedSourceIp(HttpServletRequest request) {
+        return request.getRemoteAddr();
+    }
+
+    private String currentPrincipal(HttpServletRequest request) {
+        var session = request.getSession(false);
+        if (session == null) {
+            return "anonymous";
+        }
+        Object userId = session.getAttribute("userId");
+        return userId == null ? "anonymous" : userId.toString();
+    }
+}

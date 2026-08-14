@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  source: IDO.USER_LDGR_R006 / USER_LDGR_LOGIN_ATTEMPT_U001 / USER_LDGR_U006 /
+          USER_LDGR_U009 / USER_LDGR_U010 / USER_GRP_JNNG_INFM_R001
+  req:    FR-LOGIN-002/003/004/005/010/018/020, CONST-DATA-L01
+
+  이식 원칙 / porting principle:
+    레거시 SQL 을 near-verbatim 으로 옮기고, 변경한 줄에는 `-- FIX Ln:` 주석을 남긴다.
+    레거시 소스가 유일한 명세이므로(RISK-001) 변경점이 리뷰 가능해야 한다.
+    The legacy SQL is carried across near-verbatim and every altered line carries a
+    `-- FIX Ln:` comment, because the legacy source is the only specification and the
+    delta must be reviewable line by line.
+
+  추가 전용 DDL / additive-only DDL:
+    PWD_HASH / PWD_SCHEME 는 신규 컬럼이며 레거시 PWD 컬럼은 건드리지 않는다.
+    같은 테이블을 계속 읽는 레거시 시스템이 그대로 동작하고, 롤백 창 동안 구 해시가
+    남는다 (RISK-L04).
+    PWD_HASH / PWD_SCHEME are new columns; the legacy PWD column is untouched, so the
+    still-running legacy keeps working and the old hash survives the rollback window.
+-->
+<mapper namespace="com.webcash.iris.auth.infra.db.UserMapper">
+
+  <resultMap id="userAccountMap" type="com.webcash.iris.auth.domain.UserAccount">
+    <constructor>
+      <arg column="EML"                  javaType="java.lang.String"/>
+      <arg column="PWD_HASH"             javaType="java.lang.String"/>
+      <arg column="PWD"                  javaType="java.lang.String"/>
+      <arg column="OTP_KEY"              javaType="java.lang.String"/>
+      <arg column="LOGIN_ATTEMPT"        javaType="int"/>
+      <arg column="OTP_FAIL_CNT"         javaType="int"/>
+      <arg column="JNNG_STTS"            javaType="com.webcash.iris.auth.domain.AccountStatus"/>
+      <arg column="LAST_LOGIN_DT"        javaType="java.time.LocalDate"/>
+      <arg column="LAST_CHNG_PWD_DT"     javaType="java.time.LocalDate"/>
+      <arg column="PWD_INIT_FLAG"        javaType="boolean"/>
+      <arg column="OPERATOR_FLAG"        javaType="boolean"/>
+      <arg column="IS_CD"                javaType="java.lang.String"/>
+    </constructor>
+  </resultMap>
+
+  <!--
+    source: IDO.USER_LDGR_R006
+    req: FR-LOGIN-002
+
+    PWD_INIT_YN 은 레거시에서 'N' 이 "초기 비밀번호 상태"를 뜻한다(직관과 반대).
+    PWD_INIT_YN='N' means "still holding the initial password" in the legacy — the
+    opposite of what the column name suggests. Converted to an explicit boolean here
+    so the inversion is stated once rather than re-derived at every call site.
+  -->
+  <select id="findByEmail" resultMap="userAccountMap">
+    SELECT
+        U.EML,
+        U.PWD_HASH,
+        U.PWD,
+        U.OTP_KEY,
+        COALESCE(U.LOGIN_ATTEMPT, 0)                       AS LOGIN_ATTEMPT,
+        COALESCE(U.OTP_FAIL_CNT, 0)                        AS OTP_FAIL_CNT,
+        U.JNNG_STTS,
+        TO_DATE(NULLIF(U.LAST_LOGIN_DT, ''), 'YYYYMMDD')   AS LAST_LOGIN_DT,
+        TO_DATE(NULLIF(U.LAST_CHNG_PWD_DT, ''), 'YYYYMMDD') AS LAST_CHNG_PWD_DT,
+        CASE WHEN COALESCE(U.PWD_INIT_YN, 'N') = 'N' THEN TRUE ELSE FALSE END AS PWD_INIT_FLAG,
+        CASE WHEN EXISTS (
+            SELECT 1 FROM USER_GRP_JNNG G
+             WHERE G.EML = U.EML AND G.GRP_ID = 'GRP_0'
+        ) THEN TRUE ELSE FALSE END                          AS OPERATOR_FLAG,
+        <!--
+          req: FR-TEN-001 — 사용자의 소속 이용기관. 테넌트 격리의 근거가 되는 값이다.
+
+          ⚠ 미확인 사항 (AMB-M01): 레거시 소스에서 <b>사용자 → 이용기관</b> 매핑이 어디에
+          있는지 확인되지 않았다. 문자내역 목록은 이용기관을 `ID` 컬럼으로 다루고,
+          담당자관리(화면 00)는 `IS_CD`/`IS_NM` 을 쓴다. USER_LDGR 에 IS_CD 컬럼이
+          존재한다고 가정했으나 <b>DBA·도메인 담당자 확인이 필요</b>하다.
+
+          UNVERIFIED (AMB-M01): where the user → 이용기관 mapping lives could not be
+          established from the legacy source. The list treats the institution as column `ID`
+          and screen 00 uses `IS_CD`/`IS_NM`. Assuming USER_LDGR.IS_CD; needs DBA and
+          domain-owner confirmation. Getting this wrong means either no tenant scoping or the
+          wrong scope — so it must not be guessed silently.
+        -->
+        U.IS_CD                                             AS IS_CD
+      FROM USER_LDGR U
+     WHERE U.EML = #{email}
+  </select>
+
+  <!--
+    source: IDO.USER_LDGR_LOGIN_ATTEMPT_U001
+    req: FR-LOGIN-003, TM-L010
+
+    레거시는 애플리케이션이 계산한 값을 그대로 UPDATE 했다. 동시 시도에서 갱신이
+    유실되면 잠금이 무력화되므로 DB 에서 원자적으로 증가시킨다.
+    The legacy wrote an application-computed value. A lost update under concurrent
+    attempts would defeat the lockout, so the increment is atomic in the database.
+  -->
+  <select id="incrementLoginAttempt" resultType="int">
+    UPDATE USER_LDGR
+       SET LOGIN_ATTEMPT = COALESCE(LOGIN_ATTEMPT, 0) + 1   -- FIX L-concurrency: atomic increment
+     WHERE EML = #{email}
+    RETURNING LOGIN_ATTEMPT
+  </select>
+
+  <!-- source: IDO.USER_LDGR_U006 / req: FR-LOGIN-010 -->
+  <select id="incrementOtpFailCount" resultType="int">
+    UPDATE USER_LDGR
+       SET OTP_FAIL_CNT = COALESCE(OTP_FAIL_CNT, 0) + 1     -- FIX L-concurrency: atomic increment
+     WHERE EML = #{email}
+    RETURNING OTP_FAIL_CNT
+  </select>
+
+  <!-- source: IDO.USER_LDGR_U009 / req: FR-LOGIN-004 -->
+  <update id="resetFailureCounters">
+    UPDATE USER_LDGR
+       SET LOGIN_ATTEMPT = 0,
+           OTP_FAIL_CNT  = 0
+     WHERE EML = #{email}
+  </update>
+
+  <!-- source: IDO.USER_LDGR_U010 / req: FR-LOGIN-020 -->
+  <update id="touchLastLogin">
+    UPDATE USER_LDGR
+       SET LAST_LOGIN_DT = TO_CHAR(NOW(), 'YYYYMMDD')
+     WHERE EML = #{email}
+  </update>
+
+  <!--
+    req: FR-LOGIN-005, FR-PWD-006, RISK-L04
+    레거시 PWD 컬럼은 갱신하지 않는다 — 롤백 창 동안 레거시가 계속 읽을 수 있어야 한다.
+    The legacy PWD column is NOT updated: the legacy must keep reading it during the
+    rollback window (RISK-L04).
+  -->
+  <update id="updatePasswordHash">
+    UPDATE USER_LDGR
+       SET PWD_HASH         = #{hash},
+           PWD_SCHEME       = 'ARGON2ID',
+           LAST_CHNG_PWD_DT = TO_CHAR(NOW(), 'YYYYMMDD'),
+           PWD_INIT_YN      = 'Y'
+     WHERE EML = #{email}
+  </update>
+
+  <!--
+    req: FR-PWD-007, FR-LOGIN-015 — operator-set temporary password.
+    PWD_INIT_YN='N' 로 표시하여 다음 로그인에서 변경을 강제한다. 레거시 PWD 컬럼은
+    여기서도 건드리지 않는다 (RISK-L04).
+    Marked PWD_INIT_YN='N' so the next login forces a change. The legacy PWD column is
+    left untouched here too (RISK-L04).
+  -->
+  <update id="resetPasswordHash">
+    UPDATE USER_LDGR
+       SET PWD_HASH         = #{hash},
+           PWD_SCHEME       = 'ARGON2ID',
+           LAST_CHNG_PWD_DT = TO_CHAR(NOW(), 'YYYYMMDD'),
+           PWD_INIT_YN      = 'N',
+           LOGIN_ATTEMPT    = 0
+     WHERE EML = #{email}
+  </update>
+
+  <!-- req: FR-PWD-004 -->
+  <select id="findRecentPasswordHashes" resultType="java.lang.String">
+    SELECT PWD_HASH
+      FROM IRIS_USER_PWD_HISTORY
+     WHERE EML = #{email}
+     ORDER BY CHNG_AT DESC
+     LIMIT #{limit}
+  </select>
+
+  <!-- req: FR-PWD-004 -->
+  <insert id="insertPasswordHistory">
+    INSERT INTO IRIS_USER_PWD_HISTORY (EML, PWD_HASH, CHNG_AT)
+    VALUES (#{email}, #{hash}, NOW())
+  </insert>
+
+  <!--
+    req: FR-OTP-005, NFR-SEC-PII-L01
+    저장 전에 애플리케이션에서 AES-256-GCM 으로 암호화한다(SecretCipher).
+    Encrypted with AES-256-GCM in the application before it reaches here (SecretCipher).
+  -->
+  <update id="updateOtpKey">
+    UPDATE USER_LDGR
+       SET OTP_KEY      = #{encryptedKey},
+           OTP_FAIL_CNT = 0
+     WHERE EML = #{email}
+  </update>
+
+  <!--
+    req: FR-OTP-007 — operator reset, the sole recovery path for a lost device
+    source: apm_1001_03_r001_act.jsp threw ADM_00026 with no recovery path defined
+  -->
+  <update id="clearOtpKey">
+    UPDATE USER_LDGR
+       SET OTP_KEY      = NULL,
+           OTP_FAIL_CNT = 0
+     WHERE EML = #{email}
+  </update>
+
+  <!--
+    source: IDO.USER_GRP_JNNG_INFM_R001 — GRP_0 → admin (USER_DSNC='A'), GRP_1 → user
+    req: FR-LOGIN-018
+  -->
+  <select id="isOperator" resultType="boolean">
+    SELECT EXISTS (
+        SELECT 1
+          FROM USER_GRP_JNNG
+         WHERE EML = #{email}
+           AND GRP_ID = 'GRP_0'
+    )
+  </select>
+
+</mapper>

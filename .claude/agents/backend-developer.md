@@ -5,6 +5,7 @@ phase: 3
 recommended_llm: sonnet
 write_dirs:
   - src/main/
+  - src/test/
   - mapping/port-log/
 ---
 

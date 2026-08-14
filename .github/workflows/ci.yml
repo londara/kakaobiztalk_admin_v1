@@ -1,0 +1,199 @@
+# IRIS BizTalk Portal — CI
+# req: TEST-PLAN-LOGIN §5 (3-stage security hook), §2 (coverage), T-L1-03, T-L1-20
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # L1 — secret scanning.
+  # req: RISK-L02, NFR-SEC-SECRET-L01, CONST-SEC-L02
+  # 레거시 apc_login_proc_act.jsp 에 Kakao sender_key 와 개인 휴대폰번호 3건이
+  # 하드코딩되어 있었다. 이 job 은 그 부류의 결함이 다시 들어오는 것을 막는다.
+  # The legacy had a Kakao sender_key and three personal mobile numbers hardcoded in
+  # source. This job exists so that class of defect cannot return.
+  # ---------------------------------------------------------------------------
+  secrets:
+    name: L1 secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Build, unit tests and coverage gates.
+  # req: TEST-PLAN-LOGIN §2 — 80% line / 70% branch overall, 95% for crypto+domain
+  # ---------------------------------------------------------------------------
+  build:
+    name: build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Compile
+        run: mvn -B -ntp clean compile
+
+      - name: Unit tests and coverage gates
+        run: mvn -B -ntp verify
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+
+  # ---------------------------------------------------------------------------
+  # Static rules that encode the legacy's specific failures.
+  # req: RISK-L03 — the "disabled controls" pattern
+  # 이 job 은 일반적인 린트가 아니다. 레거시에서 실제로 발생한 결함을 직접 겨냥한다.
+  # This is not generic linting: each rule targets a defect that actually occurred.
+  # ---------------------------------------------------------------------------
+  static-rules:
+    name: L2 static rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 주석 제외 필터 / comment-exclusion filter.
+      #
+      # 이 코드베이스는 레거시 결함을 Javadoc 으로 문서화한다 — 예: PasswordHasher 는
+      # `JexMessageDigest.getHashString(SHA_256, pwd)` 를 인용해 무엇을 대체했는지 설명한다.
+      # 필터 없이 검사하면 결함을 설명하는 문서가 빌드를 깨뜨린다. 실제 코드 라인만 본다.
+      #
+      # This codebase documents legacy defects in Javadoc — PasswordHasher quotes
+      # `JexMessageDigest.getHashString(SHA_256, pwd)` to explain what it replaced.
+      # Without this filter, documentation of a defect would fail the build. Code lines only.
+      - name: Define code-only grep helper
+        run: |
+          cat > /tmp/codegrep.sh <<'SH'
+          #!/usr/bin/env bash
+          # usage: codegrep.sh <extended-regex> <path>
+          grep -rniE --include='*.java' "$1" "$2" \
+            | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(\*|//|/\*)' || true
+          SH
+          chmod +x /tmp/codegrep.sh
+
+      # req: FR-LOGIN-005, L2 — no weak password hashing may reappear
+      #
+      # 규칙을 좁힌 이유 / why this rule is narrow:
+      #   초기 규칙은 `MessageDigest`+`SHA-256` 을 무조건 차단했고, 두 번 오탐했다:
+      #     ① PasswordHasher 의 Javadoc — 무엇을 대체했는지 설명하는 문장 (SR-02)
+      #     ② MessageHistoryService — 감사 기록용 전화번호 해시 (SR-06, ADR-006 요구사항)
+      #   SHA-256 자체가 문제인 것이 아니다. <b>비밀번호 저장</b>에 쓰는 것이 문제다.
+      #   따라서 자격증명 문맥에서만 차단하고, MD5 는 용도와 무관하게 전면 차단한다.
+      #
+      #   The first version blocked any MessageDigest+SHA-256 and produced two false positives:
+      #   Javadoc explaining what was replaced (SR-02), and a legitimate audit hash of phone
+      #   search terms required by ADR-006 (SR-06). SHA-256 is not the problem; using it for
+      #   password storage is. So the rule fires only in a credential context, while MD5 is
+      #   rejected outright since it has no legitimate use in this codebase.
+      - name: Reject MD5 anywhere
+        run: |
+          hits=$(/tmp/codegrep.sh '(MessageDigest|getHashString|getInstance)[^;]*MD5' src/main/java)
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "::error::MD5 detected (legacy defect L2). It has no legitimate use here."
+            exit 1
+          fi
+
+      - name: Reject SHA-256 in a credential context
+        run: |
+          hits=$(/tmp/codegrep.sh '(MessageDigest|getHashString)[^;]*(SHA[-_]?256).*(password|pwd|credential)' src/main/java)
+          hits="$hits$(/tmp/codegrep.sh '(password|pwd|credential)[^;]*(MessageDigest|getHashString)[^;]*SHA[-_]?256' src/main/java)"
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "::error::SHA-256 used on credential material (legacy defect L2). Use Argon2id."
+            exit 1
+          fi
+
+      # req: NFR-SEC-LOG-L01, TM-L014 — the legacy logged email, session id and IP at debug
+      - name: Reject logging of credential or session material
+        run: |
+          hits=$(/tmp/codegrep.sh 'log\.(debug|info|warn|error)\([^)]*(password|pwd|otpKey|otp_key|sessionId|session_id)' src/main/java)
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "::error::Potential credential or session material in a log statement (NFR-SEC-LOG-L01)."
+            exit 1
+          fi
+
+      # req: FR-LOGIN-019, L7 — the legacy trusted X-Forwarded-For and HTTP_VIA from the client
+      - name: Reject direct reads of client-controlled IP headers
+        run: |
+          hits=$(/tmp/codegrep.sh 'getHeader\([[:space:]]*"(X-Forwarded-For|HTTP_VIA|HTTP_CLIENT_IP|Proxy-Client-IP)"' src/main/java)
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "::error::Client-controlled IP header read directly (legacy defect L7). Resolve at the trusted proxy boundary."
+            exit 1
+          fi
+
+      # req: FR-OTP-004, L4 — the legacy sent the OTP secret to chart.apis.google.com over HTTP
+      - name: Reject external QR or OTP secret transmission
+        run: |
+          hits=$(/tmp/codegrep.sh 'chart\.apis\.google\.com|chart\?cht=qr' src/main/java)
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "::error::OTP secret would be transmitted to a third party (legacy defect L4)."
+            exit 1
+          fi
+
+      # req: RISK-L02, CONST-SEC-L02 — the legacy hardcoded three personal mobile numbers
+      - name: Reject literal mobile numbers
+        run: |
+          hits=$(/tmp/codegrep.sh '"01[0-9]{8,9}"' src/main/java)
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "::error::Literal mobile number in source (legacy defect L1). Move to configuration."
+            exit 1
+          fi
+
+      # req: harness §5 — every method carries provenance
+      - name: Require source or req provenance comments
+        run: |
+          missing=0
+          for f in $(find src/main/java -name '*.java'); do
+            if ! grep -qE '// (source|req):' "$f"; then
+              echo "::warning file=$f::No // source: or // req: provenance comment found"
+              missing=$((missing+1))
+            fi
+          done
+          echo "Files without provenance comments: $missing"
+          if [ "$missing" -gt 0 ]; then exit 1; fi
+
+  # ---------------------------------------------------------------------------
+  # req: TEST-PLAN-LOGIN §5 — dependency vulnerabilities and SBOM.
+  # New scope introduced by ADR-001 (React) and ADR-LOGIN-010 (TOTP library).
+  # ---------------------------------------------------------------------------
+  dependencies:
+    name: L2 dependency scan and SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: Generate SBOM
+        run: mvn -B -ntp org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: target/*bom*

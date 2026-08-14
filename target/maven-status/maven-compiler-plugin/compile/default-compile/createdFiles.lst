@@ -1,0 +1,5 @@
+com\webcash\iris\auth\domain\UserAccount.class
+com\webcash\iris\auth\domain\AccountStatus.class
+com\webcash\iris\auth\domain\AuthFailureReason.class
+com\webcash\iris\IrisPortalApplication.class
+com\webcash\iris\auth\domain\AuthenticationException.class

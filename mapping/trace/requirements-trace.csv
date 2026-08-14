@@ -1,0 +1,87 @@
+REQ_ID,artifact,type,test,sprint,status
+FR-LOGIN-001,com.webcash.iris.auth.api.AuthenticationController#login,code,AuthenticationServiceTest,L2,IMPLEMENTED
+FR-LOGIN-001,com.webcash.iris.auth.domain.AuthenticationService#authenticate,code,AuthenticationServiceTest,L2,IMPLEMENTED
+FR-LOGIN-001,com.webcash.iris.auth.api.LoginRequest,code,-,L2,IMPLEMENTED
+FR-LOGIN-002,com.webcash.iris.auth.domain.AuthFailureReason#INVALID_CREDENTIALS,code,AuthenticationServiceTest.wrongPasswordIsIndistinguishable,L1,IMPLEMENTED
+FR-LOGIN-002,com.webcash.iris.auth.api.AuthExceptionHandler#handle,code,-,L2,IMPLEMENTED
+FR-LOGIN-003,com.webcash.iris.auth.domain.AccountPolicy#assertNotLocked,code,AccountPolicyTest.Lockout,L1,IMPLEMENTED
+FR-LOGIN-003,com.webcash.iris.auth.infra.db.UserMapper#incrementLoginAttempt,code,AuthenticationServiceTest,L1,IMPLEMENTED
+FR-LOGIN-004,com.webcash.iris.auth.infra.db.UserMapper#resetFailureCounters,code,AuthenticationServiceTest,L1,IMPLEMENTED
+FR-LOGIN-005,com.webcash.iris.auth.crypto.PasswordHasher#hash,code,PasswordHasherTest,L1,IMPLEMENTED
+FR-LOGIN-005,com.webcash.iris.auth.infra.db.UserMapper#updatePasswordHash,code,-,L1,IMPLEMENTED
+FR-LOGIN-008,com.webcash.iris.auth.domain.AuthenticationService#authenticate,code,AuthenticationServiceTest.otpNotRegistered,L2,IMPLEMENTED
+FR-LOGIN-009,com.webcash.iris.auth.crypto.TotpVerifier#isWellFormed,code,TotpVerifierTest,L2,IMPLEMENTED
+FR-LOGIN-009,com.webcash.iris.auth.api.LoginRequest#otpCode,code,-,L2,IMPLEMENTED
+FR-LOGIN-010,com.webcash.iris.auth.domain.AuthenticationService#authenticate,code,AuthenticationServiceTest.SingleFactorPrevention,L2,IMPLEMENTED
+FR-LOGIN-011,com.webcash.iris.auth.crypto.TotpVerifier#verify,code,TotpVerifierTest.acceptsCodeFromPreviousStep,L2,IMPLEMENTED
+FR-LOGIN-012,com.webcash.iris.auth.domain.AccountPolicy#isDormant,code,AccountPolicyTest.Dormancy,L1,IMPLEMENTED
+FR-LOGIN-013,com.webcash.iris.auth.domain.AccountStatus,code,AccountPolicyTest.Status,L1,IMPLEMENTED
+FR-LOGIN-014,com.webcash.iris.auth.domain.AccountPolicy#passwordChangeRequired,code,AccountPolicyTest.PasswordAge,L1,IMPLEMENTED
+FR-LOGIN-015,com.webcash.iris.auth.domain.AccountPolicy#passwordChangeRequired,code,AuthenticationServiceTest.initialPasswordRequiresChange,L1,IMPLEMENTED
+FR-LOGIN-016,com.webcash.iris.auth.session.SessionRegistry#register,code,-,L1,IMPLEMENTED
+FR-LOGIN-017,com.webcash.iris.auth.session.SessionRecord,code,-,L1,IMPLEMENTED
+FR-LOGIN-018,com.webcash.iris.auth.infra.db.UserMapper#isOperator,code,AuthenticationServiceTest.operatorFlagPropagates,L1,IMPLEMENTED
+FR-LOGIN-019,com.webcash.iris.auth.api.AuthenticationController#trustedSourceIp,code,ci.yml static-rules,L2,IMPLEMENTED
+FR-LOGIN-020,com.webcash.iris.auth.infra.db.UserMapper#touchLastLogin,code,AuthenticationServiceTest,L1,IMPLEMENTED
+FR-LOGIN-021,com.webcash.iris.auth.domain.AdminLoginNotifier,code,-,L7,IMPLEMENTED
+FR-LOGIN-023,com.webcash.iris.auth.api.AuthenticationController#logout,code,-,L2,IMPLEMENTED
+FR-LOGIN-024,com.webcash.iris.auth.domain.IpAllowlistPolicy,code,CidrDriver (32 assertions executed),L7,IMPLEMENTED
+FR-LOGIN-025,application.yml,config,-,L5,IMPLEMENTED
+FR-OTP-001,com.webcash.iris.auth.domain.OtpRegistrationService#begin,code,-,L3,IMPLEMENTED
+FR-OTP-002,com.webcash.iris.auth.config.TotpConfig#secretGenerator,code,-,L3,IMPLEMENTED
+FR-OTP-003,com.webcash.iris.auth.crypto.QrRenderer#otpauthUri,code,-,L3,IMPLEMENTED
+FR-OTP-004,com.webcash.iris.auth.crypto.QrRenderer,code,ci.yml static-rules,L3,IMPLEMENTED
+FR-OTP-005,com.webcash.iris.auth.domain.OtpRegistrationService#complete,code,-,L3,IMPLEMENTED
+FR-OTP-006,com.webcash.iris.auth.domain.OtpRegistrationService#begin,code,-,L3,IMPLEMENTED
+FR-OTP-007,com.webcash.iris.auth.domain.OtpRegistrationService#resetByOperator,code,-,L3,IMPLEMENTED
+FR-OTP-008,com.webcash.iris.auth.api.OtpAdminController#reset,code,-,L3,IMPLEMENTED
+FR-OTP-009,com.webcash.iris.auth.domain.OtpRegistrationService#begin,code,-,L3,IMPLEMENTED
+FR-PWD-001,com.webcash.iris.auth.api.PasswordController#change,code,-,L4,IMPLEMENTED
+FR-PWD-002,com.webcash.iris.auth.domain.PasswordChangeService#change,code,-,L4,IMPLEMENTED
+FR-PWD-003,com.webcash.iris.auth.domain.PasswordPolicy#validate,code,PasswordPolicyTest (13 assertions executed),L4,IMPLEMENTED
+FR-PWD-004,com.webcash.iris.auth.domain.PasswordPolicy#validate,code,PasswordPolicyTest.rejectsRecentReuse,L4,IMPLEMENTED
+FR-PWD-005,com.webcash.iris.auth.domain.PasswordPolicy,code,PasswordPolicyTest.acceptsPasswordsLongerThanLegacyCap,L4,IMPLEMENTED
+FR-PWD-006,com.webcash.iris.auth.infra.db.UserMapper#updatePasswordHash,code,-,L4,IMPLEMENTED
+NFR-SEC-AUTH-L01,com.webcash.iris.auth.domain.AuthenticationService#authenticate,code,AuthenticationServiceTest.SingleFactorPrevention,L2,IMPLEMENTED
+NFR-SEC-AUTH-L01,com.webcash.iris.auth.config.SecurityConfig#filterChain,code,-,L2,IMPLEMENTED
+NFR-SEC-AUTH-L02,com.webcash.iris.auth.crypto.TotpVerifier,code,TotpVerifierTest,L2,IMPLEMENTED
+NFR-SEC-AUTH-L03,com.webcash.iris.auth.crypto.TotpVerifier,code,TotpVerifierTest,L2,IMPLEMENTED
+NFR-SEC-PII-L01,com.webcash.iris.auth.crypto.SecretCipher,code,SecretCipherTest (12 assertions executed),L3,IMPLEMENTED
+NFR-SEC-PII-L02,com.webcash.iris.auth.domain.UserAccount,code,-,L1,IMPLEMENTED
+NFR-SEC-LOG-L01,com.webcash.iris.auth.api.LoginRequest#toString,code,ci.yml static-rules,L2,IMPLEMENTED
+NFR-SEC-LOG-L01,ci.yml#static-rules,ci,ci.yml static-rules,L1,IMPLEMENTED
+NFR-SEC-SESSION-L01,com.webcash.iris.auth.api.AuthenticationController#login,code,-,L2,IMPLEMENTED
+NFR-SEC-SESSION-L01,com.webcash.iris.auth.config.SecurityConfig#filterChain,code,-,L2,IMPLEMENTED
+NFR-SEC-SESSION-L02,application.yml#spring.session.timeout,config,-,L1,IMPLEMENTED
+NFR-SEC-CHANNEL-L01,com.webcash.iris.auth.config.SecurityConfig,code,-,L7,IMPLEMENTED
+NFR-SEC-SECRET-L01,hooks/pre-commit-gitleaks.sh,hook,ci.yml secrets,L1,IMPLEMENTED
+NFR-PERF-L01,qa/load/login-load.js,load-test,not-yet-run (needs running app),L7,SPECIFIED_NOT_RUN
+NFR-OPS-AUDIT-L01,com.webcash.iris.common.audit.AuditService#record,code,AuthenticationServiceTest.everyDenialIsAudited,L1,IMPLEMENTED
+NFR-OPS-AUDIT-L02,com.webcash.iris.common.audit.AuditEvent,code,-,L1,IMPLEMENTED
+NFR-USE-L02,com.webcash.iris.auth.api.AuthExceptionHandler,code,-,L2,IMPLEMENTED
+CONST-SEC-L01,docs/design/adr/ADR-LOGIN-011-credential-migration.md,adr,AuthenticationServiceTest.unmigratedAccountCannotAuthenticate,L1,BLOCKED
+CONST-SEC-L02,hooks/pre-commit-gitleaks.sh,hook,ci.yml secrets,L1,IMPLEMENTED
+CONST-DATA-L01,src/main/resources/db/V1__auth_session_audit.sql,ddl,-,L1,PENDING_DBA
+CONST-TECH-L01,pom.xml,build,ci.yml build,L1,IMPLEMENTED
+CONST-LEGAL-L01,com.webcash.iris.auth.domain.AuthenticationService,code,AuthenticationServiceTest.SingleFactorPrevention,L2,IMPLEMENTED
+CONST-LEGAL-L02,src/main/resources/db/V1__auth_session_audit.sql,ddl,-,L1,PENDING_DBA
+FR-PWD-007,com.webcash.iris.auth.domain.PasswordChangeService#resetByOperator,code,TempPwdDriver (200k samples),L4,IMPLEMENTED_PENDING_G1
+FR-PWD-007,com.webcash.iris.auth.api.PasswordAdminController#reset,code,-,L4,IMPLEMENTED_PENDING_G1
+FR-LOGIN-025,com.webcash.iris.auth.domain.RateLimiter#checkAndRecord,code,LimiterDriver (12 assertions executed),L5,IMPLEMENTED
+FR-LOGIN-025,com.webcash.iris.auth.api.AuthenticationController#login,code,-,L5,IMPLEMENTED
+TM-L004,com.webcash.iris.auth.domain.OtpReplayGuard#tryConsume,threat-mitigation,LimiterDriver (8 assertions executed),L5,IMPLEMENTED
+FR-LOGIN-022,src/main/frontend/src/features/auth/LoginPage.tsx,frontend,LoginPage.test.tsx (13 tests executed),L6,IMPLEMENTED
+NFR-USE-L01,src/main/frontend/src/features/auth/LoginPage.tsx,frontend,LoginPage.test.tsx,L6,IMPLEMENTED
+NFR-USE-L01,src/main/frontend/src/App.tsx,frontend,-,L6,IMPLEMENTED
+NFR-COMPAT-01,src/main/frontend/src/styles.css,frontend,-,L6,IMPLEMENTED_CROSS_SLICE
+FR-PWD-001,src/main/frontend/src/features/auth/PasswordChangePage.tsx,frontend,-,L6,IMPLEMENTED
+FR-OTP-003,src/main/frontend/src/features/auth/OtpRegisterPage.tsx,frontend,-,L6,IMPLEMENTED
+FR-LOGIN-024,com.webcash.iris.auth.domain.CidrMatcher,code,CidrDriver (32 assertions executed),L7,IMPLEMENTED
+FR-OTP-004,src/main/frontend/src/features/auth/QrCode.tsx,frontend,OtpRegisterPage.test.tsx L4-regression,L8,IMPLEMENTED
+FR-OTP-003,src/main/frontend/src/features/auth/QrCode.tsx,frontend,OtpRegisterPage.test.tsx,L8,IMPLEMENTED
+FR-OTP-005,src/main/frontend/src/features/auth/OtpRegisterPage.tsx,frontend,OtpRegisterPage.test.tsx (11 tests),L8,IMPLEMENTED
+FR-OTP-006,src/main/frontend/src/features/auth/OtpRegisterPage.tsx,frontend,OtpRegisterPage.test.tsx,L8,IMPLEMENTED
+FR-PWD-002,src/main/frontend/src/features/auth/PasswordChangePage.tsx,frontend,PasswordChangePage.test.tsx (11 tests),L8,IMPLEMENTED
+FR-PWD-003,src/main/frontend/src/features/auth/PasswordChangePage.tsx,frontend,PasswordChangePage.test.tsx,L8,IMPLEMENTED
+NFR-USE-L02,src/main/frontend/src/features/auth,frontend,accessibility.test.tsx (7 tests),L8,IMPLEMENTED
+NFR-COMPAT-01,src/main/frontend/src/features/auth,frontend,accessibility.test.tsx axe-core WCAG 2.1 AA,L8,IMPLEMENTED

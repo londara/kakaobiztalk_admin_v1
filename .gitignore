@@ -15,3 +15,9 @@ tmp/
 
 # Office 임시 잠금파일
 ~$*
+
+# Dependencies
+node_modules/
+# frontend build output (req: PROJECT-STRUCTURE.md §6)
+src/main/frontend/node_modules/
+src/main/frontend/dist/

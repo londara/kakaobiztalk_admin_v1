@@ -1,88 +1,63 @@
 #!/usr/bin/env bash
-# 보안 Hook L1 — git pre-commit gitleaks 스캔
-# 본 표준 (HARNESS-PROCESS-STANDARD.md §5.4) L1 단계
+# =============================================================================
+# L1 보안 훅 — 커밋 전 시크릿 스캔
+# L1 security hook — secret scan before commit
 #
-# 설치:
-#   cp hooks/pre-commit-gitleaks.sh .git/hooks/pre-commit
-#   chmod +x .git/hooks/pre-commit
+# req: RISK-L02, NFR-SEC-SECRET-L01, CONST-SEC-L02, TEST-PLAN-LOGIN §5
 #
-# 또는 husky / pre-commit 프레임워크 사용 시 본 스크립트를 등록.
-
+# 왜 이 훅이 존재하는가 / why this hook exists:
+#   레거시 apc_login_proc_act.jsp 에 Kakao sender_key 와 개인 휴대폰번호 3건이
+#   평문으로 하드코딩되어 있었다(결함 L1). 운영 중인 시스템의 소스에 실제 자격증명이
+#   들어 있었다는 뜻이다. 이 훅은 같은 부류의 실수가 커밋 단계에서 걸리게 한다.
+#
+#   The legacy had a Kakao sender_key and three personal mobile numbers hardcoded in
+#   plain source (defect L1) — live credentials inside a running system's source. This
+#   hook stops that class of mistake at commit time rather than at audit time.
+#
+# 설치 / install:
+#   ln -s ../../hooks/pre-commit-gitleaks.sh .git/hooks/pre-commit
+#   chmod +x hooks/pre-commit-gitleaks.sh
+# =============================================================================
 set -euo pipefail
 
-# ────────────────────────────────────────────────────────────────────
-# 설정
-# ────────────────────────────────────────────────────────────────────
-GITLEAKS_VERSION="${GITLEAKS_VERSION:-v8.18.0}"
-CONFIG_FILE="${GITLEAKS_CONFIG:-hooks/gitleaks.toml}"  # 프로젝트 커스텀 룰
-ALLOW_BYPASS_ENV="ALLOW_GITLEAKS_BYPASS"               # 긴급 시에만 사용
+echo "[L1] secret scan on staged changes..."
 
-# ────────────────────────────────────────────────────────────────────
-# gitleaks 설치 확인
-# ────────────────────────────────────────────────────────────────────
 if ! command -v gitleaks >/dev/null 2>&1; then
-  echo "[L1 Hook] gitleaks 미설치. 설치 안내:"
-  echo "  macOS:   brew install gitleaks"
-  echo "  Linux:   curl -sSL https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_$(uname -s)_$(uname -m).tar.gz | tar xz -C /usr/local/bin"
-  echo "  Docker:  docker run --rm -v \$PWD:/repo zricethezav/gitleaks:latest"
+  echo "[L1] ERROR: gitleaks is not installed."
+  echo "[L1]   macOS : brew install gitleaks"
+  echo "[L1]   Linux : https://github.com/gitleaks/gitleaks/releases"
+  echo "[L1] Refusing to commit without a secret scan. This check is not optional —"
+  echo "[L1] it exists because live credentials were found in the legacy source."
   exit 1
 fi
 
-# ────────────────────────────────────────────────────────────────────
-# 우회 차단
-# ────────────────────────────────────────────────────────────────────
-if [ "${!ALLOW_BYPASS_ENV:-}" = "1" ]; then
-  APPROVAL_FILE="${GITLEAKS_BYPASS_APPROVAL:-security/gitleaks-bypass-approval.md}"
-  echo "[L1 Hook] WARNING — ${ALLOW_BYPASS_ENV}=1 설정으로 우회 시도."
-  echo "[L1 Hook] 우회는 PM 결재 증적 파일이 있을 때만 허용됩니다: ${APPROVAL_FILE}"
-
-  if [ ! -f "${APPROVAL_FILE}" ]; then
-    echo "[L1 Hook] FAIL — 결재 증적 파일이 없어 우회를 차단합니다."
-    echo "[L1 Hook] 필요한 항목: 사유 / 결재자 / 만료일 / 키 회전 계획 / APPROVED 상태"
-    exit 1
-  fi
-
-  if ! grep -Eq 'APPROVED|승인' "${APPROVAL_FILE}"; then
-    echo "[L1 Hook] FAIL — 결재 증적 파일에 APPROVED 또는 승인 상태가 없습니다."
-    exit 1
-  fi
-
-  logger -t harness-l1-hook "gitleaks bypass by ${USER} at $(date), approval=${APPROVAL_FILE}"
-  echo "[L1 Hook] BYPASS APPROVED — 감사 로그와 결재 증적을 남기고 진행합니다."
-  exit 0
-fi
-
-# ────────────────────────────────────────────────────────────────────
-# 스캔 실행 (staged 영역 한정)
-# ────────────────────────────────────────────────────────────────────
-echo "[L1 Hook] gitleaks 시크릿 스캔 시작 (staged files)..."
-
-GITLEAKS_OPTS=(
-  "protect"
-  "--staged"
-  "--verbose"
-  "--no-banner"
-  "--redact"
-)
-
-if [ -f "${CONFIG_FILE}" ]; then
-  GITLEAKS_OPTS+=("--config" "${CONFIG_FILE}")
-  echo "[L1 Hook] 커스텀 룰 사용: ${CONFIG_FILE}"
-fi
-
-if gitleaks "${GITLEAKS_OPTS[@]}"; then
-  echo "[L1 Hook] PASS — 시크릿 없음"
-  exit 0
-else
+if ! gitleaks protect --staged --redact --verbose; then
   echo ""
-  echo "[L1 Hook] FAIL — 시크릿 발견. 커밋이 차단되었습니다."
-  echo ""
-  echo "  조치 방법:"
-  echo "  1. 발견된 시크릿을 환경변수 또는 Vault/KMS 로 이동"
-  echo "  2. .env 파일은 .gitignore 등록"
-  echo "  3. 이미 푸시된 경우 즉시 키 회전 + git history rewrite"
-  echo ""
-  echo "  본 표준 §5.4 보안 Hook 3단계 참조"
-  echo ""
+  echo "[L1] BLOCKED: a potential secret was found in the staged changes."
+  echo "[L1] Remove the value and move it to configuration (ADR-007)."
+  echo "[L1] If this is a false positive, add a narrowly-scoped rule to .gitleaks.toml"
+  echo "[L1] with a comment explaining why — do not disable the hook."
   exit 1
 fi
+
+# -----------------------------------------------------------------------------
+# 추가 검사: 한국 휴대폰번호 패턴.
+# Supplementary check: Korean mobile number pattern.
+#
+# gitleaks 는 자격증명을 찾지만 개인정보는 찾지 못한다. 레거시 결함 L1 에서 유출된
+# 것은 키뿐 아니라 실제 개인 휴대폰번호 3건이었고, 이는 개인정보보호법 사안이다.
+# gitleaks finds credentials but not personal data. Legacy defect L1 exposed three
+# real mobile numbers alongside the key, which is a 개인정보보호법 matter in its own right.
+# -----------------------------------------------------------------------------
+staged_files=$(git diff --cached --name-only --diff-filter=ACM || true)
+if [ -n "$staged_files" ]; then
+  if echo "$staged_files" | xargs -r grep -nE '"01[0-9]{8,9}"' 2>/dev/null; then
+    echo ""
+    echo "[L1] BLOCKED: a literal mobile number was found in the staged changes."
+    echo "[L1] Personal contact details must not be committed (CONST-SEC-L02)."
+    echo "[L1] Move recipients to configuration — see FR-LOGIN-021."
+    exit 1
+  fi
+fi
+
+echo "[L1] OK — no secret or personal contact detail detected."

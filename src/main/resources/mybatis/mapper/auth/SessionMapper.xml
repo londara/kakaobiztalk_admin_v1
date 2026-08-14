@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  source: apc_login_proc_act.jsp — UserSessionDAO / UserSessionVO
+  req:    FR-LOGIN-016, FR-LOGIN-017, FR-LOGIN-023, ADR-LOGIN-012
+-->
+<mapper namespace="com.webcash.iris.auth.infra.db.SessionMapper">
+
+  <resultMap id="sessionMap" type="com.webcash.iris.auth.session.SessionRecord">
+    <constructor>
+      <arg column="EML"         javaType="java.lang.String"/>
+      <arg column="SESSION_ID"  javaType="java.lang.String"/>
+      <arg column="SERVER_NAME" javaType="java.lang.String"/>
+      <arg column="SOURCE_IP"   javaType="java.lang.String"/>
+      <arg column="USER_AGENT"  javaType="java.lang.String"/>
+      <arg column="LOGIN_AT"    javaType="java.time.Instant"/>
+    </constructor>
+  </resultMap>
+
+  <!-- req: FR-LOGIN-016 — duplicate-login detection -->
+  <select id="findByEmail" resultMap="sessionMap">
+    SELECT EML, SESSION_ID, SERVER_NAME, SOURCE_IP, USER_AGENT, LOGIN_AT
+      FROM IRIS_USER_SESSION
+     WHERE EML = #{email}
+  </select>
+
+  <select id="findBySessionId" resultMap="sessionMap">
+    SELECT EML, SESSION_ID, SERVER_NAME, SOURCE_IP, USER_AGENT, LOGIN_AT
+      FROM IRIS_USER_SESSION
+     WHERE SESSION_ID = #{sessionId}
+  </select>
+
+  <!-- req: FR-LOGIN-017 -->
+  <insert id="insert">
+    INSERT INTO IRIS_USER_SESSION (EML, SESSION_ID, SERVER_NAME, SOURCE_IP, USER_AGENT, LOGIN_AT)
+    VALUES (#{r.email}, #{r.sessionId}, #{r.serverName}, #{r.sourceIp}, #{r.userAgent}, #{r.loginAt})
+  </insert>
+
+  <!-- req: FR-LOGIN-016 — newest-login-wins: the earlier session is removed -->
+  <delete id="deleteByEmail">
+    DELETE FROM IRIS_USER_SESSION WHERE EML = #{email}
+  </delete>
+
+  <!-- req: FR-LOGIN-023 -->
+  <delete id="deleteBySessionId">
+    DELETE FROM IRIS_USER_SESSION WHERE SESSION_ID = #{sessionId}
+  </delete>
+
+  <!-- req: ADR-LOGIN-012 §4.3 — reap orphans left by an unclean instance shutdown -->
+  <delete id="deleteStale">
+    DELETE FROM IRIS_USER_SESSION
+     WHERE LOGIN_AT &lt; TO_TIMESTAMP(#{cutoffEpochSeconds})
+  </delete>
+
+</mapper>

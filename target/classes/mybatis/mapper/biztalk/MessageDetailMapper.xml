@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  source: IDO.KKO_SMS_MSG_L001.xml, IDO.KKO_MMS_MSG_L001.xml,
+          IDO.KKF_SMS_MSG_L001.xml, IDO.KKF_MMS_MSG_L001.xml
+  req:    FR-MSGD-001, FR-MSGD-002, FR-MSGD-004, FR-MSGD-005, FR-TEN-001, CONST-DATA-02/03
+
+  ============================================================================
+  적용한 수정 / corrections applied
+  ============================================================================
+  D5  날짜 포맷이 `YYYYY-MM-DD HH24:MI:SS` 였다 — 5개의 Y. PostgreSQL 은 'YYYY' 를 먼저
+      소비한 뒤 남은 'Y' 를 다시 연도 마지막 자리로 해석하므로 `20266-08-14` 처럼 5자리
+      연도가 출력된다. 4개 IDO 중 <b>3개</b>가 이 오류를 갖고 있었고 KKO_MMS 만 정상이었다
+      — 즉 사용자는 메시지 유형에 따라 서로 다른 날짜 형식을 보았다.
+  D9  19개 필드를 선언하고 8개만 반환했다 — 나머지 11개를 모두 조회한다.
+  TEN 이용기관 조건이 없었다 — 상세조회는 메시지키만으로 접근 가능했으므로 키를 추측하면
+      다른 이용기관의 메시지를 열람할 수 있었다. 서버 도출 이용기관 조건을 추가한다.
+
+  D5: three of the four IDOs used a five-Y year pattern, so the year rendered as five digits —
+  and only KKO_MMS was correct, meaning users saw different date formats depending on message
+  type. D9: 19 fields declared, 8 returned. TEN: no institution predicate at all, so guessing a
+  message key exposed another tenant's message.
+
+  ============================================================================
+  테이블 선택 / table selection
+  ============================================================================
+  `<choose>` 로 4개 테이블 쌍 중 하나를 고정한다. 동적 식별자 보간(${...})은 쓰지 않는다 —
+  값이 열거형에서 유래하더라도 테이블 이름을 문자열로 조립하는 습관 자체를 두지 않는다.
+  A `<choose>` fixes one of four pairs. No dynamic identifier interpolation is used: even with
+  enum-derived values, assembling table names from strings is not a habit worth having.
+
+  ============================================================================
+  ⚠ 미확인 사항 / UNVERIFIED (AMB-M02)
+  ============================================================================
+  11개 추가 컬럼(PROFILE_KEY, AD_FLAG, TEMPLATE_CODE, IMG_PATH, IMG_URL, WI_FLAG,
+  BUTTON_JSON, FAILED_TYPE, FAILED_SUBJECT, FAILED_IMG, FAILED_MSG)이 4개 테이블 모두에
+  실제로 존재하는지 확인되지 않았다. 레거시 IDO 는 내부 쿼리에서 `SELECT *` 를 썼으므로
+  컬럼 목록을 알 수 없고, WSVC out 규칙에만 이름이 나타난다. DBA 확인 필요 —
+  존재하지 않는 컬럼이 있으면 이 쿼리는 실행 시점에 실패한다.
+
+  Whether all eleven additional columns exist in all four tables is unconfirmed: the legacy IDO
+  used `SELECT *` internally, so the column list cannot be derived, and the names appear only in
+  the WSVC out-rule. Needs DBA confirmation — a missing column fails this query at runtime.
+-->
+<mapper namespace="com.webcash.iris.biztalk.infra.db.MessageDetailMapper">
+
+  <resultMap id="messageDetailMap" type="com.webcash.iris.biztalk.domain.MessageDetail">
+    <constructor>
+      <arg column="RSLT"           javaType="java.lang.String"/>
+      <arg column="CALLBACK"       javaType="java.lang.String"/>
+      <arg column="PHONE"          javaType="java.lang.String"/>
+      <arg column="REQDATE"        javaType="java.lang.String"/>
+      <arg column="SENTDATE"       javaType="java.lang.String"/>
+      <arg column="RSLTDATE"       javaType="java.lang.String"/>
+      <arg column="REPORTDATE"     javaType="java.lang.String"/>
+      <arg column="MSG"            javaType="java.lang.String"/>
+      <arg column="PROFILE_KEY"    javaType="java.lang.String"/>
+      <arg column="AD_FLAG"        javaType="java.lang.String"/>
+      <arg column="TEMPLATE_CODE"  javaType="java.lang.String"/>
+      <arg column="IMG_PATH"       javaType="java.lang.String"/>
+      <arg column="IMG_URL"        javaType="java.lang.String"/>
+      <arg column="WI_FLAG"        javaType="java.lang.String"/>
+      <arg column="BUTTON_JSON"    javaType="java.lang.String"/>
+      <arg column="FAILED_TYPE"    javaType="java.lang.String"/>
+      <arg column="FAILED_SUBJECT" javaType="java.lang.String"/>
+      <arg column="FAILED_IMG"     javaType="java.lang.String"/>
+      <arg column="FAILED_MSG"     javaType="java.lang.String"/>
+    </constructor>
+  </resultMap>
+
+  <!--
+    19개 필드 투영. / The 19-field projection.
+    req: FR-MSGD-004 (D9), FR-MSGD-005 (D5), NFR-SEC-PII
+
+    FIX D5: legacy used to_char(REQDATE,'YYYYY-MM-DD HH24:MI:SS') — five Y characters.
+            Present in KKO_SMS, KKF_SMS and KKF_MMS; only KKO_MMS was correct.
+    FIX D9: legacy returned RSLT, CALLBACK, PHONE, REQDATE, SENTDATE, RSLTDATE, REPORTDATE, MSG
+            and nothing else, leaving 11 declared fields permanently blank.
+  -->
+  <sql id="detailProjection">
+    SELECT RSLT,
+           masking(decrypt(CALLBACK)) AS CALLBACK,
+           masking(decrypt(PHONE))    AS PHONE,
+           to_char(REQDATE,   'YYYY-MM-DD HH24:MI:SS') AS REQDATE,
+           to_char(SENTDATE,  'YYYY-MM-DD HH24:MI:SS') AS SENTDATE,
+           to_char(RSLTDATE,  'YYYY-MM-DD HH24:MI:SS') AS RSLTDATE,
+           to_char(REPORTDATE,'YYYY-MM-DD HH24:MI:SS') AS REPORTDATE,
+           MSG,
+           PROFILE_KEY, AD_FLAG, TEMPLATE_CODE,
+           IMG_PATH, IMG_URL, WI_FLAG, BUTTON_JSON,
+           FAILED_TYPE, FAILED_SUBJECT, FAILED_IMG, FAILED_MSG
+  </sql>
+
+  <!--
+    상세 조회. / Detail lookup.
+    req: FR-MSGD-001, FR-MSGD-002, FR-TEN-001
+
+    이용기관 조건은 <b>서버가 도출한 값</b>일 때만 적용된다. 운영자는 null 이므로 조건이
+    생성되지 않는다. 이용기관 담당자에게는 서비스 계층이 항상 값을 채우므로, 다른
+    이용기관의 메시지키를 알아도 조회되지 않는다(FR-MSGD-001).
+    The institution predicate applies only for a server-derived value; an operator's null omits
+    it. For a tenant user the service always fills it, so knowing another tenant's message key
+    yields nothing.
+  -->
+  <select id="findDetail" resultMap="messageDetailMap">
+    <include refid="detailProjection"/>
+      FROM (
+        <choose>
+          <when test="key.messageType.name() == 'ALIMTALK' and key.tableType.name() == 'SMS'">
+            SELECT * FROM KKO_SMS_MSG
+             WHERE to_char(REQDATE,'YYYYMMDDHH24MISS') = #{key.requestDate}
+            UNION ALL
+            SELECT * FROM KKO_SMS_MSG_LOG
+             WHERE to_char(REQDATE,'YYYYMMDDHH24MISS') = #{key.requestDate}
+          </when>
+          <when test="key.messageType.name() == 'ALIMTALK' and key.tableType.name() == 'MMS'">
+            SELECT * FROM KKO_MMS_MSG
+             WHERE to_char(REQDATE,'YYYYMMDDHH24MISS') = #{key.requestDate}
+            UNION ALL
+            SELECT * FROM KKO_MMS_MSG_LOG
+             WHERE to_char(REQDATE,'YYYYMMDDHH24MISS') = #{key.requestDate}
+          </when>
+          <when test="key.messageType.name() == 'FRIENDTALK' and key.tableType.name() == 'SMS'">
+            SELECT * FROM KKF_SMS_MSG
+             WHERE to_char(REQDATE,'YYYYMMDDHH24MISS') = #{key.requestDate}
+            UNION ALL
+            SELECT * FROM KKF_SMS_MSG_LOG
+             WHERE to_char(REQDATE,'YYYYMMDDHH24MISS') = #{key.requestDate}
+          </when>
+          <otherwise>
+            SELECT * FROM KKF_MMS_MSG
+             WHERE to_char(REQDATE,'YYYYMMDDHH24MISS') = #{key.requestDate}
+            UNION ALL
+            SELECT * FROM KKF_MMS_MSG_LOG
+             WHERE to_char(REQDATE,'YYYYMMDDHH24MISS') = #{key.requestDate}
+          </otherwise>
+        </choose>
+      ) AA
+     WHERE STATUS = #{key.statusCode}
+       AND MSGKEY = #{key.messageKey}
+     <!--
+       FIX TEN: the legacy had no institution predicate here, so the detail view was reachable
+       with only a message key. Combined with the list service running unauthenticated (D1),
+       another tenant's message content was retrievable.
+     -->
+     <if test="institutionCode != null">
+       AND ID = #{institutionCode}
+     </if>
+  </select>
+
+</mapper>

@@ -1,0 +1,61 @@
+REQ_ID,artifact,type,test,sprint,status
+FR-MSG-001,com.webcash.iris.auth.config.SecurityConfig#filterChain,code,-,M2,IMPLEMENTED
+FR-MSG-001,com.webcash.iris.biztalk.api.MessageHistoryController,code,-,M2,IMPLEMENTED
+FR-MSG-002,com.webcash.iris.biztalk.api.MessageHistoryController$MessageHistorySearchRequest,code,MessageHistoryDriver,M2,IMPLEMENTED
+FR-MSG-002,com.webcash.iris.biztalk.domain.MessageHistoryCriteria,code,MessageHistoryDriver (48 assertions executed),M1,IMPLEMENTED
+FR-MSG-003,mybatis/mapper/biztalk/MessageHistoryMapper.xml#unionedSources,sql,-,M1,IMPLEMENTED
+FR-MSG-004,com.webcash.iris.biztalk.domain.MessageHistoryRow,code,MessageHistoryDriver,M1,IMPLEMENTED
+FR-MSG-004,com.webcash.iris.biztalk.api.MessageHistoryController$MessageHistoryResponse$Row,code,-,M2,IMPLEMENTED
+FR-MSG-005,com.webcash.iris.biztalk.domain.MessageStatus#labelOrRaw,code,MessageHistoryDriver status-5-verbatim,M1,IMPLEMENTED
+FR-MSG-006,com.webcash.iris.biztalk.domain.MessageType,code,MessageHistoryDriver,M1,IMPLEMENTED
+FR-MSG-006,com.webcash.iris.biztalk.domain.TableType,code,MessageHistoryDriver,M1,IMPLEMENTED
+FR-MSG-007,mybatis/mapper/biztalk/MessageHistoryMapper.xml#search,sql,-,M1,IMPLEMENTED
+FR-MSG-007,com.webcash.iris.biztalk.domain.PagedResult,code,MessageHistoryDriver paging arithmetic,M1,IMPLEMENTED
+FR-MSG-008,mybatis/mapper/biztalk/MessageHistoryMapper.xml#filters,sql,-,M1,IMPLEMENTED
+FR-MSG-009,com.webcash.iris.biztalk.api.MessageHistoryController$MessageHistorySearchRequest,code,-,M2,IMPLEMENTED
+FR-MSG-010,mybatis/mapper/biztalk/MessageHistoryMapper.xml#filters,sql,-,M1,IMPLEMENTED
+FR-MSG-011,mybatis/mapper/biztalk/MessageHistoryMapper.xml#unionedSources,sql,-,M1,IMPLEMENTED
+FR-MSG-012,com.webcash.iris.biztalk.domain.MessageHistoryCriteria$Builder#build,code,MessageHistoryDriver D8-regression,M1,IMPLEMENTED
+FR-MSG-013,com.webcash.iris.biztalk.domain.MessageHistoryCriteria$Builder#build,code,MessageHistoryDriver 31-day-cap,M1,IMPLEMENTED
+FR-MSG-014,src/main/frontend/src/features/biztalk/MessageHistoryPage.tsx,frontend,MessageHistoryPage.test.tsx button-actionable,M3,IMPLEMENTED
+FR-MSG-015,com.webcash.iris.biztalk.domain.MessageHistoryCriteria$Builder,code,MessageHistoryDriver blank-normalisation,M1,IMPLEMENTED
+FR-MSG-016,mybatis/mapper/biztalk/MessageHistoryMapper.xml#filters,sql,-,M1,IMPLEMENTED
+FR-MSG-017,-,-,-,M3,NOT_STARTED
+FR-MSGD-001,com.webcash.iris.biztalk.domain.MessageDetailService#find,code,-,M3,IMPLEMENTED
+FR-MSGD-002,mybatis/mapper/biztalk/MessageDetailMapper.xml,sql,MessageHistoryDriver routing,M3,IMPLEMENTED
+FR-MSGD-003,com.webcash.iris.biztalk.domain.MessageDetailKey#of,code,MessageHistoryDriver unknown-type-rejected,M3,IMPLEMENTED
+FR-MSGD-004,com.webcash.iris.biztalk.domain.MessageDetail,code,-,M3,IMPLEMENTED
+FR-MSGD-005,mybatis/mapper/biztalk/MessageDetailMapper.xml#detailProjection,sql,-,M3,IMPLEMENTED
+FR-MSGD-006,src/main/frontend/src/features/biztalk/MessageDetailPanel.tsx,frontend,-,M3,IMPLEMENTED
+FR-MSGD-007,src/main/frontend/src/features/biztalk/MessageDetailPanel.tsx,frontend,-,M3,IMPLEMENTED
+FR-MSGD-008,com.webcash.iris.biztalk.domain.MessageDetailService#find,code,-,M3,IMPLEMENTED
+FR-TEN-001,com.webcash.iris.common.tenant.TenantContext$TenantPrincipal#effectiveInstitutionCode,code,MessageHistoryDriver tenant-scoping,M1,IMPLEMENTED
+FR-TEN-001,com.webcash.iris.biztalk.domain.MessageHistoryService#search,code,-,M2,IMPLEMENTED
+FR-TEN-001,com.webcash.iris.common.tenant.TenantContextFilter,code,-,M2,IMPLEMENTED
+FR-TEN-002,com.webcash.iris.biztalk.domain.MessageHistoryService#rebuildWithInstitution,code,MessageHistoryDriver,M2,IMPLEMENTED
+FR-TEN-003,com.webcash.iris.common.tenant.TenantContext$TenantPrincipal,code,MessageHistoryDriver operator-scoping,M1,IMPLEMENTED
+FR-TEN-004,com.webcash.iris.biztalk.api.InstitutionController,code,MessageHistoryPage.test.tsx operator-only,M3,IMPLEMENTED
+NFR-PERF-01,-,-,-,M3,NOT_STARTED
+NFR-PERF-02,com.webcash.iris.biztalk.domain.MessageHistoryCriteria,code,MessageHistoryDriver size-clamping,M1,IMPLEMENTED
+NFR-PERF-03,-,-,-,M3,NOT_STARTED
+NFR-PERF-04,mybatis/mapper/biztalk/MessageHistoryMapper.xml,sql,-,M1,PARTIAL
+NFR-SEC-AUTH,com.webcash.iris.auth.config.SecurityConfig,code,-,M2,IMPLEMENTED
+NFR-SEC-TENANT,com.webcash.iris.biztalk.domain.MessageHistoryService#search,code,MessageHistoryDriver,M2,IMPLEMENTED
+NFR-SEC-TENANT,mybatis/mapper/biztalk/MessageHistoryMapper.xml#filters,sql,-,M1,IMPLEMENTED
+NFR-SEC-PII,mybatis/mapper/biztalk/MessageHistoryMapper.xml#search,sql,-,M1,IMPLEMENTED
+NFR-SEC-PII-02,com.webcash.iris.biztalk.domain.MessageHistoryRow,code,-,M1,IMPLEMENTED
+NFR-SEC-LOG,com.webcash.iris.biztalk.domain.MessageHistoryService#describe,code,-,M2,IMPLEMENTED
+NFR-SEC-CHANNEL,com.webcash.iris.auth.config.SecurityConfig,code,-,M2,IMPLEMENTED
+NFR-SEC-INJ,mybatis/mapper/biztalk/MessageHistoryMapper.xml,sql,ci.yml static-rules,M1,IMPLEMENTED
+NFR-OPS-AUDIT,com.webcash.iris.biztalk.domain.MessageHistoryService#search,code,-,M2,IMPLEMENTED
+NFR-OPS-AUDIT-02,src/main/resources/db/V1__auth_session_audit.sql,ddl,-,M2,PENDING_DBA
+NFR-OPS-TIME,com.webcash.iris.common.crosscut.ServiceWindow,code,ServiceWindowDriver (25 assertions executed),M3,IMPLEMENTED
+NFR-COMPAT-01,src/main/frontend/src/styles.css,frontend,-,M3,IMPLEMENTED
+NFR-USE-01,src/main/frontend/src/features/biztalk/MessageHistoryPage.tsx,frontend,MessageHistoryPage.test.tsx (11 tests),M3,IMPLEMENTED
+CONST-TECH-01,pom.xml,build,-,M1,IMPLEMENTED
+CONST-DATA-01,mybatis/mapper/biztalk/MessageHistoryMapper.xml,sql,-,M1,IMPLEMENTED
+CONST-DATA-02,mybatis/mapper/biztalk/MessageHistoryMapper.xml,sql,-,M1,IMPLEMENTED
+CONST-DATA-03,com.webcash.iris.biztalk.domain.MessageHistoryCriteria,code,MessageHistoryDriver,M1,IMPLEMENTED
+CONST-LEGAL-01,mybatis/mapper/biztalk/MessageHistoryMapper.xml,sql,-,M1,IMPLEMENTED
+CONST-LEGAL-02,src/main/resources/db/V1__auth_session_audit.sql,ddl,-,M2,PENDING_DBA
+CONST-SEC-01,com.webcash.iris.auth.config.SecurityConfig,code,-,M2,IMPLEMENTED

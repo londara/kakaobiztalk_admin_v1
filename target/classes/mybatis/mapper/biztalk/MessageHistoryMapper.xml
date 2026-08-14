@@ -1,0 +1,269 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  source: IDO.KKB_MSG_L002.xml (list), IDO.KKO_SMS_MSG_L001 / KKO_MMS_MSG_L001 /
+          KKF_SMS_MSG_L001 / KKF_MMS_MSG_L001 (detail)
+  req:    FR-MSG-003, FR-MSG-007, FR-MSG-008, FR-MSG-011, FR-MSG-015, FR-MSG-016,
+          FR-MSGD-002, FR-MSGD-004, FR-MSGD-005, FR-TEN-001, CONST-DATA-01/02/03
+
+  ============================================================================
+  이식 원칙 / porting principle
+  ============================================================================
+  레거시 소스가 유일한 명세다(RISK-001). SQL 을 near-verbatim 으로 옮기고, 변경한 줄에는
+  `-- FIX Dn:` 주석을 남긴다. 리뷰어가 레거시 IDO 와 이 파일을 나란히 놓고 델타만 확인할
+  수 있어야 한다.
+
+  The legacy source is the only specification (RISK-001). The SQL is carried across
+  near-verbatim and every altered line carries a `-- FIX Dn:` comment, so a reviewer can put
+  the legacy IDO beside this file and inspect only the delta.
+
+  ============================================================================
+  적용한 수정 / corrections applied
+  ============================================================================
+  D2  메시지키 검색이 항상 0건이었다 — `to_char(MSGKEY,'9')` 는 다자리 수에서 '#' 를
+      반환하므로 `LIKE '%12345%'` 가 결코 일치하지 않았다. 숫자 비교로 대체.
+  D6  날짜 경계가 8개 분기 중 하나만 달랐다 — KKO_MMS_MSG_LOG 는 inclusive BETWEEN,
+      나머지 7개는 exclusive `<`. 전부 통일.
+  D7  서버 페이징이 주석 처리되어 있었다 — LIMIT/OFFSET + 별도 COUNT 추가.
+  D16 발신번호가 NULL 인 행이 조용히 사라졌다 — `CALLBACK LIKE '%'||''||'%'` 는
+      NULL 에 대해 NULL 을 반환하므로 필터가 없어도 행이 탈락했다.
+  TEN 이용기관 조건이 클라이언트가 보낸 선택적 값이었다 — 서버 주입 필수 조건으로 변경.
+
+  ============================================================================
+  유지한 것 / retained deliberately
+  ============================================================================
+  - 8-way UNION ALL (live + _LOG archive × 4 message classes) — 구조 그대로
+  - decrypt() / masking() DB 함수 — CONST-DATA-02. 키 관리가 DB 계층에 있다(ADR-005)
+  - `CASE WHEN :X = '' THEN 1=1` 형태의 선택적 필터 의미 — FR-MSG-015
+-->
+<mapper namespace="com.webcash.iris.biztalk.infra.db.MessageHistoryMapper">
+
+  <resultMap id="messageRowMap" type="com.webcash.iris.biztalk.domain.MessageHistoryRow">
+    <constructor>
+      <arg column="ID"          javaType="java.lang.String"/>
+      <arg column="MSGKEY"      javaType="java.lang.Long"/>
+      <arg column="STATUS"      javaType="java.lang.String"/>
+      <arg column="RSLT"        javaType="java.lang.String"/>
+      <arg column="CALLBACK"    javaType="java.lang.String"/>
+      <arg column="PHONE"       javaType="java.lang.String"/>
+      <arg column="REQDATE"     javaType="java.lang.String"/>
+      <arg column="REQTIME"     javaType="java.lang.String"/>
+      <arg column="SENTTIME"    javaType="java.lang.String"/>
+      <arg column="REPORTTIME"  javaType="java.lang.String"/>
+      <arg column="MSG_TYPE"    javaType="java.lang.String"/>
+      <arg column="TABLE_TYPE"  javaType="java.lang.String"/>
+    </constructor>
+  </resultMap>
+
+  <!--
+    ==========================================================================
+    8-way UNION — live + archive for each of four message classes.
+    source: IDO.KKB_MSG_L002.xml
+    ==========================================================================
+    각 분기의 날짜 조건은 <b>전부 동일</b>하다: inclusive start, exclusive end.
+    레거시에서 KKO_MMS_MSG_LOG 만 `to_char(REQDATE,...) BETWEEN :START_DT AND :END_DT` 로
+    종료 시각을 포함했다 — 같은 조회에서 한 테이블만 경계가 달랐다(D6).
+
+    Every branch now uses the same boundary. In the legacy, KKO_MMS_MSG_LOG alone used an
+    inclusive BETWEEN, so one table in the same query had different boundary semantics (D6).
+  -->
+  <sql id="unionedSources">
+    SELECT ID, MSGKEY, STATUS, RSLT,
+           decrypt(CALLBACK) AS CALLBACK, decrypt(PHONE) AS PHONE,
+           to_char(REQDATE,'YYYYMMDDHH24MISS') AS REQDATE,
+           to_char(REQDATE,'HH24MISS')         AS REQTIME,
+           to_char(SENTDATE,'HH24MISS')        AS SENTTIME,
+           to_char(REPORTDATE,'HH24MISS')      AS REPORTTIME,
+           'AT' AS MSG_TYPE, 'MMS' AS TABLE_TYPE
+      FROM KKO_MMS_MSG
+     WHERE REQDATE &gt;= #{criteria.from} AND REQDATE &lt; #{criteria.to}
+    UNION ALL
+    SELECT ID, MSGKEY, STATUS, RSLT,
+           decrypt(CALLBACK) AS CALLBACK, decrypt(PHONE) AS PHONE,
+           to_char(REQDATE,'YYYYMMDDHH24MISS') AS REQDATE,
+           to_char(REQDATE,'HH24MISS')         AS REQTIME,
+           to_char(SENTDATE,'HH24MISS')        AS SENTTIME,
+           to_char(REPORTDATE,'HH24MISS')      AS REPORTTIME,
+           'AT' AS MSG_TYPE, 'MMS' AS TABLE_TYPE
+      FROM KKO_MMS_MSG_LOG
+     -- FIX D6: legacy used `to_char(REQDATE,'YYYYMMDDHH24MISS') BETWEEN :START_DT AND :END_DT`
+     --         here only, making END_DT inclusive for this one branch out of eight.
+     WHERE REQDATE &gt;= #{criteria.from} AND REQDATE &lt; #{criteria.to}
+    UNION ALL
+    SELECT ID, MSGKEY, STATUS, RSLT,
+           decrypt(CALLBACK) AS CALLBACK, decrypt(PHONE) AS PHONE,
+           to_char(REQDATE,'YYYYMMDDHH24MISS') AS REQDATE,
+           to_char(REQDATE,'HH24MISS')         AS REQTIME,
+           to_char(SENTDATE,'HH24MISS')        AS SENTTIME,
+           to_char(REPORTDATE,'HH24MISS')      AS REPORTTIME,
+           'AT' AS MSG_TYPE, 'SMS' AS TABLE_TYPE
+      FROM KKO_SMS_MSG
+     WHERE REQDATE &gt;= #{criteria.from} AND REQDATE &lt; #{criteria.to}
+    UNION ALL
+    SELECT ID, MSGKEY, STATUS, RSLT,
+           decrypt(CALLBACK) AS CALLBACK, decrypt(PHONE) AS PHONE,
+           to_char(REQDATE,'YYYYMMDDHH24MISS') AS REQDATE,
+           to_char(REQDATE,'HH24MISS')         AS REQTIME,
+           to_char(SENTDATE,'HH24MISS')        AS SENTTIME,
+           to_char(REPORTDATE,'HH24MISS')      AS REPORTTIME,
+           'AT' AS MSG_TYPE, 'SMS' AS TABLE_TYPE
+      FROM KKO_SMS_MSG_LOG
+     WHERE REQDATE &gt;= #{criteria.from} AND REQDATE &lt; #{criteria.to}
+    UNION ALL
+    SELECT ID, MSGKEY, STATUS, RSLT,
+           decrypt(CALLBACK) AS CALLBACK, decrypt(PHONE) AS PHONE,
+           to_char(REQDATE,'YYYYMMDDHH24MISS') AS REQDATE,
+           to_char(REQDATE,'HH24MISS')         AS REQTIME,
+           to_char(SENTDATE,'HH24MISS')        AS SENTTIME,
+           to_char(REPORTDATE,'HH24MISS')      AS REPORTTIME,
+           'FT' AS MSG_TYPE, 'MMS' AS TABLE_TYPE
+      FROM KKF_MMS_MSG
+     WHERE REQDATE &gt;= #{criteria.from} AND REQDATE &lt; #{criteria.to}
+    UNION ALL
+    SELECT ID, MSGKEY, STATUS, RSLT,
+           decrypt(CALLBACK) AS CALLBACK, decrypt(PHONE) AS PHONE,
+           to_char(REQDATE,'YYYYMMDDHH24MISS') AS REQDATE,
+           to_char(REQDATE,'HH24MISS')         AS REQTIME,
+           to_char(SENTDATE,'HH24MISS')        AS SENTTIME,
+           to_char(REPORTDATE,'HH24MISS')      AS REPORTTIME,
+           'FT' AS MSG_TYPE, 'MMS' AS TABLE_TYPE
+      FROM KKF_MMS_MSG_LOG
+     WHERE REQDATE &gt;= #{criteria.from} AND REQDATE &lt; #{criteria.to}
+    UNION ALL
+    SELECT ID, MSGKEY, STATUS, RSLT,
+           decrypt(CALLBACK) AS CALLBACK, decrypt(PHONE) AS PHONE,
+           to_char(REQDATE,'YYYYMMDDHH24MISS') AS REQDATE,
+           to_char(REQDATE,'HH24MISS')         AS REQTIME,
+           to_char(SENTDATE,'HH24MISS')        AS SENTTIME,
+           to_char(REPORTDATE,'HH24MISS')      AS REPORTTIME,
+           'FT' AS MSG_TYPE, 'SMS' AS TABLE_TYPE
+      FROM KKF_SMS_MSG
+     WHERE REQDATE &gt;= #{criteria.from} AND REQDATE &lt; #{criteria.to}
+    UNION ALL
+    SELECT ID, MSGKEY, STATUS, RSLT,
+           decrypt(CALLBACK) AS CALLBACK, decrypt(PHONE) AS PHONE,
+           to_char(REQDATE,'YYYYMMDDHH24MISS') AS REQDATE,
+           to_char(REQDATE,'HH24MISS')         AS REQTIME,
+           to_char(SENTDATE,'HH24MISS')        AS SENTTIME,
+           to_char(REPORTDATE,'HH24MISS')      AS REPORTTIME,
+           'FT' AS MSG_TYPE, 'SMS' AS TABLE_TYPE
+      FROM KKF_SMS_MSG_LOG
+     WHERE REQDATE &gt;= #{criteria.from} AND REQDATE &lt; #{criteria.to}
+  </sql>
+
+  <!--
+    ==========================================================================
+    선택적 필터 / optional filters
+    ==========================================================================
+    빈 값을 "조건 없음"으로 취급하는 레거시 의미를 유지한다(FR-MSG-015). 다만 레거시의
+    `CASE WHEN :X = '' THEN 1=1 ELSE ...` 대신 MyBatis 동적 SQL 을 쓴다 — 조건 자체가
+    생성되지 않으므로 옵티마이저가 더 나은 계획을 세울 수 있고, 의도가 읽기 쉽다.
+
+    The legacy semantics are kept, but expressed with MyBatis dynamic SQL rather than
+    `CASE WHEN :X = ''`: the predicate is simply absent, which the optimiser handles better and
+    which reads more clearly.
+  -->
+  <sql id="filters">
+    <!--
+      FR-TEN-001 / TM-008 — 이용기관 조건. 서버가 세션에서 도출한 값만 들어온다.
+      레거시는 클라이언트가 보낸 `ID` 를 `CASE WHEN :ID = '' THEN 1=1 ELSE ID = :ID END` 로
+      처리했고, 값을 보내지 않으면 전체 조회가 되었다.
+      The legacy accepted a client-supplied ID and returned everything when it was absent.
+    -->
+    <if test="criteria.institutionCode != null">
+      AND ID = #{criteria.institutionCode}
+    </if>
+
+    <if test="criteria.messageType != null">
+      AND MSG_TYPE = #{criteria.messageType.code}
+    </if>
+    <if test="criteria.tableType != null">
+      AND TABLE_TYPE = #{criteria.tableType.code}
+    </if>
+    <if test="criteria.statusCode != null">
+      AND STATUS = #{criteria.statusCode}
+    </if>
+
+    <!--
+      FIX D2: legacy was `AND to_char(MSGKEY,'9') LIKE '%' || :MSGKEY || '%'`.
+      In PostgreSQL `to_char(12345,'9')` overflows to '#', so any non-empty search compared
+      against '#' and matched nothing. Message-key search was therefore always empty.
+      Replaced with a numeric equality on the validated Long.
+    -->
+    <if test="criteria.messageKey != null">
+      AND MSGKEY = #{criteria.messageKey}
+    </if>
+
+    <!--
+      FIX D3 / D16: legacy applied `AND CALLBACK LIKE '%'||:CALLBACK||'%'` unconditionally.
+      Two consequences: the form label for this field said 수신번호 while the column is the
+      sender (D3), and because `NULL LIKE anything` is NULL, rows with a NULL sender were
+      dropped even when no filter was supplied (D16).
+      Now the predicate exists only when a value is given, and the field names state which
+      column each one filters.
+    -->
+    <if test="criteria.senderNumber != null">
+      AND CALLBACK LIKE '%' || #{criteria.senderNumber} || '%'
+    </if>
+    <!--
+      FIX D4: 레거시는 PHONE 을 화면에서 전송했으나 WSVC 규칙과 SQL 어디에도 없었다 —
+      수신번호 검색란이 아무 동작도 하지 않았다.
+      The legacy sent PHONE from the screen but it appeared in neither the WSVC rule nor the
+      SQL, so the recipient-number search box did nothing.
+    -->
+    <if test="criteria.recipientNumber != null">
+      AND PHONE LIKE '%' || #{criteria.recipientNumber} || '%'
+    </if>
+    <!-- FIX D4: RESULT_CD was likewise sent by the client and never used. -->
+    <if test="criteria.resultCode != null">
+      AND RSLT = #{criteria.resultCode}
+    </if>
+  </sql>
+
+  <!--
+    목록 조회. / List query.
+    req: FR-MSG-003, FR-MSG-004, FR-MSG-007, NFR-SEC-PII
+
+    masking() 은 최외곽에서 적용한다 — 레거시와 동일하다. 내부에서는 decrypt() 된 값으로
+    검색하고, 클라이언트에 나가는 값만 마스킹된다(ADR-005, NFR-SEC-PII).
+    masking() is applied at the outermost level, as in the legacy: search runs against the
+    decrypted value while only what leaves for the client is masked.
+  -->
+  <select id="search" resultMap="messageRowMap">
+    SELECT ID, MSGKEY, STATUS, RSLT,
+           masking(CALLBACK) AS CALLBACK,
+           masking(PHONE)    AS PHONE,
+           REQDATE, REQTIME, SENTTIME, REPORTTIME, MSG_TYPE, TABLE_TYPE
+      FROM (
+        <include refid="unionedSources"/>
+      ) A
+     WHERE 1 = 1
+      <include refid="filters"/>
+     ORDER BY REQDATE DESC, MSGKEY DESC
+     -- FIX D7: server-side paging. The legacy had
+     --   //DomainUtil.setIDOPageInfo(idoIn1, PAGE_NO, INQ_TOTL_NCNT);
+     -- commented out in biztalk_admin_40_l001_act.jsp, so every search returned all rows
+     -- from an 8-table union with decrypt() applied per row.
+     LIMIT #{criteria.size} OFFSET #{criteria.offset}
+  </select>
+
+  <!--
+    총 건수. / Total count.
+    req: FR-MSG-007 — 페이징에는 전체 건수가 필요하다.
+
+    동일한 UNION 과 필터를 재사용한다. 별도로 작성하면 두 쿼리가 서로 어긋날 수 있고,
+    그 경우 사용자는 존재하지 않는 페이지를 보게 된다.
+    The same union and filters are reused: maintaining a second copy would let the two drift
+    apart, and the user would then see pages that do not exist.
+  -->
+  <select id="count" resultType="int">
+    SELECT COUNT(*)
+      FROM (
+        <include refid="unionedSources"/>
+      ) A
+     WHERE 1 = 1
+      <include refid="filters"/>
+  </select>
+
+</mapper>

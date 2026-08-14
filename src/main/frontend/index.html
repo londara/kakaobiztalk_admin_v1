@@ -1,0 +1,23 @@
+<!doctype html>
+<!--
+  req: NFR-USE-L01, NFR-COMPAT-01
+  source: apm_0001_01_view.jsp — <title>Fin Admin [server]</title>
+
+  lang="ko" 는 접근성 요구사항이다. 스크린리더가 올바른 발음 규칙을 선택하기 위해
+  필요하며, WCAG 2.1 AA (3.1.1 Language of Page) 를 충족한다.
+  lang="ko" is an accessibility requirement: screen readers need it to apply the right
+  pronunciation rules, and it satisfies WCAG 2.1 AA (3.1.1 Language of Page).
+-->
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 로그인 화면은 캐시하지 않는다 / the login screen is not cached -->
+    <meta http-equiv="Cache-Control" content="no-store" />
+    <title>IRIS BizTalk Portal</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
