@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.webcash.iris.auth.crypto.PasswordHasher;
+import com.webcash.iris.auth.crypto.SecretCipher;
 import com.webcash.iris.auth.crypto.TotpVerifier;
 import com.webcash.iris.auth.infra.db.UserMapper;
 import com.webcash.iris.common.audit.AuditEvent;
@@ -54,6 +55,7 @@ class AuthenticationServiceTest {
     private static final String OTP_CODE = "123456";
     private static final String IP = "10.1.2.3";
     private static final String CORRELATION = "corr-1";
+    private static final String INSTITUTION = "K00001";
 
     private static final LocalDate TODAY = LocalDate.of(2026, 8, 14);
     private static final Clock FIXED =
@@ -62,6 +64,10 @@ class AuthenticationServiceTest {
     @Mock private UserMapper users;
     @Mock private PasswordHasher hasher;
     @Mock private TotpVerifier totp;
+    @Mock private SecretCipher cipher;
+    @Mock private OtpReplayGuard replayGuard;
+    @Mock private IpAllowlistPolicy ipAllowlist;
+    @Mock private AdminLoginNotifier notifier;
     @Mock private AuditService audit;
 
     private AuthenticationService service;
@@ -69,14 +75,29 @@ class AuthenticationServiceTest {
     @BeforeEach
     void setUp() {
         service = new AuthenticationService(
-                users, hasher, totp, new AccountPolicy(FIXED, 90, 90), audit);
+                users, hasher, totp, cipher, replayGuard,
+                new AccountPolicy(FIXED, 90, 90), ipAllowlist, notifier, audit);
+
+        // 저장된 OTP 비밀키는 암호화되어 있고 서비스가 검증 직전에 복호화한다. 테스트에서는
+        // 항등 복호화를 사용해 각 테스트가 OTP_SECRET 을 그대로 다루게 한다 — 암호화 자체는
+        // SecretCipherTest 가 검증하며, 여기서 중복 검증할 대상이 아니다.
+        // The stored OTP secret is encrypted and the service decrypts it just before
+        // verification. Tests use an identity decrypt so each case can keep working with
+        // OTP_SECRET directly; the cipher itself is covered by SecretCipherTest and is not
+        // what these tests are exercising.
+        when(cipher.decrypt(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // 재사용 방지는 기본 통과. 재생 시나리오는 해당 테스트에서 개별로 뒤집는다.
+        // Replay protection passes by default; the replay scenario overrides it locally.
+        when(replayGuard.tryConsume(anyString(), anyString())).thenReturn(true);
     }
 
     private UserAccount account(int loginAttempt, int otpFail, AccountStatus status,
                                 LocalDate lastLogin, LocalDate lastPwdChange,
                                 boolean initialPwd, String otpKey, String modernHash) {
         return new UserAccount(EMAIL, modernHash, "legacy-sha256", otpKey,
-                loginAttempt, otpFail, status, lastLogin, lastPwdChange, initialPwd, false);
+                loginAttempt, otpFail, status, lastLogin, lastPwdChange, initialPwd, false,
+                INSTITUTION);
     }
 
     private UserAccount healthy() {

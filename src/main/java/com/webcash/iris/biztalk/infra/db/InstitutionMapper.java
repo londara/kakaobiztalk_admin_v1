@@ -19,13 +19,35 @@ import org.apache.ibatis.annotations.Select;
  * with {@code -- FIX Dn:} annotations marking the delta; new SQL has nothing to compare against,
  * so that convention does not apply.</p>
  *
- * <p>⚠ 컬럼명 {@code IS_CD}/{@code IS_NM}/{@code USE_YN} 은 화면 00 의 JS 에서 확인했으나
- * 테이블명은 미확인이다(AMB-M01 과 동일 계열) — DBA 확인 필요.</p>
- * <p>The column names come from screen 00's JS but the table name is unconfirmed (same family as
- * AMB-M01) — needs DBA confirmation.</p>
+ * <h2>테이블·컬럼명 정정 (RISK-I05) / Table and column correction (RISK-I05)</h2>
+ * <p>이 매퍼는 원래 테이블 {@code BIZTALK_INSTITUTION} 과 컬럼
+ * {@code IS_CD}/{@code IS_NM}/{@code USE_YN} 을 대상으로 작성되었고, 그 이름들은 화면 40 의
+ * JS 에서 읽은 것이었다. Skill 2 의 화면 00 분석에서 <b>네 이름이 모두 틀렸음</b>이
+ * 확인되었다 — JS 가 쓰던 이름은 <b>서비스 계약(WSVC)의 필드명</b>이었고, 실제 테이블
+ * 컬럼명은 다르다. 레거시 IDO 가 {@code SELECT} 순서와 {@code <out>} 순서를
+ * <b>위치 기반</b>으로 매핑해 이 차이를 가리고 있었다.</p>
+ * <p>This mapper originally targeted {@code BIZTALK_INSTITUTION} with columns
+ * {@code IS_CD}/{@code IS_NM}/{@code USE_YN}, taken from screen 40's JS. Skill 2's analysis of
+ * screen 00 established that <b>all four names were wrong</b>: the JS used the
+ * <b>service-contract field names</b>, not the table's. The legacy IDO hid the gap by mapping
+ * {@code SELECT} order to {@code <out>} order <b>positionally</b>.</p>
  *
- * // source: biztalk_admin_40.js — fn_getIsList(): rec[i].IS_CD, rec[i].IS_NM; USE_YN=ALL
- * // req: FR-TEN-004
+ * <table border="1">
+ *   <caption>정정 내역 / corrections</caption>
+ *   <tr><th>이전 (추정) / previous (guessed)</th><th>실제 / actual</th></tr>
+ *   <tr><td>{@code BIZTALK_INSTITUTION}</td><td>{@code FT_FTIS_INFO}</td></tr>
+ *   <tr><td>{@code IS_CD}</td><td>{@code FINTECH_ISCD}</td></tr>
+ *   <tr><td>{@code IS_NM}</td><td>{@code ISNM}</td></tr>
+ *   <tr><td>{@code USE_YN}</td><td>{@code IS_STTS}</td></tr>
+ * </table>
+ *
+ * <p>정정 전 이 쿼리는 실제 데이터베이스에서 동작하지 않았다 — 문자내역 화면의 이용기관
+ * 드롭다운은 테스트 밖에서 채워지지 않는다.</p>
+ * <p>Before this correction the query could not run against the real database: the 문자내역
+ * institution dropdown does not populate outside tests.</p>
+ *
+ * // source: IDO.KKB_FT_FTIS_INFO_L001 — SELECT FINTECH_ISCD, ISNM ... FROM FT_FTIS_INFO
+ * // req: FR-TEN-004, CONST-DATA-I04, RISK-I05
  */
 @Mapper
 public interface InstitutionMapper {
@@ -40,15 +62,22 @@ public interface InstitutionMapper {
      * ones are returned here: selecting a deactivated institution as a filter serves no purpose,
      * and a shorter list exposes less.</p>
      *
+     * <p>{@code IS_STTS = 'Y'} 는 중지({@code 'N'}) 와 논리삭제({@code 'D'}) 를 모두
+     * 제외한다 — 논리삭제를 별도 컬럼이 아니라 상태값으로 둔 덕분에 이 필터에 별도
+     * 조건을 더할 필요가 없다(ADR-INST-014).</p>
+     * <p>{@code IS_STTS = 'Y'} excludes both suspended ({@code 'N'}) and logically deleted
+     * ({@code 'D'}) institutions. Because deletion is a status value rather than a separate
+     * column, this filter needs no extra clause (ADR-INST-014).</p>
+     *
      * @return 이용기관 목록 / the institutions
      */
-    // source: biztalk_admin_40.js — jexAjax.set("USE_YN", "ALL")
-    // req: FR-TEN-004
+    // source: IDO.KKB_FT_FTIS_INFO_L001 — SELECT FINTECH_ISCD, ISNM FROM FT_FTIS_INFO
+    // req: FR-TEN-004, RISK-I05, ADR-INST-014
     @Select("""
-            SELECT IS_CD AS code, IS_NM AS name
-              FROM BIZTALK_INSTITUTION
-             WHERE USE_YN = 'Y'
-             ORDER BY IS_NM
+            SELECT FINTECH_ISCD AS code, ISNM AS name
+              FROM FT_FTIS_INFO
+             WHERE IS_STTS = 'Y'
+             ORDER BY ISNM
             """)
     List<Institution> findAllActive();
 

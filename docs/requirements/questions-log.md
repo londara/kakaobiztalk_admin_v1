@@ -116,3 +116,97 @@ The same cross-layer method used for 문자내역 found ten defects here, but wi
 - `getQRBarcodeURL()` — retained but unused, still carrying the secret-over-HTTP flaw (L4)
 
 Each leaves the surrounding code looking correct: the strength service is still called, the allowlist is still queried, the OTP still verifies. Reading the call sites alone would show a system with password strength checking and IP restriction. Only reading the implementations shows that neither does anything. **For the remaining screens, commented-out code should be treated as a finding to investigate, not as noise to skip.**
+
+---
+
+# Part 3 — 이용기관관리 (Client Institution Management), 2026-08-14
+
+> Spec: [REQUIREMENTS-SPEC-INSTITUTION.md](REQUIREMENTS-SPEC-INSTITUTION.md) · Scope: screen `biztalk_admin_00` and its registration/edit popup `biztalk_admin_01`
+
+## 9. Resolved
+
+### AMB-I01 — 중지 writes a table nothing reads
+**Question.** `IDO.KKB_FT_FTIS_INFO_U001` updates `FT_INST_INFO`, while list (`_L001`), detail (`_L002`), upsert (`_C001`) and delete (`_D001`) all use `FT_FTIS_INFO`. Clicking 중지 shows "정상적으로 처리되었습니다" and the grid still reports 사용. Either the disable button has never worked, or four other queries are pointed at the wrong table.
+**Candidates.** A: fix + audit live data · B: fix code only · C: `FT_INST_INFO` is correct
+**PM response.** **A — fix, and raise an operational task to find institutions believed stopped but still active.**
+**Effect.** FR-INSTL-001, FR-INSTL-009, CONST-DATA-I01. This is the highest-consequence finding in the slice: 사용여부 is what stops an institution from calling the send API, so a disable that silently does nothing means institutions may have kept API access after an operator deliberately withdrew it. The data audit is not a nice-to-have — it is the only way to find out whether that happened.
+
+### AMB-I02 — 담당자관리 is a stub
+**Question.** The tab is commented out in the JSP (line 61), `#btn_mngr_register` / `#btn_mngr_delete` have no event handlers, `fn_checkManager()` is an empty function, and `KKB_MNGR_LDGR` has only `L001` (list) and `L002` (count) — no create or delete IDO exists anywhere in the codebase. Is this abandoned or unfinished-and-wanted?
+**Candidates.** A: exclude from scope · B: build out fully · C: port read-only
+**PM response.** **A — exclude, re-plan separately.**
+**Effect.** §2.6. There is no behaviour to port: the feature was never finished. Building it would mean designing a permission model from scratch, which is a requirements exercise, not a migration. **One caveat carried forward:** `biztalk_admin_00_l002` is a live, directly-callable endpoint that returns the full manager roster to any authenticated user, gated only by a client-side `alert('권한 없음')`. Excluding the screen must not mean quietly porting that endpoint as-is.
+
+### AMB-I03 — Hard delete with no institution history
+**Question.** 삭제 physically removes the institution and all its 발신번호 behind a "복구할 수 없습니다" warning. Sender numbers get a `KKB_DPNO_HIS` record; the institution deletion itself gets none, and 문자발송내역 keyed on `IS_CD` is orphaned.
+**Candidates.** A: logical delete · B: hard delete + history · C: as-is
+**PM response.** **A — logical delete with history.**
+**Effect.** FR-INSTL-004…008, CONST-DATA-I02. Note this ruling has a structural consequence — see CONFLICT-I02.
+
+### AMB-I04 — 인증키 is weak, plaintext and exposed
+**Question.** `ATK` is ① generated in the browser by `Math.random()` (20 chars, from a handler named "generate random 32 byte"), ② stored in plaintext, ③ rendered unmasked in the list grid for every institution, and ④ returned in full by the duplicate-check endpoint for any guessed 기관코드 — a 6-character value with a fixed `K0` prefix, so 4 unknown characters. It is a live credential client companies present when calling the send API, so changing it breaks their integrations.
+**Candidates.** A: stop exposure, keep keys · B: reissue all · C: harden new only
+**PM response.** **A — preserve existing keys, close every exposure path, move generation server-side.**
+**Effect.** FR-ATK-001…006, NFR-SEC-CRED-I01/I02. Option B is the only one that actually fixes the entropy problem, and the PM's reasoning — no unplanned outage for every client company — is sound. But it should be recorded plainly that this accepts a known-weak credential rather than eliminating it; see RESIDUAL-I01.
+
+## 10. Conflicts raised
+
+### CONFLICT-I02 — logical delete vs. "no DDL in scope"
+**Conflict.** AMB-I03 rules for logical delete, which needs a delete flag and a deletion history table. CONST-DATA-01 in the 문자내역 spec constrains the programme to "the existing `BIZTALK_DB` schema is reused unchanged; no DDL migration in this scope". Both cannot hold.
+**Raised under** harness §3 (충돌 식별 → PM 결재 의무), before the requirement was written.
+**Working assumption.** The soft-delete ruling logically entails the DDL, so a **scoped DDL change for this module** is assumed approved, narrowing CONST-DATA-01 to "no DDL *for the 문자내역 slice*".
+**Status.** **Needs explicit PM sign-off at G1.** This is not a formality: it sets the precedent for whether later slices may add schema, and CONST-DATA-01 was written as a programme-wide constraint. Approving it silently would leave the programme with two contradictory constraints on the record.
+
+### RESIDUAL-I01 — accepted weak credentials
+**Not a conflict, a recorded trade-off.** AMB-I04 closes every path by which 인증키 leaks, but the keys themselves were generated by a browser PRNG and remain in production use. Exposure goes to zero; entropy does not improve.
+**Mitigation.** FR-ATK-005 makes per-institution rotation a first-class operation, so a future reissue campaign is an operational decision rather than a development project.
+**Revisit.** Before the portal is exposed to the internet — this interacts directly with CONST-SEC-01 ("no endpoint may rely on network-perimeter protection as its access control").
+
+## 11. Open
+
+| ID | Question | Candidates | Working assumption | Owner | Needed by |
+|----|----------|-----------|--------------------|-------|-----------|
+| AMB-I05 | Cascade scope for logical delete — which `IS_CD`-keyed data (발신번호, 수수료, 템플릿, 문자발송내역) is blocked, retained or archived | A: block new activity, retain all history · B: per-table policy | A | Domain owner | Skill 3 |
+| AMB-I06 | Canonical 기관코드 format. The UI enforces exactly 6 characters with a `K0` prefix; the service contract declares length 16. 사업자등록번호 length is unstated anywhere | A: 6 chars `K0`+4, BRNO 10 digits · B: the contract's 16 is canonical | A | Domain owner | Skill 3 |
+| AMB-I07 | Response-time target for the institution list | A: P95 < 1 s (small table) · B: reuse the 3 s 문자내역 target | A | PM | Skill 3 |
+| AMB-I08 | `BSNN_STTS_CKYN` gates `KKB_FT_FTIS_INFO_L003`, selecting institutions for what looks like a business-status check. Its relationship to 사용여부 cannot be recovered from code — the system may carry two independent enable flags | A: independent, out of scope here · B: must be reconciled | A | Domain owner | Skill 3 |
+| AMB-I09 | 인증키 masking format, and who may reveal a full key (FR-ATK-002/003) | A: show last 4, reveal restricted to a senior operator role · B: never revealable, rotation only | A | PM | Skill 3 |
+
+Carried and still open: **OI-02** (audit retention term) blocks NFR-OPS-AUDIT-I02 and CONST-LEGAL-02.
+
+## 12. Method note
+
+Nineteen defects, found by the same cross-layer reading used on the previous two slices — but with a third distinct signature.
+
+- 문자내역 defects sat in **gaps between layers** (a field the UI sends that no contract declares).
+- 로그인 defects were **deliberately disabled controls** (security code written, then commented out).
+- 이용기관관리 defects are **controls that exist only in the browser**.
+
+Every safeguard on this screen is implemented in JavaScript and in nothing else: the duplicate check is a JS variable (`DUP_CHECK_YN`), the permission gate is `alert('권한 없음')`, the 기관코드 format rule and the 사업자등록번호 digit rule are `fn_save()` validations, and the 인증키 itself is generated by `Math.random()` in the page. The server side of each is either absent or actively contradicts the client: while the JS is careful to block a duplicate 기관코드, the underlying IDO is a `WITH UPSERT … INSERT … WHERE NOT EXISTS` that will happily overwrite an existing institution — including its credential — for anyone who calls it directly.
+
+The practical consequence is that **reading the JavaScript of a Jex screen tells you the intended business rules and nothing about the enforced ones.** For the remaining screens the rule should be: treat every client-side check as an unimplemented server requirement until the contract or the IDO proves otherwise.
+
+Two findings also confirm that a defect class can repeat across slices, which is worth checking for directly rather than rediscovering:
+- **`to_char` pattern typos.** D5 in 문자내역 was `YYYYY`; D-I9 here is `YYYYMMDD24MISS` with `HH` omitted, so every institution record carries a literal `24` as its hour. Both were invisible because the UI truncated the value before display. Every `to_char` pattern in the remaining IDOs should be swept.
+- **Declared-but-absent pagination.** D7 in 문자내역 was commented-out paging; D-I10 here is paging declared in the contract, sent by the client, and simply never implemented in SQL — with the contract item id `PAGE_NO⟨tab⟩` carrying a stray tab character that would have prevented binding regardless.
+
+## 13. Design-time resolutions (Skill 3, 2026-08-14)
+
+Two questions were put to the PM during design. Both changed the plan materially.
+
+### AMB-I10 — who enforces 사용여부 at the send API
+**Question.** FR-INSTL-009 requires that a 미사용 or deleted institution cannot authenticate to the send API. But the send API is the legacy IRIS runtime, not this portal: it reads `FT_FTIS_INFO` and its `FINInstitution` cache directly. The portal can write the state; it cannot stop a send.
+**Candidates.** A: portal writes state, legacy enforces, gap tracked · B: also change the legacy send path · C: new gate owned by this portal
+**PM response.** **A — portal writes state; the gap is tracked.**
+**Effect.** [ADR-INST-016](../design/adr/ADR-INST-016-legacy-coexistence.md), RISK-I02, TM-I013. FR-INSTL-009 is verified **to our boundary only**, and the test plan says so explicitly (C-06) rather than leaving a gap that looks covered. A named cutover action confirms the legacy honours non-`'Y'` status before decommissioning. This matters because **D-I1 is this exact failure mode already realised once** — an operator disabled an institution, believed it stopped, and it did not.
+
+### CONFLICT-I02 — dissolved, not resolved
+**Original conflict.** AMB-I03 ruled for logical delete, which was assumed to need a delete flag and a history table; CONST-DATA-01 forbids DDL. Skill 2 flagged it as requiring explicit G1 sign-off.
+**What design found.** The premise was false. `FT_FTIS_INFO` **already has** a status column (`IS_STTS`), and a DB-backed `AuditService` **already exists** from the 로그인 slice. Deletion is `IS_STTS='D'` plus an audit event — **no DDL at all**.
+**Candidates put to the PM.** A: `IS_STTS='D'` + existing audit · B: new columns + history table · C: archive table
+**PM response.** **A.**
+**Effect.** [ADR-INST-014](../design/adr/ADR-INST-014-lifecycle-state-model.md). CONST-DATA-01 stands unmodified, no precedent for schema change is set, and **CONFLICT-I02 is removed as a G1 condition.**
+
+The reason A is better rather than merely cheaper is worth recording: option B's new column would be **invisible to every legacy reader**, so a deleted institution would stay fully active to the legacy send path. That is precisely the shape of D-I1. Reusing the status column makes the legacy fail safe by construction — `'D'` matches neither its `'Y'` nor its `'N'` filter — instead of by remembering to check.
+
+> **Method note.** Both resolutions came from re-reading what already existed rather than from new legacy analysis. CONFLICT-I02 had been carried as a blocking governance item on the strength of an assumption nobody had tested against the schema. Worth generalising: **a conflict between two constraints deserves one pass to check whether it is real before it is escalated.**
