@@ -138,6 +138,59 @@ export function searchMessageHistory(query: MessageHistoryQuery): Promise<Messag
 }
 
 /**
+ * 조회 결과를 CSV 로 내려받는다. / Downloads the result as CSV.
+ *
+ * req: FR-MSG-017
+ *
+ * JSON 이 아닌 응답을 다루므로 공용 `post` 를 쓰지 않는다. 다만 <b>오류 응답은 JSON</b>이므로
+ * (상한 초과 시 CriteriaError) 실패 경로에서는 본문을 JSON 으로 읽는다.
+ *
+ * The shared `post` is not used because the success body is not JSON — but the <b>error</b> body
+ * is, so the failure path parses JSON to surface the over-limit violation.
+ */
+export async function exportMessageHistory(query: MessageHistoryQuery): Promise<void> {
+  const response = await fetch('/api/message-history/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify(query),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    const violations = (payload as { violations?: string[] }).violations;
+    if (violations && violations.length > 0) {
+      throw new CriteriaError(violations);
+    }
+    throw new AuthApiError({
+      code: (payload as { code?: string }).code ?? 'UNKNOWN',
+      message: '내보내기에 실패했습니다.',
+    });
+  }
+
+  // 서버가 지정한 파일명을 사용한다. Content-Disposition 을 읽을 수 없는 경우에만
+  // 대체 이름을 쓴다 — 파일명에 시각이 없으면 여러 번 내보낼 때 구분이 불가능하다.
+  // The server's filename is used; a fallback applies only when the header is unreadable.
+  const disposition = response.headers.get('Content-Disposition') ?? '';
+  const match = /filename="?([^";]+)"?/.exec(disposition);
+  const filename = match ? match[1] : 'message-history.csv';
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  // objectURL 을 해제하지 않으면 blob 이 문서 수명 동안 메모리에 남는다. 조회 결과에는
+  // 마스킹된 번호가 들어 있으므로 필요 이상으로 보유하지 않는다.
+  // Without revoking, the blob — which holds masked numbers — stays in memory for the document's
+  // lifetime.
+  URL.revokeObjectURL(url);
+}
+
+/**
  * 상세내역을 조회한다. / Looks up a detail record.
  *
  * req: FR-MSGD-001, FR-MSG-014

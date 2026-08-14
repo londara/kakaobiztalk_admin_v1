@@ -20,7 +20,7 @@ FR-MSG-013,com.webcash.iris.biztalk.domain.MessageHistoryCriteria$Builder#build,
 FR-MSG-014,src/main/frontend/src/features/biztalk/MessageHistoryPage.tsx,frontend,MessageHistoryPage.test.tsx button-actionable,M3,IMPLEMENTED
 FR-MSG-015,com.webcash.iris.biztalk.domain.MessageHistoryCriteria$Builder,code,MessageHistoryDriver blank-normalisation,M1,IMPLEMENTED
 FR-MSG-016,mybatis/mapper/biztalk/MessageHistoryMapper.xml#filters,sql,-,M1,IMPLEMENTED
-FR-MSG-017,-,-,-,M3,NOT_STARTED
+FR-MSG-017,src/main/java/com/webcash/iris/biztalk/domain/CsvExporter.java,java,qa/drivers/CsvExporterDriver.java,M4,IMPLEMENTED
 FR-MSGD-001,com.webcash.iris.biztalk.domain.MessageDetailService#find,code,-,M3,IMPLEMENTED
 FR-MSGD-002,mybatis/mapper/biztalk/MessageDetailMapper.xml,sql,MessageHistoryDriver routing,M3,IMPLEMENTED
 FR-MSGD-003,com.webcash.iris.biztalk.domain.MessageDetailKey#of,code,MessageHistoryDriver unknown-type-rejected,M3,IMPLEMENTED
@@ -35,10 +35,10 @@ FR-TEN-001,com.webcash.iris.common.tenant.TenantContextFilter,code,-,M2,IMPLEMEN
 FR-TEN-002,com.webcash.iris.biztalk.domain.MessageHistoryService#rebuildWithInstitution,code,MessageHistoryDriver,M2,IMPLEMENTED
 FR-TEN-003,com.webcash.iris.common.tenant.TenantContext$TenantPrincipal,code,MessageHistoryDriver operator-scoping,M1,IMPLEMENTED
 FR-TEN-004,com.webcash.iris.biztalk.api.InstitutionController,code,MessageHistoryPage.test.tsx operator-only,M3,IMPLEMENTED
-NFR-PERF-01,-,-,-,M3,NOT_STARTED
+NFR-PERF-01,qa/load/message-history-load.js,load,-,M4,SPECIFIED_NOT_RUN
 NFR-PERF-02,com.webcash.iris.biztalk.domain.MessageHistoryCriteria,code,MessageHistoryDriver size-clamping,M1,IMPLEMENTED
-NFR-PERF-03,-,-,-,M3,NOT_STARTED
-NFR-PERF-04,mybatis/mapper/biztalk/MessageHistoryMapper.xml,sql,-,M1,PARTIAL
+NFR-PERF-03,qa/load/message-history-load.js,load,-,M4,SPECIFIED_NOT_RUN
+NFR-PERF-04,qa/sql/explain-message-history.sql,sql,-,M4,PARTIAL
 NFR-SEC-AUTH,com.webcash.iris.auth.config.SecurityConfig,code,-,M2,IMPLEMENTED
 NFR-SEC-TENANT,com.webcash.iris.biztalk.domain.MessageHistoryService#search,code,MessageHistoryDriver,M2,IMPLEMENTED
 NFR-SEC-TENANT,mybatis/mapper/biztalk/MessageHistoryMapper.xml#filters,sql,-,M1,IMPLEMENTED

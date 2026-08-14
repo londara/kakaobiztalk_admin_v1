@@ -52,4 +52,27 @@ public interface MessageHistoryMapper {
      */
     // req: FR-MSG-007
     int count(@Param("criteria") MessageHistoryCriteria criteria);
+
+    /**
+     * 내보내기용으로 페이징 없이 조회한다. / Returns rows for export, unpaged.
+     *
+     * <p>{@link #search} 와 <b>같은 SQL 본문</b>을 공유하며 {@code LIMIT/OFFSET} 절만 다르다
+     * (XML {@code <sql>} 조각 재사용). 두 벌의 SQL 을 두면 목록과 파일의 내용이 달라질 수
+     * 있고, 그 불일치는 파일을 받은 사람이 발견하기 어렵다.</p>
+     * <p>Shares the <b>same SQL body</b> as {@link #search}, differing only in the
+     * {@code LIMIT/OFFSET} clause. Two copies could diverge, and a mismatch between the screen and
+     * the file is hard for its recipient to notice.</p>
+     *
+     * <p>{@code limit} 은 방어선이다. 서비스가 이미 건수를 확인하지만, 확인과 조회 사이에
+     * 데이터가 늘어날 수 있으므로 SQL 에도 상한을 둔다.</p>
+     * <p>The {@code limit} is a backstop: the service checks the count first, but rows can be
+     * inserted between the check and the query, so the ceiling is repeated in SQL.</p>
+     *
+     * @param criteria 조회 조건 / the search criteria
+     * @param limit    최대 행 수 / the maximum row count
+     * @return 내보낼 행 / the rows to export
+     */
+    // req: FR-MSG-017
+    List<MessageHistoryRow> export(@Param("criteria") MessageHistoryCriteria criteria,
+                                   @Param("limit") int limit);
 }

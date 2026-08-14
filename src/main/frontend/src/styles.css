@@ -135,6 +135,47 @@ button.primary:disabled {
   cursor: not-allowed;
 }
 
+/*
+  조회 / 내보내기 버튼 행. / The search and export action row.
+  req: FR-MSG-017, NFR-COMPAT-01
+
+  button.primary 가 width:100% 이므로 행에 넣을 때는 그것을 되돌려야 한다. 로그인 화면은
+  단일 버튼이었으므로 전폭이 맞았다.
+  button.primary is width:100% — correct for the login screen's single button, so it must be
+  undone inside a row.
+*/
+.form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.form-actions button.primary {
+  width: auto;
+  margin-top: 0;
+  flex: 1 1 12rem;
+}
+
+button.secondary {
+  padding: 10px 16px;
+  color: var(--primary);
+  background: #fff;
+  border: 1px solid var(--primary);
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+button.secondary:hover:not(:disabled) {
+  background: var(--surface, #f5f7fa);
+}
+
+button.secondary:disabled {
+  color: var(--muted);
+  border-color: var(--muted);
+  cursor: not-allowed;
+}
+
 button.link-button {
   margin-top: 10px;
   padding: 4px 0;

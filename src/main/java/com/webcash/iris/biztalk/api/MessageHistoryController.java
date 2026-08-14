@@ -1,5 +1,6 @@
 package com.webcash.iris.biztalk.api;
 
+import com.webcash.iris.biztalk.domain.CsvExporter;
 import com.webcash.iris.biztalk.domain.MessageHistoryCriteria;
 import com.webcash.iris.biztalk.domain.MessageHistoryRow;
 import com.webcash.iris.biztalk.domain.MessageHistoryService;
@@ -8,8 +9,14 @@ import com.webcash.iris.biztalk.domain.PagedResult;
 import com.webcash.iris.biztalk.domain.TableType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,15 +49,32 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/message-history")
 public class MessageHistoryController {
 
+    /** 내보내기 파일명의 시각 스탬프. / Timestamp stamp for the export filename. */
+    private static final DateTimeFormatter FILENAME_STAMP =
+            DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
+
     private final MessageHistoryService service;
+    private final CsvExporter exporter;
+    private final Clock clock;
 
     /**
      * 컨트롤러를 생성한다. / Creates the controller.
      *
-     * @param service 조회 서비스 / the query service
+     * <p>{@link Clock} 을 주입받는다. {@code LocalDateTime.now()} 를 직접 호출하면 파일명
+     * 생성을 테스트에서 고정할 수 없다(ADR-LOGIN-012 와 같은 이유).</p>
+     * <p>A {@link Clock} is injected: calling {@code LocalDateTime.now()} directly would make the
+     * filename untestable.</p>
+     *
+     * @param service  조회 서비스 / the query service
+     * @param exporter CSV 변환기 / the CSV renderer
+     * @param clock    시계 / the clock
      */
-    public MessageHistoryController(MessageHistoryService service) {
+    public MessageHistoryController(MessageHistoryService service,
+                                    CsvExporter exporter,
+                                    Clock clock) {
         this.service = service;
+        this.exporter = exporter;
+        this.clock = clock;
     }
 
     /**
@@ -71,6 +95,61 @@ public class MessageHistoryController {
                 service.search(criteria, body.institutionCode(), request.getRemoteAddr());
 
         return ResponseEntity.ok(MessageHistoryResponse.from(result));
+    }
+
+    /**
+     * 조회 결과를 CSV 로 내보낸다. / Exports the result as CSV.
+     *
+     * <p>레거시 화면 40 에는 내보내기가 없었다 — 화면 20·30 에만
+     * {@code *_spreadsheet_view.jsp} 가 있었다. 이 엔드포인트는 <b>이식이 아니라 신규
+     * 기능</b>이며, AMB-07 에 대한 PM 지시("to completed")를 근거로 구현했다. 우선순위는
+     * 명세상 {@code Could} 이므로 범위 결정이 뒤집히면 제거 대상이다.</p>
+     * <p>Legacy screen 40 had no export — only screens 20 and 30 did. This is <b>new
+     * functionality rather than a port</b>, built on the PM's instruction regarding AMB-07. Its
+     * specified priority is {@code Could}, so it is the first thing to remove if that scope
+     * decision is reversed.</p>
+     *
+     * <p>{@code POST} 인 이유는 {@code /search} 와 같다: 조건에 전화번호가 포함될 수 있다.
+     * 파일 다운로드를 {@code GET} 으로 만들면 그 번호가 접근 로그에 남는다.</p>
+     * <p>{@code POST} for the same reason as {@code /search}: the criteria may contain a phone
+     * number, and a {@code GET} download would leave it in the access log.</p>
+     *
+     * <p>파일명에 조회 시각을 넣는다. 사용자가 여러 번 내보내면 브라우저가
+     * {@code (1)}, {@code (2)} 를 붙이는데, 그러면 어느 파일이 어느 조건의 결과인지
+     * 구분할 수 없다.</p>
+     * <p>The filename carries the timestamp: otherwise repeated exports become {@code (1)},
+     * {@code (2)} and it is impossible to tell which file answers which query.</p>
+     *
+     * @param body    조회 요청 / the search request
+     * @param request HTTP 요청 / the HTTP request
+     * @return CSV 첨부 응답 / the CSV attachment
+     */
+    // source: biztalk_admin_20_spreadsheet_view.jsp / _30_spreadsheet_view.jsp
+    // req: FR-MSG-017, NFR-SEC-PII-02, AMB-07
+    @PostMapping("/export")
+    public ResponseEntity<byte[]> export(
+            @Valid @RequestBody MessageHistorySearchRequest body,
+            HttpServletRequest request) {
+
+        List<MessageHistoryRow> rows =
+                service.export(body.toCriteria(), body.institutionCode(), request.getRemoteAddr());
+
+        byte[] csv = exporter.toCsv(rows).getBytes(StandardCharsets.UTF_8);
+        String filename = "message-history-"
+                + LocalDateTime.now(clock).format(FILENAME_STAMP) + ".csv";
+
+        return ResponseEntity.ok()
+                // text/csv 가 아니라 octet-stream 을 쓴다. 일부 브라우저는 text/* 를
+                // 인라인으로 열려 하고, 그 과정에서 컨텐츠 스니핑이 개입한다.
+                // octet-stream rather than text/csv: some browsers try to render text/* inline,
+                // which brings content sniffing into play.
+                .header(HttpHeaders.CONTENT_TYPE, "application/octet-stream")
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename(filename).build().toString())
+                // 조회 결과 파일은 캐시되어서는 안 된다 — 공유 단말에서 뒤로 가기로
+                // 재노출될 수 있다.
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(csv);
     }
 
     /**

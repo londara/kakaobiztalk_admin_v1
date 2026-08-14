@@ -212,4 +212,185 @@ describe('MessageHistoryPage', () => {
     expect(init.method).toBe('POST');
     expect(init.credentials).toBe('same-origin');
   });
+
+  // ---- CSV 내보내기 / CSV export — FR-MSG-017 ----
+
+  /**
+   * 조회는 JSON, 내보내기는 blob 을 반환하는 fetch 를 만든다.
+   * Builds a fetch returning JSON for the search and a blob for the export.
+   */
+  function stubSearchThenExport(exportResponse: Partial<Response> & { ok: boolean }) {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/export')) {
+        return Promise.resolve(exportResponse as Response);
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => page() } as Response);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  function stubObjectUrl() {
+    const createObjectURL = vi.fn().mockReturnValue('blob:mock');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
+    return { createObjectURL, revokeObjectURL };
+  }
+
+  it('조회 전에는 내보내기가 비활성이다 / export is disabled before a search', () => {
+    // req: FR-MSG-017 — 사용자가 보지 않은 내용을 파일로 받게 하지 않는다.
+    stubFetch(200, page());
+    render(<MessageHistoryPage operator={false} />);
+
+    expect(screen.getByRole('button', { name: 'CSV 내보내기' })).toBeDisabled();
+  });
+
+  it('결과가 0건이면 내보내기가 비활성이다 / export stays disabled for an empty result', async () => {
+    // req: FR-MSG-017
+    const user = userEvent.setup();
+    stubFetch(200, page([], 0));
+    render(<MessageHistoryPage operator={false} />);
+
+    await user.click(screen.getByRole('button', { name: '조회' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'CSV 내보내기' })).toBeDisabled(),
+    );
+  });
+
+  it('서버가 지정한 파일명으로 내려받는다 / downloads using the server filename', async () => {
+    // req: FR-MSG-017 — 파일명에 시각이 없으면 여러 번 내보낼 때 구분할 수 없다.
+    const user = userEvent.setup();
+    const { createObjectURL, revokeObjectURL } = stubObjectUrl();
+    stubSearchThenExport({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'Content-Disposition': 'attachment; filename="message-history-20260814-101500.csv"',
+      }),
+      blob: async () => new Blob(['유형,테이블'], { type: 'application/octet-stream' }),
+    } as unknown as Partial<Response> & { ok: boolean });
+
+    const clicked: string[] = [];
+    const realClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      clicked.push((this as HTMLAnchorElement).download);
+    };
+
+    render(<MessageHistoryPage operator={false} />);
+    await user.click(screen.getByRole('button', { name: '조회' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'CSV 내보내기' })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole('button', { name: 'CSV 내보내기' }));
+
+    await waitFor(() => expect(clicked).toContain('message-history-20260814-101500.csv'));
+    expect(createObjectURL).toHaveBeenCalled();
+    // objectURL 을 해제하지 않으면 마스킹된 번호를 담은 blob 이 문서 수명 동안 남는다.
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock');
+
+    HTMLAnchorElement.prototype.click = realClick;
+  });
+
+  it('내보내기는 조회와 같은 조건을 보낸다 / export sends the same criteria as the search', async () => {
+    // req: FR-MSG-017 — 조건이 어긋나면 화면과 파일의 내용이 달라지고, 파일을 받은 사람은
+    // 그 불일치를 발견할 수 없다.
+    const user = userEvent.setup();
+    stubObjectUrl();
+    const fetchMock = stubSearchThenExport({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Disposition': 'attachment; filename="x.csv"' }),
+      blob: async () => new Blob(['x']),
+    } as unknown as Partial<Response> & { ok: boolean });
+
+    const realClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {};
+
+    render(<MessageHistoryPage operator />);
+    await user.type(screen.getByLabelText('이용기관'), 'IS001');
+    await user.type(screen.getByLabelText('메시지키'), '12345');
+    await user.click(screen.getByRole('button', { name: '조회' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'CSV 내보내기' })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole('button', { name: 'CSV 내보내기' }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBe(2));
+    const searchBody = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const exportBody = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
+    expect(exportBody).toEqual(searchBody);
+    expect(exportBody.institutionCode).toBe('IS001');
+    expect(exportBody.messageKey).toBe(12345);
+
+    HTMLAnchorElement.prototype.click = realClick;
+  });
+
+  it('상한 초과는 실제 건수와 함께 거절된다 / over-limit refusal reports the real count', async () => {
+    // req: FR-MSG-017 — 조용히 잘라낸 파일은 완전한 것처럼 보이므로 거절한다.
+    const user = userEvent.setup();
+    stubObjectUrl();
+    stubSearchThenExport({
+      ok: false,
+      status: 400,
+      json: async () => ({
+        code: 'INVALID_CRITERIA',
+        violations: [
+          '내보낼 수 있는 최대 건수(5000건)를 초과했습니다. 조회 결과는 8123건입니다. 기간을 좁혀 주십시오.',
+        ],
+      }),
+    } as unknown as Partial<Response> & { ok: boolean });
+
+    render(<MessageHistoryPage operator={false} />);
+    await user.click(screen.getByRole('button', { name: '조회' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'CSV 내보내기' })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole('button', { name: 'CSV 내보내기' }));
+
+    // role="alert" 요소가 둘이다(감싼 영역 + ul.violations). findByRole 로는 모호하므로
+    // 위반 목록 자체를 지목한다 — SR-07 과 같은 유형의 테스트 결함을 세 번째로 만든 지점.
+    // Two elements carry role="alert"; the violation list itself is targeted instead.
+    const alerts = await screen.findAllByRole('alert');
+    const list = alerts.find((el) => el.classList.contains('violations'));
+    expect(list).toBeDefined();
+    expect(within(list as HTMLElement).getByText(/8123건/)).toBeInTheDocument();
+    expect(within(list as HTMLElement).getByText(/5000건/)).toBeInTheDocument();
+  });
+
+  it('내보내기 버튼이 폼을 제출하지 않는다 / the export button does not submit the form', async () => {
+    // 기본 type 이 submit 이므로 type="button" 을 빠뜨리면 조회가 함께 실행된다.
+    // The default type is submit, so omitting type="button" would also run a search.
+    const user = userEvent.setup();
+    stubObjectUrl();
+    const fetchMock = stubSearchThenExport({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Disposition': 'attachment; filename="x.csv"' }),
+      blob: async () => new Blob(['x']),
+    } as unknown as Partial<Response> & { ok: boolean });
+
+    const realClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {};
+
+    render(<MessageHistoryPage operator={false} />);
+    await user.click(screen.getByRole('button', { name: '조회' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'CSV 내보내기' })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole('button', { name: 'CSV 내보내기' }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBe(2));
+    // 정확히 2회 — 조회 1회 + 내보내기 1회. 3회면 폼이 재제출되었다는 뜻이다.
+    const exportCalls = fetchMock.mock.calls.filter((c) =>
+      (c[0] as string).endsWith('/export'),
+    );
+    const searchCalls = fetchMock.mock.calls.filter((c) =>
+      (c[0] as string).endsWith('/search'),
+    );
+    expect(exportCalls.length).toBe(1);
+    expect(searchCalls.length).toBe(1);
+
+    HTMLAnchorElement.prototype.click = realClick;
+  });
 });

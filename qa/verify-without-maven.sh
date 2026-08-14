@@ -64,6 +64,7 @@ SUBSET=(
   "src/main/java/com/webcash/iris/biztalk/domain/MessageHistoryRow.java"
   "src/main/java/com/webcash/iris/biztalk/domain/PagedResult.java"
   "src/main/java/com/webcash/iris/common/crosscut/ServiceWindow.java"
+  "src/main/java/com/webcash/iris/biztalk/domain/CsvExporter.java"
 )
 
 for f in "${SUBSET[@]}"; do strip "$ROOT/$f"; done
@@ -87,6 +88,8 @@ echo "[verify] biztalk domain (criteria, status, routing, tenant)..."
 java -cp "$WORK/out" MessageHistoryDriver || status=1
 echo "[verify] ServiceWindow (legacy 240000 idiom, per-day windows)..."
 java -cp "$WORK/out" ServiceWindowDriver || status=1
+echo "[verify] CsvExporter (formula injection, CSV escaping)..."
+java -cp "$WORK/out" CsvExporterDriver || status=1
 
 if [ "$status" -ne 0 ]; then
   echo "[verify] FAILED"

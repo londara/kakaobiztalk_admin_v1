@@ -83,4 +83,18 @@ public record AuditEvent(
     public static final String ACTION_MESSAGE_HISTORY_SEARCH = "biztalk.message-history.search";
     /** 문자상세내역 열람 / message detail view. */
     public static final String ACTION_MESSAGE_DETAIL_VIEW = "biztalk.message-detail.view";
+    /**
+     * 문자내역 내보내기 / 문자내역 export.
+     *
+     * <p>조회와 <b>별개의 액션</b>으로 기록한다. 화면에서 한 페이지를 보는 것과 수천 건을
+     * 파일로 반출하는 것은 감사 관점에서 같은 사건이 아니다 — 대량 반출은 유출의 주된
+     * 경로이며, 조회와 구분되지 않으면 사후에 찾아낼 수 없다.</p>
+     * <p>Recorded as a <b>distinct action</b> from a search: viewing one page and extracting
+     * thousands of rows to a file are not the same event for audit purposes. Bulk extraction is a
+     * primary exfiltration path, and if it is indistinguishable from browsing it cannot be found
+     * afterwards.</p>
+     *
+     * // req: FR-MSG-017, NFR-OPS-AUDIT, CONST-LEGAL-02
+     */
+    public static final String ACTION_MESSAGE_HISTORY_EXPORT = "biztalk.message-history.export";
 }

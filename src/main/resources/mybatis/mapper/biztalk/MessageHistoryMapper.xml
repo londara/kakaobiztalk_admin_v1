@@ -230,7 +230,17 @@
     masking() is applied at the outermost level, as in the legacy: search runs against the
     decrypted value while only what leaves for the client is masked.
   -->
-  <select id="search" resultMap="messageRowMap">
+  <!--
+    행 투영 — search 와 export 가 공유한다. / Row projection, shared by search and export.
+
+    두 벌로 두면 화면과 파일의 내용이 달라질 수 있다. 특히 masking() 이 한쪽에만 남으면
+    내보낸 파일에 평문 번호가 들어간다 — 조각을 공유하는 이유는 편의가 아니라 그것이다.
+    Two copies could drift; in particular, masking() surviving in only one of them would put
+    plaintext numbers into the exported file. That, not convenience, is why it is shared.
+
+    req: FR-MSG-004, FR-MSG-017, NFR-SEC-PII-02
+  -->
+  <sql id="rowProjection">
     SELECT ID, MSGKEY, STATUS, RSLT,
            masking(CALLBACK) AS CALLBACK,
            masking(PHONE)    AS PHONE,
@@ -241,6 +251,10 @@
      WHERE 1 = 1
       <include refid="filters"/>
      ORDER BY REQDATE DESC, MSGKEY DESC
+  </sql>
+
+  <select id="search" resultMap="messageRowMap">
+    <include refid="rowProjection"/>
      -- FIX D7: server-side paging. The legacy had
      --   //DomainUtil.setIDOPageInfo(idoIn1, PAGE_NO, INQ_TOTL_NCNT);
      -- commented out in biztalk_admin_40_l001_act.jsp, so every search returned all rows
@@ -264,6 +278,25 @@
       ) A
      WHERE 1 = 1
       <include refid="filters"/>
+  </select>
+
+  <!--
+    내보내기 조회. / Export query.
+    req: FR-MSG-017, NFR-SEC-PII-02
+
+    search 와 동일한 투영·UNION·필터를 사용하고 LIMIT 만 다르다. OFFSET 이 없다 —
+    내보내기는 페이지가 아니라 결과 전체다.
+    Identical projection, union and filters as search; only the LIMIT differs, and there is no
+    OFFSET because an export is the whole result, not a page.
+
+    #{limit} 은 서비스 계층 검사에 대한 이중 방어다. 서비스가 count 로 상한을 확인한 뒤
+    조회하는 사이에 행이 삽입될 수 있으므로 SQL 에서도 상한을 강제한다.
+    #{limit} is defence in depth: rows can be inserted between the service's count check and
+    this query, so the ceiling is enforced here as well.
+  -->
+  <select id="export" resultMap="messageRowMap">
+    <include refid="rowProjection"/>
+     LIMIT #{limit}
   </select>
 
 </mapper>

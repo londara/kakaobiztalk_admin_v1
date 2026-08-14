@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   CriteriaError,
+  exportMessageHistory,
   MessageHistoryPage as Page,
   MessageHistoryRow,
   searchMessageHistory,
@@ -57,31 +58,42 @@ export function MessageHistoryPage({ operator }: Props) {
   const [violations, setViolations] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [selected, setSelected] = useState<MessageHistoryRow | null>(null);
+
+  /**
+   * 조회 조건을 만든다. 조회와 내보내기가 공유한다.
+   * Builds the criteria, shared by search and export.
+   *
+   * 두 곳에서 각각 조립하면 화면에 보이는 결과와 내려받은 파일의 내용이 달라질 수 있다.
+   * Assembling it twice would let the screen and the downloaded file disagree.
+   */
+  function buildQuery(page = 0) {
+    return {
+      from,
+      to,
+      // 운영자가 아니면 이용기관을 보내지 않는다. 서버는 어차피 무시하지만,
+      // 보내지 않는 것이 의도를 분명히 하고 감사 기록에 불필요한 시도를 남기지 않는다.
+      // Not sent unless operator: the server ignores it anyway, but omitting it states intent
+      // and avoids logging a pointless override attempt.
+      institutionCode: operator && institutionCode ? institutionCode : undefined,
+      messageKey: messageKey.trim() === '' ? undefined : Number(messageKey),
+      senderNumber: senderNumber || undefined,
+      recipientNumber: recipientNumber || undefined,
+      status: status || undefined,
+      messageType: messageType || undefined,
+      tableType: tableType || undefined,
+      resultCode: resultCode || undefined,
+      page,
+    };
+  }
 
   async function runSearch(page = 0) {
     setViolations([]);
     setError(null);
     setLoading(true);
     try {
-      const parsedKey = messageKey.trim() === '' ? undefined : Number(messageKey);
-      const data = await searchMessageHistory({
-        from,
-        to,
-        // 운영자가 아니면 이용기관을 보내지 않는다. 서버는 어차피 무시하지만,
-        // 보내지 않는 것이 의도를 분명히 하고 감사 기록에 불필요한 시도를 남기지 않는다.
-        // Not sent unless operator: the server ignores it anyway, but omitting it states intent
-        // and avoids logging a pointless override attempt.
-        institutionCode: operator && institutionCode ? institutionCode : undefined,
-        messageKey: parsedKey,
-        senderNumber: senderNumber || undefined,
-        recipientNumber: recipientNumber || undefined,
-        status: status || undefined,
-        messageType: messageType || undefined,
-        tableType: tableType || undefined,
-        resultCode: resultCode || undefined,
-        page,
-      });
+      const data = await searchMessageHistory(buildQuery(page));
       setResult(data);
     } catch (e) {
       if (e instanceof CriteriaError) {
@@ -95,6 +107,33 @@ export function MessageHistoryPage({ operator }: Props) {
       setResult(null);
     } finally {
       setLoading(false);
+    }
+  }
+
+  /**
+   * 조회 결과를 CSV 로 내려받는다. / Downloads the result as CSV.
+   *
+   * req: FR-MSG-017
+   *
+   * 상한(5,000건) 초과는 잘라내지 않고 거절되며, 위반 메시지에 실제 건수가 담겨 온다 —
+   * 사용자가 기간을 얼마나 좁혀야 하는지 알 수 있어야 한다.
+   * Exceeding the 5,000-row cap is refused rather than truncated, and the message carries the
+   * actual count so the user knows how much to narrow the window.
+   */
+  async function runExport() {
+    setViolations([]);
+    setError(null);
+    setExporting(true);
+    try {
+      await exportMessageHistory(buildQuery(0));
+    } catch (e) {
+      if (e instanceof CriteriaError) {
+        setViolations(e.violations);
+      } else {
+        setError('내보내기에 실패했습니다. 잠시 후 다시 시도하세요.');
+      }
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -249,9 +288,30 @@ export function MessageHistoryPage({ operator }: Props) {
             </div>
           </div>
 
-          <button type="submit" className="primary" disabled={loading}>
-            {loading ? '조회 중…' : '조회'}
-          </button>
+          <div className="form-actions">
+            <button type="submit" className="primary" disabled={loading}>
+              {loading ? '조회 중…' : '조회'}
+            </button>
+            {/*
+              type="button" 이 필수다. 기본 type 은 submit 이므로 생략하면 내보내기 버튼이
+              폼을 제출해 조회가 함께 실행된다.
+              type="button" is required: the default is submit, so omitting it would make the
+              export button also run a search.
+
+              조회 결과가 없으면 비활성화한다 — 조건만 입력한 상태에서 내보내면 사용자가
+              무엇을 받게 되는지 알 수 없다.
+              Disabled until there are results: exporting before searching gives the user a file
+              whose contents they have not seen.
+            */}
+            <button
+              type="button"
+              className="secondary"
+              onClick={runExport}
+              disabled={exporting || loading || !result || result.totalCount === 0}
+            >
+              {exporting ? '내보내는 중…' : 'CSV 내보내기'}
+            </button>
+          </div>
         </fieldset>
       </form>
 
