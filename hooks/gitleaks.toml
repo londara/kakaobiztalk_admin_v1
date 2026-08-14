@@ -1,0 +1,4 @@
+title = "Harness default gitleaks config"
+
+[extend]
+useDefault = true

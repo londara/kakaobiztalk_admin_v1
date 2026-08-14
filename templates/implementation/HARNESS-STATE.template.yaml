@@ -1,0 +1,28 @@
+# 하네스 프로젝트 상태파일 — docs/.harness-state.yaml 로 복사하여 사용
+# 규칙 (HARNESS-PROCESS-STANDARD v1.2 / specs/2026-06-12-harness-assistant-design.md §3):
+#   1. 게이트 approved + approver 는 사람이 직접 기록 (AI 임의 승인 금지 — §4.8 CQ3)
+#   2. 파일이 진실, 상태는 힌트 — /08-harness 가 실제 산출물과 교차 확인 후 교정 제안
+#   3. git 추적 대상 (팀 공유·이력)
+
+harness_version: "1.5"          # 적용 표준 버전 (패키지 버전과 다르면 감사 권고)
+project: "{프로젝트명}"
+current_step: "00"              # "00"=Setup(스킬 진입 전 준비) 완료 전, 이후 "01"~"06"
+
+steps:
+  "01": { status: not_started }   # status: not_started | in_progress | done
+  "02": { status: not_started }   # done 시 outputs_verified: true, at: YYYY-MM-DD 추가
+  "03": { status: not_started }
+  "04": { status: not_started }   # Sprint 단위 반복 실행 (각 Sprint 는 docs/sprints/ 로그로 추적)
+  "05": { status: not_started }
+  "06": { status: not_started }
+
+gates:
+  G1: { status: not_reached }     # status: not_reached | pending | approved
+  G2: { status: not_reached }     # approved 시: approver: "이름", at: YYYY-MM-DD (사람이 기록)
+  G3: { status: not_reached }
+
+last_audit:                       # /08-harness 감사 모드가 갱신
+  date: null
+  score: null
+  verdict: null                   # PASS | WARN | FAIL
+  report: null                    # reviews/standard-validation-{YYYYMMDD}.md

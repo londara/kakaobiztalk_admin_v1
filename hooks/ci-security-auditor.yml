@@ -1,0 +1,208 @@
+# 보안 Hook L2 — CI 보안 감사 (GitHub Actions)
+# 본 표준 (HARNESS-PROCESS-STANDARD.md §5.4) L2 단계
+#
+# 적용:
+#   .github/workflows/security-audit.yml 에 본 파일을 복사
+#   GitLab CI 사용 시 .gitlab-ci.yml 양식으로 변환 (구조 동일)
+
+name: Security Audit (L2 Hook)
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+  schedule:
+    - cron: "0 2 * * 1"  # 매주 월요일 02:00 정기 스캔
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # 1. 시크릿 스캔 (gitleaks)
+  # ─────────────────────────────────────────────────────────────
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 전체 history 검사 위해
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          config-path: hooks/gitleaks.toml
+
+  # ─────────────────────────────────────────────────────────────
+  # 2. 의존성 취약점 스캔 (OWASP Dependency Check)
+  # ─────────────────────────────────────────────────────────────
+  dependency-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: "${{ github.event.repository.name }}"
+          path: "."
+          format: "HTML"
+          out: "reports"
+          args: >-
+            --enableRetired
+            --failOnCVSS 7
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: reports/
+
+  # ─────────────────────────────────────────────────────────────
+  # 2b. 공급망 — SBOM 생성 + OSS 라이선스 + 의존성 핀 검증
+  # ─────────────────────────────────────────────────────────────
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate SBOM (Syft / CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+
+      - name: OSS license check (금지 라이선스 차단)
+        run: |
+          set -euo pipefail
+          # 프로젝트는 ALLOWED/DENIED 라이선스 정책을 정의한다.
+          # 금지 라이선스(예: AGPL-3.0, SSPL, 상용 비호환) 발견 시 빌드 실패.
+          DENYLIST="${HARNESS_LICENSE_DENYLIST:-AGPL-3.0,SSPL-1.0,BUSL-1.1}"
+          echo "Denied licenses: ${DENYLIST}"
+          if grep -Eio "$(echo "$DENYLIST" | sed 's/,/|/g')" sbom.cyclonedx.json; then
+            echo "금지 OSS 라이선스 발견 — 빌드 차단 (본 표준 §5.5)"
+            exit 1
+          fi
+          echo "라이선스 검사 PASS"
+
+      - name: Dependency pinning / lockfile 검증
+        run: |
+          set -euo pipefail
+          # lockfile(예: pom.xml 고정 버전 / package-lock.json / poetry.lock / go.sum) 존재·변조 검사.
+          # 프로젝트는 HARNESS_LOCKFILE 에 lockfile 경로를 등록한다.
+          LOCK="${HARNESS_LOCKFILE:-}"
+          if [ -n "$LOCK" ] && [ ! -f "$LOCK" ]; then
+            echo "lockfile($LOCK) 누락 — 공급망 무결성 미확보, 차단"
+            exit 1
+          fi
+          echo "의존성 핀 검사 완료(lockfile: ${LOCK:-미지정})"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cyclonedx.json
+
+  # ─────────────────────────────────────────────────────────────
+  # 3. SAST (CodeQL)
+  # ─────────────────────────────────────────────────────────────
+  sast:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        language: [java]  # §5.7 조직 표준 언어를 모두 등록 — 예: [java, python, javascript, cpp]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+
+      - name: Build (Java)
+        run: ./mvnw -q -DskipTests package
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  # ─────────────────────────────────────────────────────────────
+  # 4. security-auditor 에이전트 자동 실행 (Claude / Codex)
+  # ─────────────────────────────────────────────────────────────
+  security-auditor-agent:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run security-auditor agent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          HARNESS_AI_AUDIT_SCRIPT: ${{ vars.HARNESS_AI_AUDIT_SCRIPT }}
+          HARNESS_AI_AUDIT_CMD: ${{ vars.HARNESS_AI_AUDIT_CMD }}
+          HARNESS_AI_AUDIT_OUTPUT: security/audit-pr-${{ github.event.pull_request.number }}.md
+          HARNESS_PR_BASE_REF: ${{ github.base_ref }}
+          HARNESS_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # 본 표준 .claude/agents/security-auditor.md 정의를 적용한다.
+          # 프로젝트는 HARNESS_AI_AUDIT_SCRIPT repository variable 에
+          # "체크인된 실행 스크립트 경로"를 등록해야 한다. (예: hooks/run-security-auditor.sh)
+          # 스크립트는 HARNESS_PR_BASE_REF / HARNESS_PR_NUMBER / HARNESS_AI_AUDIT_OUTPUT 을 사용해
+          # 필요한 AI CLI(Claude/Codex 등)를 안전하게 호출한다.
+          if [ -n "${HARNESS_AI_AUDIT_CMD:-}" ] && [ -z "${HARNESS_AI_AUDIT_SCRIPT:-}" ]; then
+            echo "HARNESS_AI_AUDIT_CMD 는 더 이상 직접 실행하지 않습니다."
+            echo "체크인된 래퍼 스크립트를 만들고 HARNESS_AI_AUDIT_SCRIPT 로 교체하세요."
+            exit 1
+          fi
+          if [ -z "${HARNESS_AI_AUDIT_SCRIPT:-}" ]; then
+            echo "HARNESS_AI_AUDIT_SCRIPT 미설정 — AI security-auditor 감사가 TODO 상태로 통과할 수 없어 L2를 차단합니다."
+            exit 1
+          fi
+          case "${HARNESS_AI_AUDIT_SCRIPT}" in
+            *[!A-Za-z0-9._/-]*)
+              echo "HARNESS_AI_AUDIT_SCRIPT 값이 안전한 파일 경로 형식이 아닙니다: ${HARNESS_AI_AUDIT_SCRIPT}"
+              exit 1
+              ;;
+          esac
+          if [ ! -f "${HARNESS_AI_AUDIT_SCRIPT}" ]; then
+            echo "AI 감사 스크립트가 없습니다: ${HARNESS_AI_AUDIT_SCRIPT}"
+            exit 1
+          fi
+          if [ ! -x "${HARNESS_AI_AUDIT_SCRIPT}" ]; then
+            echo "AI 감사 스크립트에 실행 권한이 없습니다: ${HARNESS_AI_AUDIT_SCRIPT}"
+            exit 1
+          fi
+          mkdir -p security
+          echo "Running ${HARNESS_AI_AUDIT_SCRIPT}..."
+          "${HARNESS_AI_AUDIT_SCRIPT}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-report
+          path: security/
+
+  # ─────────────────────────────────────────────────────────────
+  # 5. 종합 판정 — 본 job 실패 시 PR merge 차단
+  # ─────────────────────────────────────────────────────────────
+  l2-verdict:
+    runs-on: ubuntu-latest
+    needs: [secret-scan, dependency-scan, supply-chain, sast, security-auditor-agent]
+    if: always()
+    steps:
+      - name: Verdict
+        run: |
+          if [ "${{ needs.secret-scan.result }}" != "success" ] || \
+             [ "${{ needs.dependency-scan.result }}" != "success" ] || \
+             [ "${{ needs.supply-chain.result }}" != "success" ] || \
+             [ "${{ needs.sast.result }}" != "success" ] || \
+             [ "${{ needs.security-auditor-agent.result }}" != "success" ]; then
+            echo "L2 보안 Hook 실패 — PR merge 차단"
+            echo "본 표준 §5.4 참조"
+            exit 1
+          fi
+          echo "L2 보안 Hook PASS"

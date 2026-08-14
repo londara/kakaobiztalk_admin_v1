@@ -1,0 +1,5 @@
+trace_id,source_type,source_id,source_path,target_type,target_id,target_path,agent,sprint,status,note
+TR-0001,REQ,FR-AUTH-001,docs/requirements/REQUIREMENTS-SPEC.md#FR-AUTH-001,JAVA,LoginController.login,src/main/java/.../LoginController.java#L42,backend-developer-1,Sprint 1,DONE,초기 구현
+TR-0002,REQ,NFR-SEC-AUTH,docs/requirements/REQUIREMENTS-SPEC.md#NFR-SEC-AUTH,JAVA,JwtAuthFilter.doFilter,src/main/java/.../JwtAuthFilter.java#L25,backend-developer-1,Sprint 1,DONE,OAuth2 + RS256
+TR-0003,C,login_check,doc/legacy/src/login.c#L100-L150,JAVA,LoginValidator.validate,src/main/java/.../LoginValidator.java#L18,backend-developer,Sprint 1,DONE,1:1 포팅
+TR-0004,ADR,ADR-001,docs/design/adr/ADR-001-tech-stack.md,CODE,pom.xml,pom.xml,architect,Sprint 0,DONE,Spring Boot 3.4 의존성 반영

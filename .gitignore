@@ -1,0 +1,17 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# 로그 / 임시
+*.log
+tmp/
+.tmp/
+
+# Office 임시 잠금파일
+~$*
