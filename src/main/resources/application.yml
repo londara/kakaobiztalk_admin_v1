@@ -10,9 +10,9 @@ spring:
   application:
     name: iris-portal
   datasource:
-    url: ${IRIS_DB_URL:jdbc:postgresql://localhost:5432/kakaobiztalkdevdb}
-    username: ${IRIS_DB_USER:kakaobiztalkdev}
-    password: ${IRIS_DB_PASSWORD:kakaobiztalkdev123}
+    url: jdbc:postgresql://136.85.16.4:5432/kakaobiztalkdev
+    username: biztalk_user
+    password: biztalk123
     hikari:
       # req: RISK-L11 / TM-L013 — bounded pool so one tenant cannot starve others
       maximum-pool-size: ${IRIS_DB_POOL_MAX:10}

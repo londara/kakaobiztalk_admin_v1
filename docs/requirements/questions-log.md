@@ -210,3 +210,127 @@ Two questions were put to the PM during design. Both changed the plan materially
 The reason A is better rather than merely cheaper is worth recording: option B's new column would be **invisible to every legacy reader**, so a deleted institution would stay fully active to the legacy send path. That is precisely the shape of D-I1. Reusing the status column makes the legacy fail safe by construction — `'D'` matches neither its `'Y'` nor its `'N'` filter — instead of by remembering to check.
 
 > **Method note.** Both resolutions came from re-reading what already existed rather than from new legacy analysis. CONFLICT-I02 had been carried as a blocking governance item on the strength of an assumption nobody had tested against the schema. Worth generalising: **a conflict between two constraints deserves one pass to check whether it is real before it is escalated.**
+
+---
+
+# Part 4 — 이용기관 정보 관리 / 발신번호 (Sender Number Management), 2026-08-17
+
+> Spec: [REQUIREMENTS-SPEC-SENDERNO.md](REQUIREMENTS-SPEC-SENDERNO.md) · Scope: screen `biztalk_admin_10` and its three popups `biztalk_admin_11` (상세/수정), `biztalk_admin_12` (등록), `biztalk_admin_13` (제거)
+
+## 14. Resolved
+
+### AMB-S01 — ownership verification is designed but disabled
+**Question.** Sender-number ownership verification exists in every layer and works in none. `AUTH_NO` is a declared input on `WSVC.biztalk_admin_10_d001` and `…_12_c001`; the input fields are present but commented out of `biztalk_admin_12_view.jsp` and `…_13_view.jsp`; `sendMMSMessage()` and the session `DP_NO` check are commented out of both action JSPs; and `13.js` still binds a 인증번호전송 handler to an element that no longer exists. So registration and deletion currently proceed with no proof that the registering party has any right to the number. Is verification in scope for the new system?
+**Candidates.** A: re-enable OTP · B: document-based approval workflow · C: keep as-is
+**PM response.** **C — keep as-is, no verification.**
+**Effect.** CONST-BIZ-D02, RESIDUAL-S01, §2.7. This is the one defect in the slice not being fixed, and it should be read as a scope decision rather than a technical one: the legacy already contains most of an OTP implementation, so option A was closer to "finish it" than "build it". The ruling stands and the work proceeds on it — but see RESIDUAL-S01 for what now carries the load instead, and for the condition under which it should be revisited.
+
+### AMB-S02 — hard delete
+**Question.** `IDO.KKB_DPNO_LDGR_D001` is a physical `DELETE`. A number removed this way cannot be recovered, and any send history referencing it loses its master record. The institution slice ruled for logical delete on the same question (AMB-I03).
+**Candidates.** A: logical delete with DDL · B: hard delete + corrected history · C: suspend only
+**PM response.** **A — logical delete, adding schema.**
+**Effect.** FR-SNDD-001…003, FR-SNDD-008, CONST-DATA-D04. Two consequences follow that the ruling itself does not settle — CONFLICT-S01 and CONFLICT-S02 below. Neither was raised to block the decision; both need an answer before the requirement can be built.
+
+### AMB-S03 — duplicate check is scoped to one institution
+**Question.** `biztalk_admin_12_c001_act.jsp` checks for duplicates with `KKB_DPNO_LDGR_L001`, whose `WHERE` clause is `IS_CD = :IS_CD AND decrypt(DP_NO) = :DP_NO`. The check therefore only ever sees the requesting institution's own numbers, and the same 발신번호 can be registered by any number of institutions.
+**Candidates.** A: globally unique · B: unique per institution · C: allow with warning and approval
+**PM response.** **A — globally unique.**
+**Effect.** FR-SNDC-004, CONST-BIZ-D01. This ruling gained weight after AMB-S01: with ownership verification declined, the uniqueness check is the only mechanism preventing one institution from registering a number that belongs to another. Migration must identify and resolve existing cross-institution duplicates before the constraint can be enforced — a data question, not a code one.
+
+### AMB-S04 — sender numbers masked on the list, unmasked on detail
+**Question.** `biztalk_admin_10_l001_act.jsp` passes every `DP_NO` through `RegexNameMasking.maskName()` — a utility written for personal names, whose English branch returns first-two-plus-last-one, so `01012345678` renders as `01********8`. The detail service `biztalk_admin_11_l001` returns the same number unmasked. Which is correct?
+**Candidates.** A: show in full + audit reads · B: phone-specific masking rule · C: mask by role
+**PM response.** **A — show in full, audit read events.**
+**Effect.** FR-SND-006, FR-SND-011, NFR-OPS-AUDIT-D01. This question was raised as a display-policy question and turned out to be the slice's most serious defect — see the method note (§17) and D-S1.
+
+## 15. Conflicts raised
+
+### CONFLICT-S01 — logical delete vs. "no DDL in scope"
+**Conflict.** AMB-S02 rules for logical delete. `KKB_DPNO_LDGR` has nine columns — `IS_CD`, `DP_NO`, `RGDT`, `RGSR_ID`, `RGSR_NM`, `UDDT`, `UDT_ID`, `UDT_NM`, `DSCP` — recovered from the union of all six queries against it. **None of them carries state.** CONST-DATA-01 constrains the programme to "the existing `BIZTALK_DB` schema is reused unchanged; no DDL migration in this scope". Both cannot hold.
+**Raised under** harness §3 (충돌 식별 → PM 결재 의무), before the requirement was written.
+**Checked first.** The institution slice's CONFLICT-I02 was an identical-looking conflict that **dissolved** once someone checked the schema — `FT_FTIS_INFO` already had `IS_STTS`. That precedent made checking mandatory here rather than escalating on the pattern. It was checked. There is no status column, no spare column that could carry state without overloading a business field, and no existing audit store that could stand in for one the way the 로그인 slice's `AuditService` did. **This conflict is real.**
+**Working assumption.** A scoped DDL change for this module is assumed approved.
+**Status.** **Needs explicit PM sign-off at G1.** Substantively rather than procedurally: CONFLICT-I02 was resolved the way it was specifically to avoid setting a precedent for schema change, and this ruling sets it. Approving it silently would leave two contradictory records on the programme's position.
+
+### CONFLICT-S02 — a new status column is invisible to the legacy
+**Conflict.** If logical delete is implemented as a status column this project adds, the legacy send path will not filter on it. A number an operator has deleted stays valid as a caller ID.
+**Why this is not hypothetical.** It is D-I1 exactly — an operator withdrew something, the system reported success, and the thing kept working — and ADR-INST-014 chose its representation specifically to make the legacy fail safe by construction rather than by remembering to check. The same reasoning has to be applied here, and a new column is the one option that fails it.
+**Raised** before the requirement was written; recorded as FR-SNDD-003 with cutover verification rather than assumed.
+**Status.** Resolution belongs to Skill 3 — carried as AMB-S05.
+
+### RESIDUAL-S01 — accepted: registration without proof of ownership
+**Not a conflict, a recorded trade-off.** Under AMB-S01 a sender number is registered on an operator's assertion alone. A sender number determines what recipients see as the origin of a message, and 전기통신사업법 / KISA 발신번호 사전등록제 expect the registering party to demonstrate a right to it.
+**What carries the load instead.** FR-AZ-D01…D05 (only authorized operators can register, enforced server-side) and FR-SNDC-004 (global uniqueness, so a number already claimed cannot be taken). Neither existed before this specification — the legacy had no server-side authorization at all and a per-institution duplicate check — so the control environment is materially stronger than today even under option C.
+**Residual exposure.** **First claim wins.** An authorized operator can register a number belonging to a third party, provided nobody claimed it first. Nothing in this specification detects that.
+**Revisit.** Before registration is exposed to client-company self-service. Every compensating control above assumes the actor is a vetted internal operator; the moment that assumption goes, so does the mitigation. Also interacts with CONST-SEC-01.
+
+## 16. Open
+
+| ID | Question | Candidates | Working assumption | Owner | Needed by |
+|----|----------|-----------|--------------------|-------|-----------|
+| AMB-S05 | How logical delete is represented so the legacy send path honours it (CONFLICT-S02) | A: new column + change the legacy read · B: a representation the legacy already rejects · C: portal writes state, gap tracked as a cutover risk | A | Architect | Skill 3 |
+| AMB-S06 | The authoritative list of special/emergency numbers barred from registration. The UI names 112, 114 and 1335 as examples; no complete list exists in code | A: adopt the KISA/KAIT published list · B: internally maintained list | A | Domain owner | Skill 3 |
+| AMB-S07 | Whether a cap applies on 발신번호 per institution. None exists today | A: no limit, monitor · B: configurable cap | A | Domain owner | Skill 3 |
+| AMB-S08 | Cascade when an institution is logically deleted. `KKB_DPNO_LDGR_D002` hard-deletes every number for an `IS_CD`, contradicting FR-SNDD-001. Overlaps institution-slice AMB-I05 | A: institution delete blocks the numbers without removing them · B: cascade the logical delete | A | Domain owner | Skill 3 |
+| AMB-S09 | Whether `RGSR_ID`/`UDT_ID` should hold an internal user ID rather than an email address, and how existing rows migrate | A: internal user ID, email only in the user master · B: keep email, encrypt at rest | A | Architect | Skill 3 |
+
+Carried and still open: **OI-02** (audit retention term) blocks NFR-OPS-AUDIT-D02 and CONST-LEGAL-02.
+
+## 17. Method note
+
+Twenty-one defects. The signature of this slice is different again from the three before it, and the difference is worth stating because it changes what analysis has to look for.
+
+- 문자내역 defects sat in **gaps between layers**.
+- 로그인 defects were **deliberately disabled controls**.
+- 이용기관관리 defects were **controls that exist only in the browser**.
+- 발신번호 defects are **layers that were each changed correctly and are now wrong together.**
+
+D-S1 is the clearest case and the most serious finding in the slice. Read-masking was added to the list service — a defensible privacy change, correct in isolation. Deletion matches rows on the decrypted number — correct in isolation, and correct at the time it was written in 2021. The grid passes whatever the list gave it to whatever the delete takes — correct in isolation. Compose the three and deletion matches nothing, `DELETE` affecting zero rows raises no error, the history insert still writes a row, and the operator is told "정상적으로 처리되었습니다". Every layer is defensible; the system is broken. The IDO version stamps (`20251017`) put the masking change four years after the delete logic, so this most likely broke on a release in October 2025 and has been silently failing since.
+
+Three practical consequences:
+
+1. **A per-file review would not have found it.** Nothing is wrong in `biztalk_admin_10_l001_act.jsp`, or in `KKB_DPNO_LDGR_D001`, or in `biztalk_admin_10.js`. The defect exists only in the path between them, and only after a specific date. Defects of this class are found by tracing a value end-to-end, which is now a standing check for the remaining screens: **for every value that leaves the server and comes back, ask whether it came back in the same form it left.**
+2. **The ledger cannot be trusted to reflect operator intent.** Numbers believed deleted are probably live and still valid for sending. §6.4 of the spec raises the reconciliation — this is the second slice in a row to produce one (D-I1 was the first), and both have the same shape: an operator withdrew something, the system said yes, and nothing happened.
+3. **Silent success is the property to design against, not the specific bug.** NFR-OPS-D02 and FR-SNDD-002 are written to make any zero-effect write an explicit failure, because the masking/decrypt mismatch is one way to reach that state and there is no reason to think it is the only one.
+
+Two other observations:
+
+**A question about display policy uncovered the defect.** AMB-S04 was raised as "which of these two screens is right about masking?" — a UI-consistency question. Following it into the delete path is what surfaced D-S1. Worth generalising: **an inconsistency between two screens showing the same field is a signal that something downstream consumes one of them.**
+
+**Repeat defect classes confirmed again.** Both patterns flagged in the institution slice recur here, which supports checking for them directly rather than rediscovering them:
+- **Declared-but-absent pagination** — third occurrence (D7, D-I10, now D-S14). Here the client sends `PAGE_NO`/`INQ_TOTL_NCNT`, the contract declares neither, the SQL has no `LIMIT` and no `ORDER BY`, and the JSP hides the paging widget.
+- **Copy-paste error checking** — `biztalk_admin_10_d001_act.jsp` and `biztalk_admin_12_c001_act.jsp` both test `idoOut1` after executing `idoIn2`, so history-write failures are swallowed in two of the slice's three write paths (D-S7). Every action JSP with more than one `execute()` should be swept for this.
+
+One finding is a plain reminder that dead code is not always harmless. `biztalk_admin_10.js` binds a 수정 handler, toggles that button's visibility, and opens a detail popup — for a button the JSP never renders (D-S8). Reading the JavaScript would tell you 발신번호 descriptions are editable. They have never been editable. As with the institution slice: **the JavaScript of a Jex screen describes intent, not behaviour.**
+
+## 18. Design-time resolutions (Skill 3, 2026-08-17)
+
+One open item closed, one conflict narrowed, and three findings that came from reading applications outside this repository. All three changed the plan rather than confirming it.
+
+### AMB-S05 — how logical delete is represented so the legacy honours it
+**Question.** CONFLICT-S02 warned that a status column this project adds would be invisible to the legacy send path, leaving "deleted" numbers sendable. Skill 2 raised it as a suspicion and carried it to design.
+**What design found.** It is fact, with the code to prove it. The send runtime is `KAKAOTALK`; five of its send actions validate the caller ID with `select dp_no from kkb_dpno_ldgr where is_cd = :is_cd and decrypt(dp_no) = :dp_no` and reject when nothing returns (`ADV_KKO_AT_SEND_act.jsp:100-103`). **It selects no status of any kind** — a row is present or absent, and there is no third state it can observe. So a status flag would have made the legacy fail *open*.
+**Candidates put to design.** A: status column + change `KAKAOTALK` · B: archive-on-delete · C: hard delete, history only · D: status column, portal-only
+**Resolution.** **B — the row moves to a new archive table `KKB_DPNO_ARCV`.** [ADR-SND-017](../design/adr/ADR-SND-017-senderno-lifecycle.md).
+**Effect.** FR-SNDD-001…003, FR-SNDD-008. Absence is already the legacy's rejection condition, so the legacy fails safe **by construction with no legacy change at all** — the ADR-INST-014 principle, reached by the opposite mechanism. There, an existing status column made `'D'` safe; here, the absence of one made removal the only safe representation.
+
+### CONFLICT-S01 — narrowed, not dissolved
+**Original conflict.** Logical delete vs CONST-DATA-01 ("no DDL in scope"). Skill 2 flagged that it sets the schema-change precedent CONFLICT-I02 was resolved specifically to avoid.
+**Checked first, per the CONFLICT-I02 precedent.** `KKB_DPNO_LDGR` has nine columns — none carries state, none can be overloaded without corrupting a business field, and no existing audit store substitutes the way the 로그인 slice's `AuditService` did for the institution slice. **It does not dissolve.** Some DDL is unavoidable.
+**But the shape changed.** ADR-SND-017 needs one *new table*; ADR-SND-018 needs one *index*. `KKB_DPNO_LDGR` is never altered in a way that changes what an existing reader sees, and no legacy application is modified.
+**Status.** **Still needs explicit G1 sign-off, on narrower terms:** the precedent is *"this programme may add tables"*, not *"this programme may alter shared schema"*. Needed before task S2-02; Sprint S1 carries no DDL, so the first two weeks proceed either way.
+
+### New finding — `AOA_ADMIN` is a second writer on the same database
+`AOA_ADMIN` carries the same four screens against the same `<target>BIZTALK_DB</target>`. Two consequences:
+- **Global uniqueness cannot be enforced in application code.** `AOA_ADMIN` would bypass any check we write, so the constraint moves into the database ([ADR-SND-018](../design/adr/ADR-SND-018-encrypted-number-uniqueness.md)). This ruled out an otherwise attractive no-DDL option (advisory lock + application check) that would have been correct if ours were the only writer.
+- **All 21 defects stay reachable through that console after we ship**, on the same data — RISK-S05. Its disposition is a programme-level question this slice cannot answer.
+
+### New finding — one send path validates nothing
+`ADV_KKO_FT_SEND_act.jsp` references `sender_number` three times and performs **no** ledger check, while its `_BULK` and `_M` siblings do. (The three `FU`/친구톡 actions use no sender number at all, so their lack of a check is correct rather than a gap.) **FR-SNDD-003 therefore holds for five of six send paths and cannot be made to hold for the sixth from here.** Recorded as threat T-X1 and RISK-S03, and asserted by test C-S06 — a test written to confirm the gap *persists*, which inverts into a regression guard once `KAKAOTALK` closes it.
+
+### New unknown — `BIZ_DB` vs `BIZTALK_DB`
+The admin consoles declare `BIZTALK_DB`; `KAKAOTALK` declares `BIZ_DB` for the same table. These are datasource aliases and source cannot settle whether they resolve to one physical database. **ADR-SND-017's whole mechanism assumes they do.** Task S1-03 and test C-S04 resolve it before Sprint S2 starts; if they differ, the delete design is re-derived. RISK-S01.
+
+> **Method note.** Every one of these came from reading `KAKAOTALK` and `AOA_ADMIN` — applications outside this repository that were never listed as inputs to the slice. The requirements analysis had correctly identified *that* a coexistence question existed (CONFLICT-S02); it could not have answered it, because the answer was not in the artifacts under analysis.
+>
+> Worth generalising for the remaining slices: **when a table is written by this system and read by another, the other system's queries are part of the specification.** The institution slice learned the same lesson at design time (AMB-I10, ADR-INST-016) and it has now recurred with a sharper edge — here the external reader's query did not merely need accommodating, it *selected between two designs*, and the one that reads more naturally on paper was the wrong one.

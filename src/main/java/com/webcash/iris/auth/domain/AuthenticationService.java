@@ -1,11 +1,14 @@
 package com.webcash.iris.auth.domain;
 
+import com.webcash.iris.auth.config.OtpDevBypass;
 import com.webcash.iris.auth.crypto.PasswordHasher;
 import com.webcash.iris.auth.crypto.SecretCipher;
 import com.webcash.iris.auth.crypto.TotpVerifier;
 import com.webcash.iris.auth.infra.db.UserMapper;
 import com.webcash.iris.common.audit.AuditEvent;
 import com.webcash.iris.common.audit.AuditService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +51,9 @@ public class AuthenticationService {
     private final IpAllowlistPolicy ipAllowlist;
     private final AdminLoginNotifier notifier;
     private final AuditService audit;
+    private final OtpDevBypass otpDevBypass;
+
+    private static final Logger log = LoggerFactory.getLogger(AuthenticationService.class);
 
     /**
      * OTP 비밀키가 저장 시 암호화되어 있는지 여부. / Whether the stored OTP key is encrypted at rest.
@@ -93,7 +99,8 @@ public class AuthenticationService {
                                  AdminLoginNotifier notifier,
                                  AuditService audit,
                                  @org.springframework.beans.factory.annotation.Value(
-                                         "${iris.auth.otp.key-encrypted:true}") boolean otpKeyEncrypted) {
+                                         "${iris.auth.otp.key-encrypted:true}") boolean otpKeyEncrypted,
+                                 OtpDevBypass otpDevBypass) {
         this.users = users;
         this.hasher = hasher;
         this.totp = totp;
@@ -104,6 +111,7 @@ public class AuthenticationService {
         this.notifier = notifier;
         this.audit = audit;
         this.otpKeyEncrypted = otpKeyEncrypted;
+        this.otpDevBypass = otpDevBypass;
     }
 
     /**
@@ -200,40 +208,25 @@ public class AuthenticationService {
             denied(email, AuditEvent.ACTION_LOGIN, "otp-not-registered", sourceIp, correlationId);
             throw new AuthenticationException(AuthFailureReason.OTP_NOT_REGISTERED);
         }
-        if (!totp.isWellFormed(otpCode)) {
-            // 형식 오류는 실패 횟수를 증가시키지 않는다. 레거시도 ADM_00023 을 던지고
-            // 카운터를 건드리지 않았으며, 오타로 계정이 잠기는 것은 과도하다.
-            // A malformed code does not increment the failure counter. The legacy threw
-            // ADM_00023 without touching it either, and locking an account over a typo
-            // is disproportionate.
-            denied(email, AuditEvent.ACTION_LOGIN, "otp-malformed", sourceIp, correlationId);
-            throw new AuthenticationException(AuthFailureReason.OTP_MALFORMED);
-        }
-        // 저장된 비밀키를 해석한다. 포트 기본값은 AES-256-GCM 복호화(NFR-SEC-PII-L01)이나,
-        // 레거시 평문 Base32 키는 그대로 사용한다(AMB-L07). 어느 경로든 평문 비밀키는 이
-        // 메서드를 벗어나지 않는다.
-        // Resolves the stored secret: AES-GCM decrypt by default, or use the legacy plaintext
-        // Base32 key as-is. Either way the plaintext never leaves this method.
-        String otpSecret = otpKeyEncrypted ? cipher.decrypt(account.otpKey()) : account.otpKey();
-        if (!totp.verify(otpSecret, otpCode)) {
-            int otpFailures = users.incrementOtpFailCount(email);
-            if (otpFailures >= AccountPolicy.MAX_FAILURES) {
-                audit.recordAuth(email, AuditEvent.ACTION_LOCKOUT, AuditEvent.Outcome.DENIED,
-                        "otp-failure-threshold", sourceIp, correlationId);
-            }
-            denied(email, AuditEvent.ACTION_LOGIN, "otp-mismatch", sourceIp, correlationId);
-            throw new AuthenticationException(AuthFailureReason.OTP_MISMATCH);
-        }
-
-        // 단일 사용 강제 (TM-L004). 검증 성공 후에 소비 처리하는 순서가 중요하다 —
-        // 검증 전에 소비하면 틀린 코드가 메모리를 채우고, 공격자가 임의 값으로 저장소를
-        // 부풀릴 수 있다.
-        // Single-use enforcement (TM-L004). Consuming after a successful verification is
-        // the right order: consuming first would fill memory with wrong codes and let an
-        // attacker inflate the store with arbitrary values.
-        if (!replayGuard.tryConsume(email, otpCode)) {
-            denied(email, AuditEvent.ACTION_LOGIN, "otp-replay", sourceIp, correlationId);
-            throw new AuthenticationException(AuthFailureReason.OTP_MISMATCH);
+        // 개발 전용 우회 — 로컬 프로필에서만 활성화되며, 그 외에서는 애플리케이션이
+        // 기동조차 하지 않는다(OtpDevBypass). 등록 요구(위 hasOtpRegistered 검사)는
+        // 우회하지 않는다 — 등록 자체를 건너뛰면 로컬 환경이 운영과 다른 계정 상태를
+        // 갖게 되어, 여기서만 재현되는 결함을 만들어 낸다.
+        // Development-only bypass, active under the local profile alone; anywhere else the
+        // application refuses to start (OtpDevBypass). The enrolment requirement above is
+        // deliberately NOT bypassed: skipping registration would give local a different account
+        // state from production and manufacture defects that reproduce only here.
+        if (otpDevBypass.isActive()) {
+            log.warn("OTP_BYPASSED dev bypass accepted a login without verifying the second "
+                    + "factor — local profile only (ADR-LOGIN-020)");
+            audit.recordAuth(email, AuditEvent.ACTION_LOGIN, AuditEvent.Outcome.OK,
+                    "otp-bypassed-dev", sourceIp, correlationId);
+        } else {
+            // OTP 검증은 verifySecondFactor 로 추출되어 있다. 평문/암호화 OTP 키 처리
+            // (otpKeyEncrypted, AMB-L07)는 그 메서드 안에서 수행한다.
+            // OTP verification is extracted into verifySecondFactor; the plaintext/encrypted key
+            // handling (otpKeyEncrypted, AMB-L07) lives inside that method.
+            verifySecondFactor(account, email, otpCode, sourceIp, correlationId);
         }
 
         // 5. 카운터 초기화 — 값이 0 이 아닐 때만 쓰기.
@@ -304,6 +297,69 @@ public class AuthenticationService {
             return false;
         }
         return hasher.matchesLegacy(rawPassword, account.legacyPasswordHash());
+    }
+
+    /**
+     * 두 번째 인증 요소를 검증한다. / Verifies the second authentication factor.
+     *
+     * <p>형식 검사 · 코드 검증 · 재사용 방지의 세 단계를 담는다. 별도 메서드로 분리한 이유는
+     * 개발용 우회({@link com.webcash.iris.auth.config.OtpDevBypass})가 <b>이 세 단계만</b>
+     * 건너뛰도록 하기 위해서다 — 우회가 인증 메서드 전체를 조기 반환시키면 휴면·가입상태
+     * 확인, 비밀번호 변경 강제, IP 허용목록까지 함께 사라져 로컬 환경이 운영과 다른 방식으로
+     * 동작하게 된다.</p>
+     * <p>Holds the three steps — format, verification, replay prevention — as one unit so the
+     * development bypass skips <b>only</b> those. Had the bypass returned early from the
+     * authentication method instead, the dormancy and status checks, the forced password change
+     * and the IP allowlist would have disappeared with it, and local would behave unlike
+     * production in ways that hide defects rather than surface them.</p>
+     *
+     * @param account       대상 계정 / the account
+     * @param email         이메일 / the email
+     * @param otpCode       제출된 OTP 코드 / the submitted OTP code
+     * @param sourceIp      출처 IP / the source address
+     * @param correlationId 상관 식별자 / the correlation id
+     */
+    // req: FR-LOGIN-010, FR-LOGIN-011, NFR-SEC-AUTH-L01, NFR-SEC-AUTH-L03, TM-L004
+    private void verifySecondFactor(UserAccount account,
+                                    String email,
+                                    String otpCode,
+                                    String sourceIp,
+                                    String correlationId) {
+        if (!totp.isWellFormed(otpCode)) {
+            // 형식 오류는 실패 횟수를 증가시키지 않는다. 레거시도 ADM_00023 을 던지고
+            // 카운터를 건드리지 않았으며, 오타로 계정이 잠기는 것은 과도하다.
+            // A malformed code does not increment the failure counter. The legacy threw
+            // ADM_00023 without touching it either, and locking an account over a typo
+            // is disproportionate.
+            denied(email, AuditEvent.ACTION_LOGIN, "otp-malformed", sourceIp, correlationId);
+            throw new AuthenticationException(AuthFailureReason.OTP_MALFORMED);
+        }
+        // 저장된 비밀키를 해석한다. 포트 기본값은 AES-256-GCM 복호화(NFR-SEC-PII-L01)이나,
+        // 레거시 평문 Base32 키는 그대로 사용한다(AMB-L07, otpKeyEncrypted=false). 어느
+        // 경로든 평문 비밀키는 이 메서드를 벗어나지 않는다.
+        // Resolves the stored secret: AES-GCM decrypt by default, or the legacy plaintext Base32
+        // key as-is (otpKeyEncrypted=false). Either way the plaintext never leaves this method.
+        String otpSecret = otpKeyEncrypted ? cipher.decrypt(account.otpKey()) : account.otpKey();
+        if (!totp.verify(otpSecret, otpCode)) {
+            int otpFailures = users.incrementOtpFailCount(email);
+            if (otpFailures >= AccountPolicy.MAX_FAILURES) {
+                audit.recordAuth(email, AuditEvent.ACTION_LOCKOUT, AuditEvent.Outcome.DENIED,
+                        "otp-failure-threshold", sourceIp, correlationId);
+            }
+            denied(email, AuditEvent.ACTION_LOGIN, "otp-mismatch", sourceIp, correlationId);
+            throw new AuthenticationException(AuthFailureReason.OTP_MISMATCH);
+        }
+
+        // 단일 사용 강제 (TM-L004). 검증 성공 후에 소비 처리하는 순서가 중요하다 —
+        // 검증 전에 소비하면 틀린 코드가 메모리를 채우고, 공격자가 임의 값으로 저장소를
+        // 부풀릴 수 있다.
+        // Single-use enforcement (TM-L004). Consuming after a successful verification is
+        // the right order: consuming first would fill memory with wrong codes and let an
+        // attacker inflate the store with arbitrary values.
+        if (!replayGuard.tryConsume(email, otpCode)) {
+            denied(email, AuditEvent.ACTION_LOGIN, "otp-replay", sourceIp, correlationId);
+            throw new AuthenticationException(AuthFailureReason.OTP_MISMATCH);
+        }
     }
 
     private void denied(String email, String action, String detail, String sourceIp, String correlationId) {

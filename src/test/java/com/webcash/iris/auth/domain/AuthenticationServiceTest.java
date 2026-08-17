@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.webcash.iris.auth.config.OtpDevBypass;
 import com.webcash.iris.auth.crypto.PasswordHasher;
 import com.webcash.iris.auth.crypto.SecretCipher;
 import com.webcash.iris.auth.crypto.TotpVerifier;
@@ -18,6 +19,7 @@ import com.webcash.iris.common.audit.AuditService;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import org.springframework.mock.env.MockEnvironment;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -64,7 +66,7 @@ class AuthenticationServiceTest {
     @Mock private UserMapper users;
     @Mock private PasswordHasher hasher;
     @Mock private TotpVerifier totp;
-    // 아래 4개는 Sprint L3~L5 에서 AuthenticationService 에 추가된 협력자다.
+    // 아래 협력자들은 Sprint L3~L5 에서 AuthenticationService 에 추가되었다.
     // Added to AuthenticationService in sprints L3-L5.
     @Mock private SecretCipher cipher;
     @Mock private OtpReplayGuard replayGuard;
@@ -76,9 +78,21 @@ class AuthenticationServiceTest {
 
     @BeforeEach
     void setUp() {
+        // 개발용 OTP 우회는 <b>비활성</b> 인스턴스를 주입한다. 이 테스트 클래스가 검증하는
+        // 것은 우회가 없을 때의 인증 규칙이며, 특히 SingleFactorPrevention 은 비밀번호만으로
+        // 통과하는 경로가 없다는 것을 단정한다 — 우회가 켜진 채로는 그 단정이 무의미해진다.
+        // 우회 자체의 동작과 안전장치는 OtpDevBypassTest 가 검증한다.
+        // An <b>inactive</b> dev bypass is injected. This class verifies the authentication rules
+        // as they stand without it — SingleFactorPrevention in particular asserts that no path
+        // completes on a password alone, which the bypass would render vacuous. The bypass's own
+        // behaviour and its safety interlock are verified by OtpDevBypassTest.
         service = new AuthenticationService(
                 users, hasher, totp, cipher, replayGuard,
-                new AccountPolicy(FIXED, 90, 90), ipAllowlist, notifier, audit);
+                new AccountPolicy(FIXED, 90, 90), ipAllowlist, notifier, audit,
+                // otpKeyEncrypted=true 로 두어 cipher.decrypt 경로(항등 stub)를 계속 검증한다.
+                // otpKeyEncrypted=true keeps exercising the cipher.decrypt path (identity-stubbed).
+                true,
+                new OtpDevBypass(false, new MockEnvironment()));
 
         // assertAllowed 는 void 이고 위반 시 예외를 던진다. mock 기본 동작(무동작)이 곧
         // "허용"이므로 ipAllowlist 는 별도 stub 이 필요 없다.

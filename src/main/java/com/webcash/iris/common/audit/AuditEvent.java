@@ -97,4 +97,28 @@ public record AuditEvent(
      * // req: FR-MSG-017, NFR-OPS-AUDIT, CONST-LEGAL-02
      */
     public static final String ACTION_MESSAGE_HISTORY_EXPORT = "biztalk.message-history.export";
+
+    /**
+     * 발신번호 목록 조회 / sender-number list read.
+     *
+     * <p>조회를 기록하는 이유가 다른 화면과 다르다. 발신번호는 PM 결정(AMB-S04)에 따라
+     * 운영자 화면에 <b>마스킹 없이 전체가</b> 표시된다. 마스킹을 걷어낸 대신 조회 행위를
+     * 남기는 것이 그 결정의 보상 통제이므로, 이 기록은 편의가 아니라 요구사항이다.</p>
+     * <p>Recorded for a different reason than other screens: sender numbers are displayed to
+     * operators <b>in full, unmasked</b>, per ruling AMB-S04. Auditing the read is the
+     * compensating control that ruling depends on, so this record is a requirement rather than a
+     * convenience.</p>
+     *
+     * <p>기관 코드와 건수만 담고 <b>번호 자체는 담지 않는다.</b> 담으면 감사 저장소가 더 긴
+     * 보존 기간과 다른 접근 모델을 가진 2차 PII 저장소가 된다.</p>
+     * <p>Carries the institution and a count, <b>never the numbers</b>: including them would make
+     * the audit store a secondary PII repository with longer retention and different access.</p>
+     *
+     * // req: FR-SND-006, FR-SND-011, ADR-SND-019, NFR-OPS-AUDIT-D01
+     */
+    public static final String ACTION_SENDER_NUMBER_LIST = "biztalk.sender-number.list";
+
+    /** 발신번호 상세 열람 / sender-number detail view. */
+    // req: FR-SND-011, ADR-SND-019
+    public static final String ACTION_SENDER_NUMBER_VIEW = "biztalk.sender-number.view";
 }

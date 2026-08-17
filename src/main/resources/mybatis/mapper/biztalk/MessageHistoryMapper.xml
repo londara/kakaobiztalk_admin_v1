@@ -11,12 +11,13 @@
   이식 원칙 / porting principle
   ============================================================================
   레거시 소스가 유일한 명세다(RISK-001). SQL 을 near-verbatim 으로 옮기고, 변경한 줄에는
-  SQL 주석 `FIX Dn:` 을 남긴다. 리뷰어가 레거시 IDO 와 이 파일을 나란히 놓고 델타만 확인할
-  수 있어야 한다.
+  하이픈 두 개로 시작하는 `FIX Dn:` SQL 주석을 남긴다. 리뷰어가 레거시 IDO 와 이 파일을
+  나란히 놓고 델타만 확인할 수 있어야 한다.
 
   The legacy source is the only specification (RISK-001). The SQL is carried across
-  near-verbatim and every altered line carries a `FIX Dn:` SQL comment, so a reviewer can put
-  the legacy IDO beside this file and inspect only the delta.
+  near-verbatim and every altered line carries a `FIX Dn:` SQL line comment (prefixed by
+  two hyphens), so a reviewer can put the legacy IDO beside this file and inspect only
+  the delta.
 
   ============================================================================
   적용한 수정 / corrections applied

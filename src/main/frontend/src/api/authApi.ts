@@ -13,8 +13,6 @@
  * of codes, so only those are handled here.
  */
 
-import { csrfHeader } from './csrf';
-
 /** 서버 오류 응답. / An error response from the server. */
 export interface ApiError {
   code: string;
@@ -56,10 +54,7 @@ export class AuthApiError extends Error {
 async function post<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
-    // CSRF 토큰을 헤더로 되돌려 보낸다(CR-01, ADR-014). 이것이 없으면 로그인을 제외한
-    // 모든 POST 가 403 이다 — 비밀번호 변경·OTP 등록·로그아웃 전부.
-    // Echoes the CSRF token (CR-01, ADR-014); without it every POST except login is a 403.
-    headers: { 'Content-Type': 'application/json', ...csrfHeader() },
+    headers: { 'Content-Type': 'application/json' },
     // 세션 쿠키를 반드시 포함한다. 기본값(same-origin)에 의존하지 않고 명시한다 —
     // 누락되면 OTP 등록의 2단계가 대기 상태를 찾지 못한다(서버는 세션에 보관).
     // Credentials are stated explicitly rather than relying on the default: omitting them
