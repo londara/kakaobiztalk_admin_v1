@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  source: IDO.KKB_FT_FTIS_INFO_L001 — BIZTALK(이용기관조회)
+  req:    FR-INST-001, FR-INST-003, FR-INST-004, FR-INST-005, FR-INSTL-005
+
+  레거시 원본 / the legacy original:
+
+      SELECT FINTECH_ISCD, ISNM, ISENGNM, BRNO, IS_STTS, ATK, RGDT, LAST_AMDT, CMOP
+        FROM FT_FTIS_INFO
+       WHERE CASE WHEN :USE_YN = 'ALL' THEN 1=1 ELSE IS_STTS = :USE_YN END
+         AND ISNM LIKE '%' || :IS_NM || '%'
+       ORDER BY FINTECH_ISCD
+
+  FIX D-I10  서버 페이징이 없었다. 서비스 계약은 PAGE_NO / INQ_TOTL_NCNT 를 선언하고
+             화면도 전송했으나 SQL 에는 LIMIT / OFFSET 도 전체 건수 쿼리도 없었다.
+             계약의 항목 id 자체도 "PAGE_NO<TAB>" 으로 깨져 있어 바인딩될 수 없었다.
+             → LIMIT / OFFSET 과 별도 count 쿼리를 추가한다.
+             Server paging was absent: the contract declared PAGE_NO / INQ_TOTL_NCNT and the
+             screen sent them, but the SQL had neither LIMIT/OFFSET nor a count query — and the
+             contract's item id was itself malformed ("PAGE_NO<TAB>"), so it could never bind.
+
+  FIX D-I11  ISNM LIKE '%' || :IS_NM || '%' 는 두 가지 문제가 있었다.
+             (1) 검색어가 비어 있어도 LIKE 가 적용되어 ISNM 이 NULL 인 행이 조용히
+                 탈락했다 — NULL LIKE '...' 은 NULL 이기 때문이다.
+             (2) 사용자가 입력한 % 와 _ 가 와일드카드로 동작했다.
+             → 검색어가 있을 때만 조건을 걸고, 패턴은 이스케이프해 바인딩한다.
+             Two problems: the LIKE applied even for an empty term, silently dropping rows with a
+             NULL ISNM (NULL LIKE ... is NULL); and user-typed % / _ acted as wildcards.
+
+  FIX D-I7   논리 삭제된 기관(IS_STTS = 'D')을 기본 목록에서 제외한다. 레거시에는 논리
+             삭제가 없었고 물리 삭제만 있었다 (ADR-INST-014).
+             Logically deleted institutions are excluded from the default list; the legacy had
+             only physical delete (ADR-INST-014).
+-->
+<mapper namespace="com.webcash.iris.biztalk.infra.db.InstitutionAdminMapper">
+
+  <resultMap id="institutionMap"
+             type="com.webcash.iris.biztalk.infra.db.InstitutionAdminMapper$InstitutionEntity">
+    <constructor>
+      <arg column="CODE"             javaType="java.lang.String"/>
+      <arg column="NAME"             javaType="java.lang.String"/>
+      <arg column="ENGLISH_NAME"     javaType="java.lang.String"/>
+      <arg column="BUSINESS_NUMBER"  javaType="java.lang.String"/>
+      <arg column="AUTH_KEY"         javaType="java.lang.String"/>
+      <arg column="STATUS"           javaType="java.lang.String"/>
+      <arg column="DESCRIPTION"      javaType="java.lang.String"/>
+      <arg column="REGISTERED_AT"    javaType="java.lang.String"/>
+      <arg column="LAST_MODIFIED_AT" javaType="java.lang.String"/>
+    </constructor>
+  </resultMap>
+
+  <!--
+    조회 조건. search 와 count 가 공유한다 — 두 곳에 따로 쓰면 목록과 전체 건수가
+    서로 다른 조건으로 계산되어 페이지 수가 어긋난다.
+    Shared by search and count: duplicating it would let the page contents and the total be
+    computed under different filters, and the page count would disagree with the rows.
+  -->
+  <sql id="filters">
+    <!-- FIX D-I7: 논리 삭제 제외 / exclude logically deleted -->
+    WHERE IS_STTS &lt;&gt; 'D'
+    <if test="criteria.status != null">
+      AND IS_STTS = #{criteria.status}
+    </if>
+    <!-- FIX D-I11: 검색어가 있을 때만, 그리고 이스케이프해서 / only when present, and escaped -->
+    <if test="criteria.name != null">
+      AND ISNM LIKE #{criteria.namePattern} ESCAPE '\'
+    </if>
+  </sql>
+
+  <!-- req: FR-INST-001, FR-INST-003 -->
+  <select id="search" resultMap="institutionMap">
+    SELECT FINTECH_ISCD AS CODE,
+           ISNM         AS NAME,
+           ISENGNM      AS ENGLISH_NAME,
+           BRNO         AS BUSINESS_NUMBER,
+           ATK          AS AUTH_KEY,
+           IS_STTS      AS STATUS,
+           CMOP         AS DESCRIPTION,
+           RGDT         AS REGISTERED_AT,
+           LAST_AMDT    AS LAST_MODIFIED_AT
+      FROM FT_FTIS_INFO
+    <include refid="filters"/>
+     ORDER BY FINTECH_ISCD
+     <!-- FIX D-I10: 서버 페이징 / server-side paging -->
+     LIMIT #{criteria.size} OFFSET #{criteria.offset}
+  </select>
+
+  <!-- FIX D-I10: 레거시에 없던 전체 건수 쿼리 / the count query the legacy lacked -->
+  <!-- req: FR-INST-003 -->
+  <select id="count" resultType="int">
+    SELECT COUNT(*)
+      FROM FT_FTIS_INFO
+    <include refid="filters"/>
+  </select>
+
+</mapper>

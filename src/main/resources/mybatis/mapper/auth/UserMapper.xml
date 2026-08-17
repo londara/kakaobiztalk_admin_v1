@@ -7,10 +7,10 @@
   req:    FR-LOGIN-002/003/004/005/010/018/020, CONST-DATA-L01
 
   이식 원칙 / porting principle:
-    레거시 SQL 을 near-verbatim 으로 옮기고, 변경한 줄에는 `-- FIX Ln:` 주석을 남긴다.
+    레거시 SQL 을 near-verbatim 으로 옮기고, 변경한 줄에는 SQL 주석 `FIX Ln:` 을 남긴다.
     레거시 소스가 유일한 명세이므로(RISK-001) 변경점이 리뷰 가능해야 한다.
     The legacy SQL is carried across near-verbatim and every altered line carries a
-    `-- FIX Ln:` comment, because the legacy source is the only specification and the
+    `FIX Ln:` SQL comment, because the legacy source is the only specification and the
     delta must be reviewable line by line.
 
   추가 전용 DDL / additive-only DDL:
@@ -28,13 +28,13 @@
       <arg column="PWD_HASH"             javaType="java.lang.String"/>
       <arg column="PWD"                  javaType="java.lang.String"/>
       <arg column="OTP_KEY"              javaType="java.lang.String"/>
-      <arg column="LOGIN_ATTEMPT"        javaType="int"/>
-      <arg column="OTP_FAIL_CNT"         javaType="int"/>
+      <arg column="LOGIN_ATTEMPT"        javaType="_int"/>
+      <arg column="OTP_FAIL_CNT"         javaType="_int"/>
       <arg column="JNNG_STTS"            javaType="com.webcash.iris.auth.domain.AccountStatus"/>
       <arg column="LAST_LOGIN_DT"        javaType="java.time.LocalDate"/>
       <arg column="LAST_CHNG_PWD_DT"     javaType="java.time.LocalDate"/>
-      <arg column="PWD_INIT_FLAG"        javaType="boolean"/>
-      <arg column="OPERATOR_FLAG"        javaType="boolean"/>
+      <arg column="PWD_INIT_FLAG"        javaType="_boolean"/>
+      <arg column="OPERATOR_FLAG"        javaType="_boolean"/>
       <arg column="IS_CD"                javaType="java.lang.String"/>
     </constructor>
   </resultMap>
@@ -54,32 +54,61 @@
         U.PWD_HASH,
         U.PWD,
         U.OTP_KEY,
-        COALESCE(U.LOGIN_ATTEMPT, 0)                       AS LOGIN_ATTEMPT,
+        <!--
+          LOGIN_ATTEMPT 는 실제 스키마에서 <b>character varying</b> 이다 (numeric 이 아니다).
+          `COALESCE(U.LOGIN_ATTEMPT, 0)` 은 PostgreSQL 에서
+          "COALESCE types character varying and integer cannot be matched" 로 실패한다.
+          빈 문자열도 존재할 수 있으므로 NULLIF 로 걸러낸 뒤 정수로 변환한다.
+
+          LOGIN_ATTEMPT is character varying in the live schema, so coalescing it with an integer
+          fails outright; blank strings are possible too, hence NULLIF before the cast.
+          OTP_FAIL_CNT is genuinely numeric and needs no conversion.
+        -->
+        CAST(COALESCE(NULLIF(U.LOGIN_ATTEMPT, ''), '0') AS INTEGER) AS LOGIN_ATTEMPT,
         COALESCE(U.OTP_FAIL_CNT, 0)                        AS OTP_FAIL_CNT,
         U.JNNG_STTS,
         TO_DATE(NULLIF(U.LAST_LOGIN_DT, ''), 'YYYYMMDD')   AS LAST_LOGIN_DT,
         TO_DATE(NULLIF(U.LAST_CHNG_PWD_DT, ''), 'YYYYMMDD') AS LAST_CHNG_PWD_DT,
         CASE WHEN COALESCE(U.PWD_INIT_YN, 'N') = 'N' THEN TRUE ELSE FALSE END AS PWD_INIT_FLAG,
         CASE WHEN EXISTS (
-            SELECT 1 FROM USER_GRP_JNNG G
+            SELECT 1 FROM a_user_grp_jnng_infm G
              WHERE G.EML = U.EML AND G.GRP_ID = 'GRP_0'
         ) THEN TRUE ELSE FALSE END                          AS OPERATOR_FLAG,
         <!--
           req: FR-TEN-001 — 사용자의 소속 이용기관. 테넌트 격리의 근거가 되는 값이다.
 
-          ⚠ 미확인 사항 (AMB-M01): 레거시 소스에서 <b>사용자 → 이용기관</b> 매핑이 어디에
-          있는지 확인되지 않았다. 문자내역 목록은 이용기관을 `ID` 컬럼으로 다루고,
-          담당자관리(화면 00)는 `IS_CD`/`IS_NM` 을 쓴다. USER_LDGR 에 IS_CD 컬럼이
-          존재한다고 가정했으나 <b>DBA·도메인 담당자 확인이 필요</b>하다.
+          ══════════════════════════════════════════════════════════════════════════
+          AMB-M01 — 해소됨: 그런 매핑은 <b>존재하지 않는다</b> (2026-08-17 실측)
+          ══════════════════════════════════════════════════════════════════════════
+          운영 스키마를 직접 조회하여 확인했다:
 
-          UNVERIFIED (AMB-M01): where the user → 이용기관 mapping lives could not be
-          established from the legacy source. The list treats the institution as column `ID`
-          and screen 00 uses `IS_CD`/`IS_NM`. Assuming USER_LDGR.IS_CD; needs DBA and
-          domain-owner confirmation. Getting this wrong means either no tenant scoping or the
-          wrong scope — so it must not be guessed silently.
+            · a_user_ldgr            21개 컬럼 중 이용기관 코드 없음 (IS_CD 부재)
+            · a_user_grp_jnng_infm   GRP_0 / GRP_1 뿐 — 역할 그룹이며 기관 코드가 아니다
+                                     kkb_inst_info 와 조인 시 0건
+            · kkb_mngr_ldgr          운영자 이메일 목록. 기관 코드 없음
+            · kkb_inst_info          <b>빈 테이블</b>
+            · cmnm / brc / user_dsnc 전 사용자 null 또는 공백
+
+          따라서 이전 가정(U.IS_CD)은 틀렸고, 그대로 두면 로그인 쿼리가
+          `column u.is_cd does not exist` 로 실패한다.
+
+          Verified against the live schema: no user → 이용기관 mapping exists anywhere.
+          The previous assumption was wrong and made every login fail.
+
+          ── 잠정 조치 / interim behaviour ──────────────────────────────────────────
+          NULL 을 반환한다. NULL 은 "소속 기관 미상"을 뜻하며, TenantContext 가 이를
+          <b>운영자에게만</b> 전체 조회로 해석하고 <b>일반 사용자에게는 접근 거부</b>로
+          해석한다(fail-closed). 조용히 전체 공개로 퇴화하지 않게 하기 위함이다.
+
+          NULL means "institution unknown": TenantContext reads it as full scope for an
+          operator and as <b>denial</b> for anyone else. A tenant control that silently
+          degrades to "everyone sees everything" is worse than one that visibly blocks.
+
+          ⚠ PM/DBA 결정 필요: 이용기관 소속을 어디에 둘 것인가(신규 컬럼 / 매핑 테이블 /
+            kkb_inst_info 채우기). 그때까지 일반 사용자는 문자내역을 조회할 수 없다.
         -->
-        U.IS_CD                                             AS IS_CD
-      FROM USER_LDGR U
+        CAST(NULL AS VARCHAR)                               AS IS_CD
+      FROM a_user_ldgr U
      WHERE U.EML = #{email}
   </select>
 
@@ -93,15 +122,19 @@
     attempts would defeat the lockout, so the increment is atomic in the database.
   -->
   <select id="incrementLoginAttempt" resultType="int">
-    UPDATE USER_LDGR
-       SET LOGIN_ATTEMPT = COALESCE(LOGIN_ATTEMPT, 0) + 1   -- FIX L-concurrency: atomic increment
+    UPDATE a_user_ldgr
+       -- FIX L-concurrency: atomic increment
+       -- FIX schema: LOGIN_ATTEMPT is character varying, so the arithmetic needs an explicit
+       --             cast in and a cast back out. Verified against the live schema 2026-08-17.
+       SET LOGIN_ATTEMPT = CAST(
+             CAST(COALESCE(NULLIF(LOGIN_ATTEMPT, ''), '0') AS INTEGER) + 1 AS VARCHAR)
      WHERE EML = #{email}
-    RETURNING LOGIN_ATTEMPT
+    RETURNING CAST(LOGIN_ATTEMPT AS INTEGER)
   </select>
 
   <!-- source: IDO.USER_LDGR_U006 / req: FR-LOGIN-010 -->
   <select id="incrementOtpFailCount" resultType="int">
-    UPDATE USER_LDGR
+    UPDATE a_user_ldgr
        SET OTP_FAIL_CNT = COALESCE(OTP_FAIL_CNT, 0) + 1     -- FIX L-concurrency: atomic increment
      WHERE EML = #{email}
     RETURNING OTP_FAIL_CNT
@@ -109,15 +142,16 @@
 
   <!-- source: IDO.USER_LDGR_U009 / req: FR-LOGIN-004 -->
   <update id="resetFailureCounters">
-    UPDATE USER_LDGR
-       SET LOGIN_ATTEMPT = 0,
+    UPDATE a_user_ldgr
+       -- FIX schema: LOGIN_ATTEMPT is character varying — an integer literal is rejected.
+       SET LOGIN_ATTEMPT = '0',
            OTP_FAIL_CNT  = 0
      WHERE EML = #{email}
   </update>
 
   <!-- source: IDO.USER_LDGR_U010 / req: FR-LOGIN-020 -->
   <update id="touchLastLogin">
-    UPDATE USER_LDGR
+    UPDATE a_user_ldgr
        SET LAST_LOGIN_DT = TO_CHAR(NOW(), 'YYYYMMDD')
      WHERE EML = #{email}
   </update>
@@ -129,7 +163,7 @@
     rollback window (RISK-L04).
   -->
   <update id="updatePasswordHash">
-    UPDATE USER_LDGR
+    UPDATE a_user_ldgr
        SET PWD_HASH         = #{hash},
            PWD_SCHEME       = 'ARGON2ID',
            LAST_CHNG_PWD_DT = TO_CHAR(NOW(), 'YYYYMMDD'),
@@ -145,7 +179,7 @@
     left untouched here too (RISK-L04).
   -->
   <update id="resetPasswordHash">
-    UPDATE USER_LDGR
+    UPDATE a_user_ldgr
        SET PWD_HASH         = #{hash},
            PWD_SCHEME       = 'ARGON2ID',
            LAST_CHNG_PWD_DT = TO_CHAR(NOW(), 'YYYYMMDD'),
@@ -175,7 +209,7 @@
     Encrypted with AES-256-GCM in the application before it reaches here (SecretCipher).
   -->
   <update id="updateOtpKey">
-    UPDATE USER_LDGR
+    UPDATE a_user_ldgr
        SET OTP_KEY      = #{encryptedKey},
            OTP_FAIL_CNT = 0
      WHERE EML = #{email}
@@ -186,7 +220,7 @@
     source: apm_1001_03_r001_act.jsp threw ADM_00026 with no recovery path defined
   -->
   <update id="clearOtpKey">
-    UPDATE USER_LDGR
+    UPDATE a_user_ldgr
        SET OTP_KEY      = NULL,
            OTP_FAIL_CNT = 0
      WHERE EML = #{email}
@@ -199,7 +233,7 @@
   <select id="isOperator" resultType="boolean">
     SELECT EXISTS (
         SELECT 1
-          FROM USER_GRP_JNNG
+          FROM a_user_grp_jnng_infm
          WHERE EML = #{email}
            AND GRP_ID = 'GRP_0'
     )

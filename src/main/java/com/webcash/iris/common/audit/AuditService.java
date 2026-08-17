@@ -66,13 +66,32 @@ public class AuditService {
      * @param correlationId 요청 상관 식별자 / request correlation id
      */
     // req: NFR-OPS-AUDIT-L01, NFR-OPS-AUDIT-L02
+    /*
+     * ⚠ 이 애노테이션이 없으면 감사 기록이 <b>조용히 사라진다</b>.
+     *
+     * record() 의 REQUIRES_NEW 는 <b>같은 빈 내부 호출(self-invocation)</b>에서는 적용되지
+     * 않는다 — Spring 프록시를 거치지 않기 때문이다. 따라서 recordAuth() 가 애노테이션 없이
+     * this.record() 를 호출하면 삽입이 <b>호출자의 트랜잭션</b>에 합류하고, 로그인 실패로
+     * authenticate() 가 예외를 던져 롤백되면 감사 행도 함께 사라진다.
+     *
+     * 2026-08-17 실측: 로그인 실패 2회 후 IRIS_AUTH_AUDIT 행 수 = 0. SQL 오류는 없었다.
+     * 즉 "기록되지 않았다"는 사실 자체가 어떤 로그에도 남지 않는다.
+     *
+     * Without this annotation the audit trail vanishes silently. REQUIRES_NEW on record() does not
+     * apply to a self-invocation, so the insert joined the caller's transaction and was rolled back
+     * when the failed login threw. Measured: two failed logins, zero audit rows, no SQL error —
+     * the absence of the record leaves no trace of its own.
+     *
+     * req: NFR-OPS-AUDIT, CONST-LEGAL-02, 전자금융감독규정
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordAuth(String actor,
                            String action,
                            AuditEvent.Outcome outcome,
                            String detail,
                            String sourceIp,
                            String correlationId) {
-        record(new AuditEvent(
+        mapper.insert(new AuditEvent(
                 Instant.now(clock), actor, null, action, outcome, detail, sourceIp, correlationId));
     }
 

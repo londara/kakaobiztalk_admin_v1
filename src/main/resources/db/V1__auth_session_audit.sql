@@ -13,30 +13,30 @@
 --   review and a rollback script before it is applied.
 --
 -- 설계 원칙 — 추가 전용 / DESIGN PRINCIPLE — ADDITIVE ONLY
---   기존 USER_LDGR 컬럼(특히 PWD)은 변경하지 않고 신규 컬럼만 추가한다.
+--   기존 a_user_ldgr 컬럼(특히 PWD)은 변경하지 않고 신규 컬럼만 추가한다.
 --   이유가 두 가지다:
 --     1) 레거시가 같은 테이블을 계속 읽으며 정상 동작해야 한다 (공존 기간)
 --     2) 구 해시가 남아 있어야 롤백이 가능하다 (RISK-L04 — Argon2id 로 상향된
 --        비밀번호는 레거시가 검증할 수 없으므로, PWD 를 덮어쓰면 롤백이 단방향이 된다)
 --
---   Existing USER_LDGR columns — PWD above all — are left untouched and only new
+--   Existing a_user_ldgr columns — PWD above all — are left untouched and only new
 --   columns are added, for two reasons: the legacy must keep working against the
 --   same table during coexistence, and the old hash must survive for rollback.
 --   Overwriting PWD would make rollback one-way (RISK-L04).
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
--- 1. USER_LDGR — additive columns for the new credential scheme
+-- 1. a_user_ldgr — additive columns for the new credential scheme
 --    req: FR-LOGIN-005, CONST-DATA-L01
 -- -----------------------------------------------------------------------------
-ALTER TABLE USER_LDGR ADD COLUMN IF NOT EXISTS PWD_HASH   VARCHAR(255);
-ALTER TABLE USER_LDGR ADD COLUMN IF NOT EXISTS PWD_SCHEME VARCHAR(16);
+ALTER TABLE a_user_ldgr ADD COLUMN IF NOT EXISTS PWD_HASH   VARCHAR(255);
+ALTER TABLE a_user_ldgr ADD COLUMN IF NOT EXISTS PWD_SCHEME VARCHAR(16);
 
-COMMENT ON COLUMN USER_LDGR.PWD_HASH   IS 'Argon2id password hash (new scheme). Legacy PWD column retained untouched.';
-COMMENT ON COLUMN USER_LDGR.PWD_SCHEME IS 'Credential scheme in force: NULL = legacy SHA-256, ARGON2ID = migrated.';
+COMMENT ON COLUMN a_user_ldgr.PWD_HASH   IS 'Argon2id password hash (new scheme). Legacy PWD column retained untouched.';
+COMMENT ON COLUMN a_user_ldgr.PWD_SCHEME IS 'Credential scheme in force: NULL = legacy SHA-256, ARGON2ID = migrated.';
 
 -- 마이그레이션 진행률 조회용 / for tracking migration progress (RISK-L09)
-CREATE INDEX IF NOT EXISTS IX_USER_LDGR_PWD_SCHEME ON USER_LDGR (PWD_SCHEME);
+CREATE INDEX IF NOT EXISTS IX_USER_LDGR_PWD_SCHEME ON a_user_ldgr (PWD_SCHEME);
 
 -- -----------------------------------------------------------------------------
 -- 2. IRIS_USER_PWD_HISTORY — password reuse prevention
@@ -119,10 +119,10 @@ CREATE INDEX IF NOT EXISTS IX_AUTH_AUDIT_OUTCOME  ON IRIS_AUTH_AUDIT (OUTCOME, O
 --    Crucially, withholding UPDATE/DELETE on business tables turns ADR-002's
 --    read-only intent into a database guarantee rather than a code convention.
 -- -----------------------------------------------------------------------------
--- GRANT SELECT                 ON USER_LDGR              TO iris_portal_app;
+-- GRANT SELECT                 ON a_user_ldgr              TO iris_portal_app;
 -- GRANT UPDATE (PWD_HASH, PWD_SCHEME, LOGIN_ATTEMPT, OTP_FAIL_CNT,
 --               LAST_LOGIN_DT, LAST_CHNG_PWD_DT, PWD_INIT_YN, OTP_KEY)
---                              ON USER_LDGR              TO iris_portal_app;
+--                              ON a_user_ldgr              TO iris_portal_app;
 -- GRANT SELECT                 ON USER_GRP_JNNG          TO iris_portal_app;
 -- GRANT SELECT, INSERT         ON IRIS_USER_PWD_HISTORY  TO iris_portal_app;
 -- GRANT SELECT, INSERT, DELETE ON IRIS_USER_SESSION      TO iris_portal_app;

@@ -99,6 +99,30 @@ public final class TenantContext {
      * // source: apc_login_proc_act.jsp — USER_DSNC 'A'(admin) / 'U'(user), GRP_0 / GRP_1
      * // req: FR-TEN-001, FR-TEN-003, FR-LOGIN-018
      */
+    /**
+     * 테넌트 범위를 확정할 수 없어 조회를 거부할 때 던진다.
+     * Thrown when the tenant scope cannot be established, so the query is refused.
+     *
+     * <p>비검사 예외다. 검사 예외로 만들면 호출부가 {@code catch} 후 무시하기 쉬워지고,
+     * 이 통제는 무시되면 곧바로 전 기관 노출이 된다.</p>
+     * <p>Unchecked deliberately: a checked exception invites a swallowing {@code catch}, and
+     * swallowing this one exposes every institution's data.</p>
+     *
+     * // req: FR-TEN-001, NFR-SEC-TENANT, AMB-M01
+     */
+    public static class TenantScopeUnavailableException extends RuntimeException {
+
+        /**
+         * 예외를 생성한다. / Creates the exception.
+         *
+         * @param email 대상 사용자 / the user in question
+         */
+        public TenantScopeUnavailableException(String email) {
+            super("Tenant scope unavailable for '" + email
+                    + "': the account has no 이용기관 and is not an operator (AMB-M01)");
+        }
+    }
+
     public record TenantPrincipal(String email, String institutionCode, boolean operator) {
 
         /**
@@ -115,12 +139,29 @@ public final class TenantContext {
          * @param requestedInstitutionCode 요청에 담긴 코드 (운영자만 유효) / the requested code, honoured for operators only
          * @return 적용할 코드, 전체 조회면 null / the code to apply, or null for unrestricted
          */
-        // req: FR-TEN-001, FR-TEN-002, FR-TEN-003
+        // req: FR-TEN-001, FR-TEN-002, FR-TEN-003, AMB-M01
         public String effectiveInstitutionCode(String requestedInstitutionCode) {
             if (operator) {
                 return (requestedInstitutionCode == null || requestedInstitutionCode.isBlank())
                         ? null
                         : requestedInstitutionCode;
+            }
+            // ── fail-closed (AMB-M01) ──────────────────────────────────────────────
+            // 운영자가 아닌데 소속 기관을 알 수 없으면 <b>거부</b>한다. null 을 그대로
+            // 반환하면 매퍼가 이용기관 조건을 생성하지 않아 <b>전 기관의 문자내역이
+            // 노출된다</b> — 격리 통제가 조용히 정반대로 뒤집히는 경로다.
+            //
+            // 2026-08-17 실측 결과 운영 스키마에는 사용자→이용기관 매핑이 존재하지 않아
+            // 이 값이 실제로 null 이다. 따라서 이 분기는 이론상의 방어가 아니라
+            // 현재 활성 경로다.
+            //
+            // A non-operator whose institution is unknown is <b>refused</b>. Returning null
+            // would suppress the mapper's predicate and expose every institution's messages —
+            // the isolation control silently inverting. As of the live-schema check there is no
+            // user → institution mapping, so this branch is the active path, not a theoretical
+            // guard.
+            if (institutionCode == null || institutionCode.isBlank()) {
+                throw new TenantScopeUnavailableException(email);
             }
             return institutionCode;
         }

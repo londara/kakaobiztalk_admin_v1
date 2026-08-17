@@ -10,13 +10,32 @@ spring:
   application:
     name: iris-portal
   datasource:
-    url: ${IRIS_DB_URL:jdbc:postgresql://localhost:5432/postgres}
+    url: ${IRIS_DB_URL:jdbc:postgresql://localhost:5432/kakaobiztalkdevdb}
     username: ${IRIS_DB_USER:kakaobiztalkdev}
     password: ${IRIS_DB_PASSWORD:kakaobiztalkdev123}
     hikari:
       # req: RISK-L11 / TM-L013 — bounded pool so one tenant cannot starve others
       maximum-pool-size: ${IRIS_DB_POOL_MAX:10}
       connection-timeout: 3000
+      # search_path 를 <b>두 스키마</b>로 지정한다. 하나만으로는 동작하지 않는다.
+      #
+      #   · 테이블 48개  → 스키마 kakaobiztalkdevdb  (public 에는 테이블이 0개다)
+      #   · decrypt() / masking()  → 스키마 public   (CONST-DATA-02)
+      #
+      # 2026-08-17 실측:
+      #   search_path=kakaobiztalkdevdb   → 테이블 OK, masking() 실패
+      #                                     ("function masking(unknown) does not exist")
+      #   search_path=public              → 전부 실패 (public 에 테이블 없음)
+      #   search_path=kakaobiztalkdevdb,public → 전부 OK
+      #
+      # 즉 문자내역 조회는 두 스키마를 <b>모두</b> 필요로 한다 — 테이블과 복호화·마스킹
+      # 함수가 서로 다른 스키마에 있기 때문이다. hikari 의 `schema` 속성은 단일 스키마만
+      # 설정하므로(=public 이 빠진다) connection-init-sql 로 지정한다.
+      #
+      # Both schemas are required: the tables live in kakaobiztalkdevdb and the decrypt/masking
+      # functions in public. Measured — either one alone fails. Hikari's `schema` property sets a
+      # single schema and would drop public, so the path is set explicitly on each connection.
+      connection-init-sql: SET search_path TO ${IRIS_DB_SCHEMA:kakaobiztalkdevdb}, public
   session:
     timeout: ${IRIS_SESSION_TIMEOUT:30m}   # req: NFR-SEC-SESSION-L02 (AMB-L05, assumed 30m)
 
@@ -35,6 +54,11 @@ server:
 
 mybatis:
   mapper-locations: classpath*:mybatis/mapper/**/*.xml
+  # enum 을 이름이 아니라 레거시 코드값으로 매핑하기 위한 타입 핸들러.
+  # JNNG_STTS 에는 '1'/'2' 같은 코드가 저장되어 있어 기본(이름) 매핑은 실패한다.
+  # Type handlers so enums map by legacy code rather than by name; JNNG_STTS stores '1'/'2'
+  # and the default name-based mapping fails.
+  type-handlers-package: com.webcash.iris.auth.infra.db
   configuration:
     map-underscore-to-camel-case: true
 

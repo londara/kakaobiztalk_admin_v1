@@ -11,7 +11,7 @@ FR-MSG-009,Functional,"Sender/recipient search labels match underlying columns",
 FR-MSG-010,Functional,"Recipient number and result code searches are functional","biztalk_admin_40.js vs WSVC.biztalk_admin_40_l001",Must,Integration,UC-MSG-001,,D4,SPECIFIED
 FR-MSG-011,Functional,"Uniform date boundary across all 8 sources (inclusive start exclusive end)",IDO.KKB_MSG_L002 KKO_MMS_MSG_LOG BETWEEN,Must,"Integration boundary test",UC-MSG-001,,D6,SPECIFIED
 FR-MSG-012,Functional,"Range validation compares full datetime not time-of-day",biztalk_admin_40.js sTime/eTime,Must,Unit,UC-MSG-001,,D8,SPECIFIED
-FR-MSG-013,Functional,"Search period capped at 31 days",PM CONFLICT-01 (31 days, approved at G1),Must,Unit,UC-MSG-001,,,SPECIFIED
+FR-MSG-013,Functional,"Search period capped at 31 days","PM CONFLICT-01 (31 days, approved at G1)",Must,Unit,UC-MSG-001,,,SPECIFIED
 FR-MSG-014,Functional,"MSGKEY link opens message detail",biztalk_admin_40.js fn_getDetail(),Must,E2E,UC-MSG-001;UC-MSG-002,,,SPECIFIED
 FR-MSG-015,Functional,"Empty optional criteria mean no filter on that field",IDO.KKB_MSG_L002 CASE WHEN clauses,Must,Integration,UC-MSG-001,,,SPECIFIED
 FR-MSG-016,Functional,"Rows with NULL sender number are not silently dropped",IDO.KKB_MSG_L002 CALLBACK LIKE clause,Should,Integration,UC-MSG-001,,D4-side,SPECIFIED
@@ -110,3 +110,61 @@ CONST-DATA-L01,Constraint,"Existing user schema reused; PWD and OTP_KEY formats 
 CONST-TECH-L01,Constraint,"Java 17+ Spring Boot 3.x Spring Security",ADR-001 + ADR-008,Must,Architecture review,UC-LOGIN-001,,,SPECIFIED
 CONST-LEGAL-L01,Constraint,"전자금융감독규정 two factors for administrative access and access records",전자금융감독규정,Must,Security audit,UC-LOGIN-001,,,SPECIFIED
 CONST-LEGAL-L02,Constraint,"개인정보보호법 CLPH_NO FLNM EML are personal information",개인정보보호법,Must,Security audit,UC-LOGIN-001,BR-007,,SPECIFIED
+FR-AZ-I01,Functional,"All 이용기관관리 services require an authenticated session and an operator role","WSVC.biztalk_admin_00_* login flag only; PM AMB-I01",Must,"Security test per endpoint",UC-INST-001;UC-INST-002;UC-INST-003,BR-002,D-I2,SPECIFIED
+FR-AZ-I02,Functional,"Authorization enforced server-side per service; client-side gating is not a control","biztalk_admin_00.js client-side 권한 없음 alert",Must,"Security test + code review",UC-INST-001;UC-INST-002;UC-INST-003,BR-002,D-I2,SPECIFIED
+FR-AZ-I03,Functional,"Tenant users cannot reach the module or enumerate other client companies","Extends FR-TEN-004",Must,"Security test",UC-INST-001,BR-002,D-I2,SPECIFIED
+FR-AZ-I04,Functional,"Every state-changing operation records actor timestamp target and before/after","PM AMB-I03; BR-016",Must,"Integration test + operational audit",UC-INST-002;UC-INST-003,BR-016,D-I7,SPECIFIED
+FR-INST-001,Functional,"Search institutions by 기관명 partial match and 상태 전체/사용/사용안함","biztalk_admin_00_view.jsp form; IDO.KKB_FT_FTIS_INFO_L001",Must,E2E,UC-INST-001,,,SPECIFIED
+FR-INST-002,Functional,"Grid presents 8 columns with 인증키 masked","biztalk_admin_00.js drawGrid",Must,E2E,UC-INST-001,,D-I5,SPECIFIED
+FR-INST-003,Functional,"List is server-side paginated with total count","WSVC.biztalk_admin_00_l001 declares PAGE_NO and INQ_TOTL_NCNT; SQL has neither",Must,"Integration test",UC-INST-001,,D-I10,SPECIFIED
+FR-INST-004,Functional,"Institutions with NULL 기관명 are not dropped from results","IDO.KKB_FT_FTIS_INFO_L001 ISNM LIKE clause",Must,"Integration test",UC-INST-001,,D-I11,SPECIFIED
+FR-INST-005,Functional,"Percent and underscore in the 기관명 search are treated as literals","IDO.KKB_FT_FTIS_INFO_L001",Must,"Unit test",UC-INST-001,,D-I11,SPECIFIED
+FR-INST-006,Functional,"사용여부 renders 사용 or 미사용; unmapped value verbatim","biztalk_admin_00.js USE_YN renderer; consistent with FR-MSG-005",Must,"Unit test",UC-INST-001,,,SPECIFIED
+FR-INST-007,Functional,"기관코드 opens the edit view; all values escaped with no concatenated markup","biztalk_admin_00.js IS_CD renderer builds an inline onclick",Must,"Security test",UC-INST-001,,D-I12,SPECIFIED
+FR-INST-008,Functional,"등록일자 and 수정일자 display date and time","biztalk_admin_00.js truncates to substring 0-8",Should,E2E,UC-INST-001,,D-I9,SPECIFIED
+FR-INST-009,Functional,"Row actions operate on exactly one selected institution","biztalk_admin_00.js getCheckData checks",Must,E2E,UC-INST-001;UC-INST-003,,D-I16,SPECIFIED
+FR-INSTC-001,Functional,"Register an institution with 기관코드 기관명 영문명 사업자등록번호 인증키 사용여부 설명","biztalk_admin_01_view.jsp form",Must,E2E,UC-INST-002,,,SPECIFIED
+FR-INSTC-002,Functional,"기관코드 is immutable once created","biztalk_admin_01.js disables IS_CD on update",Must,"Integration test",UC-INST-002,,,SPECIFIED
+FR-INSTC-003,Functional,"All validation rules enforced server-side including 기관코드 format and 사업자등록번호 digits","biztalk_admin_01.js fn_save client-only checks",Must,"Integration test per rule",UC-INST-002,,D-I19,SPECIFIED
+FR-INSTC-004,Functional,"등록 and 수정 are distinct; create with an existing 기관코드 is rejected and never overwrites","IDO.KKB_FT_FTIS_INFO_C001 blind UPSERT; DUP_CHECK_YN JS flag",Must,"Integration test",UC-INST-002,,D-I6,SPECIFIED
+FR-INSTC-005,Functional,"Duplicate check returns availability only never another institution record or 인증키","biztalk_admin_01_l001_act.jsp runs KKB_FT_FTIS_INFO_L002",Must,"Security test",UC-INST-002,,D-I3,SPECIFIED
+FR-INSTC-006,Functional,"등록일시 and 최종수정일시 stored as full YYYYMMDDHH24MISS","IDO.KKB_FT_FTIS_INFO_C001 to_char pattern omits HH",Must,"Unit test + data check",UC-INST-002,,D-I9,SPECIFIED
+FR-INSTC-007,Functional,"등록자 and 최종수정자 taken from the authenticated session","biztalk_admin_01_c001_act.jsp SessionManager",Must,"Integration test",UC-INST-002,,,SPECIFIED
+FR-INSTC-008,Functional,"Institution cache refreshed after a change; failure surfaced not swallowed","biztalk_admin_01_c001_act.jsp catch Throwable printStackTrace",Must,"Integration test",UC-INST-002,,D-I17,SPECIFIED
+FR-INSTC-009,Functional,"사업자등록번호 validated as a 10-digit number","biztalk_admin_01_view.jsp BRNO oninput; AMB-I06",Should,"Unit test",UC-INST-002,,D-I19,SPECIFIED
+FR-INSTL-001,Functional,"중지 sets 사용여부 N on FT_FTIS_INFO the record the list reads","IDO.KKB_FT_FTIS_INFO_U001 targets FT_INST_INFO; PM AMB-I01",Must,"Integration test",UC-INST-003,,D-I1,SPECIFIED
+FR-INSTL-002,Functional,"재사용 restores 사용여부 Y from the list screen","biztalk_admin_00.js only ever sends USE_YN N",Must,E2E,UC-INST-003,,D-I18,SPECIFIED
+FR-INSTL-003,Functional,"Status change requires confirmation and writes a history record","biztalk_admin_00.js 중지 has no confirmation",Must,"E2E + integration test",UC-INST-003,BR-016,D-I16,SPECIFIED
+FR-INSTL-004,Functional,"삭제 is a logical delete with the record retained and a deletion history entry","IDO.KKB_FT_FTIS_INFO_D001 physical DELETE; PM AMB-I03",Must,"Integration test",UC-INST-003,BR-016,D-I7,SPECIFIED
+FR-INSTL-005,Functional,"Deleted institutions excluded from the default list; 발신번호 deactivated with KKB_DPNO_HIS retained","biztalk_admin_00_d001_act.jsp; IDO.KKB_DPNO_LDGR_D002",Must,"Integration test",UC-INST-001;UC-INST-003,,D-I7,SPECIFIED
+FR-INSTL-006,Functional,"Deletion executes as one transaction; any sub-operation failure rolls back everything","biztalk_admin_00_d001_act.jsp line 87 tests idoOut1 instead of idoOut2",Must,"Integration test",UC-INST-003,,D-I8,SPECIFIED
+FR-INSTL-007,Functional,"Confirmation dialog appears only after a valid selection","biztalk_admin_00.js confirm precedes the selection check",Must,E2E,UC-INST-003,,D-I16,SPECIFIED
+FR-INSTL-008,Functional,"Dependent-record counts shown before deletion","PM AMB-I03; AMB-I05",Should,E2E,UC-INST-003,,D-I7,SPECIFIED
+FR-INSTL-009,Functional,"미사용 or deleted institution cannot authenticate to the send API","IS_STTS semantics; consequence of D-I1",Must,"Integration test",UC-INST-003,BR-002,D-I1,SPECIFIED
+FR-ATK-001,Functional,"인증키 generated server-side with a CSPRNG","biztalk_admin_01.js Math.random 20 chars; PM AMB-I04",Must,"Code review + security test",UC-INST-002,,D-I4,SPECIFIED
+FR-ATK-002,Functional,"인증키 masked in the list grid and in every list response","WSVC.biztalk_admin_00_l001 out rule includes ATK; PM AMB-I04",Must,"Security test",UC-INST-001,BR-007,D-I5,SPECIFIED
+FR-ATK-003,Functional,"Revealing a full 인증키 is separately authorized and audited","PM AMB-I04; AMB-I09",Must,"Security test + audit review",UC-INST-002,,D-I5,SPECIFIED
+FR-ATK-004,Functional,"인증키 never returned by duplicate check never logged never exported","biztalk_admin_01_l001_act.jsp; PM AMB-I04",Must,"Static analysis + security test",UC-INST-002,,D-I3,SPECIFIED
+FR-ATK-005,Functional,"Per-institution key rotation is a first-class audited operation","PM AMB-I04 residual risk RESIDUAL-I01",Should,"Integration test",UC-INST-002;UC-INST-003,,,SPECIFIED
+FR-ATK-006,Functional,"Existing 인증키 values preserved unchanged through migration","PM AMB-I04",Must,"Migration verification",UC-INST-002,,,SPECIFIED
+NFR-PERF-I01,Non-Functional,"Institution list response P95 under 1 s at default page size","AMB-I07 assumed",Must,"Load test",UC-INST-001,,,SPECIFIED
+NFR-PERF-I02,Non-Functional,"Default page size 20 rows maximum 200","biztalk_admin_00.js LIST_CNT 10 versus rowsPerpage 200",Must,"Load test",UC-INST-001,,D-I10,SPECIFIED
+NFR-PERF-I03,Non-Functional,"Create update status change and delete each P95 under 1 s","AMB-I07 assumed",Must,"Load test",UC-INST-002;UC-INST-003,,,SPECIFIED
+NFR-SEC-AUTHZ-I01,Non-Functional,"Role-based authorization enforced server-side on every endpoint in the module","WSVC login flag only",Must,"Security audit + code review",UC-INST-001;UC-INST-002;UC-INST-003,BR-002,D-I2,SPECIFIED
+NFR-SEC-CRED-I01,Non-Functional,"인증키 handled as a credential CSPRNG at least 128 bits masked in transit never logged","biztalk_admin_01.js Math.random",Must,"Security audit",UC-INST-002,,D-I4,SPECIFIED
+NFR-SEC-CRED-I02,Non-Functional,"No endpoint discloses credential material to an unauthenticated or non-operator caller","biztalk_admin_01_l001_act.jsp",Must,"Security test",UC-INST-002,,D-I3,SPECIFIED
+NFR-SEC-INJ-I01,Non-Functional,"All query parameters bound and all output escaped at render time","IDO named binds; biztalk_admin_00.js IS_CD renderer",Must,"Static analysis",UC-INST-001;UC-INST-002,,D-I12,SPECIFIED
+NFR-SEC-PII-I01,Non-Functional,"Person names in history records remain encrypted at rest","IDO.KKB_DPNO_HIS_C001 encrypts RGSR_NM",Must,"Security audit",UC-INST-003,BR-007,,SPECIFIED
+NFR-SEC-LOG-I01,Non-Functional,"No credential encrypted value or personal data in application logs","debug logging of error payloads in all action JSPs",Must,"Static analysis",UC-INST-001;UC-INST-002;UC-INST-003,,,SPECIFIED
+NFR-SEC-CHANNEL-I01,Non-Functional,"All client traffic over TLS","Proposal section 3 internet-facing",Must,"Security audit",UC-INST-001,,,SPECIFIED
+NFR-OPS-AUDIT-I01,Non-Functional,"Every create update status change and delete writes an audit record with before/after","mntLogYn Y on all services; BR-005",Must,"Operational audit",UC-INST-002;UC-INST-003,BR-005,,SPECIFIED
+NFR-OPS-AUDIT-I02,Non-Functional,"Audit records retained for the statutory term 보류","OI-02 carried from Skill 01",Must,"Operational audit",UC-INST-003,BR-016,,OPEN
+NFR-OPS-I01,Non-Functional,"Institution change reflected in the runtime cache or the operation reports failure","biztalk_admin_01_c001_act.jsp FINInstitution reload",Must,"Integration test",UC-INST-002,,D-I17,SPECIFIED
+NFR-OPS-I02,Non-Functional,"Cache-refresh failure raises an operational alert","catch Throwable printStackTrace",Must,"Integration test",UC-INST-002,,D-I17,SPECIFIED
+NFR-COMPAT-I01,Non-Functional,"Supported browsers modern evergreen","AMB-09 assumed",Should,"Compatibility test",UC-INST-001,,,SPECIFIED
+NFR-USE-I01,Non-Functional,"Search criteria persist when returning from the edit popup to the list","biztalk_admin_00.js popCallbackFn",Should,E2E,UC-INST-001,,,SPECIFIED
+CONST-DATA-I01,Constraint,"FT_FTIS_INFO is the authoritative institution master","5 of 6 legacy queries; PM AMB-I01",Must,"Review + data audit",UC-INST-001;UC-INST-003,,D-I1,SPECIFIED
+CONST-DATA-I02,Constraint,"Logical delete implemented with zero DDL via IS_STTS=D plus the existing audit store; CONST-DATA-01 holds unchanged","PM AMB-I03; ADR-INST-014; CONFLICT-I02 dissolved",Must,"CI check for zero DDL",UC-INST-003,,D-I7,SPECIFIED
+CONST-DATA-I03,Constraint,"ENCRYPT and decrypt DB functions remain the mechanism for 발신번호 and 등록자명","IDO.KKB_DPNO_HIS_C001; IDO.KKB_DPNO_LDGR_D002",Must,"Review",UC-INST-003,BR-007,,SPECIFIED
+CONST-DATA-I04,Constraint,"Legacy IDO maps SELECT columns to output fields positionally; the port must map by name","IDO.KKB_FT_FTIS_INFO_L001",Must,"Code review",UC-INST-001,,,SPECIFIED
+CONST-BIZ-I01,Constraint,"Existing 인증키 values preserved as live client-company integration credentials","PM AMB-I04",Must,"Migration verification",UC-INST-002,,,SPECIFIED

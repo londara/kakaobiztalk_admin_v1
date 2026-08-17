@@ -1,0 +1,40 @@
+# =============================================================================
+# 로컬 개발 프로파일 / local development profile
+#
+# 활성화 / activate:
+#   mvn spring-boot:run -Dspring-boot.run.profiles=local
+#   또는 IDE 실행 구성에 -Dspring.profiles.active=local
+#
+# ⚠ 이 파일은 <b>개발 전용</b>이다. 운영 기본값은 application.yml 이 유지하며,
+#   여기의 값은 어떤 경우에도 운영에 사용되어서는 안 된다.
+#   Development only. Production defaults stay in application.yml and nothing here
+#   may be used in production.
+# =============================================================================
+
+iris:
+  auth:
+    # HTTPS 강제를 끈다.
+    #
+    # 왜 필요한가 / why this exists:
+    #   기본값(true)에서는 SecurityConfig 의 requiresChannel().requiresSecure() 가
+    #   모든 평문 요청을 https://localhost:8443 으로 302 리다이렉트한다. 로컬에는 TLS
+    #   리스너가 없으므로 프론트엔드 개발 서버(Vite, :5173)의 /api 프록시가 8080 으로
+    #   보낸 모든 요청이 리다이렉트만 받고 실패한다.
+    #
+    #   With the default, every plaintext request is 302-redirected to :8443, where nothing
+    #   listens — so the Vite dev proxy's calls to :8080 never reach the application.
+    #
+    # ⚠ 운영에서는 절대 false 로 두지 않는다. 자격증명과 OTP 코드가 평문으로 흐른다.
+    #   Never false in production: credentials and OTP codes would travel in the clear.
+    require-https: false
+
+logging:
+  level:
+    # 매퍼가 실제로 실행하는 SQL 을 보기 위함. 레거시 이식 SQL 을 실행 시점에 확인해야
+    # 하는 단계이므로 켜 둔다.
+    # Shows the SQL the mappers actually execute — needed while validating the ported SQL.
+    com.webcash.iris: DEBUG
+    org.springframework.jdbc.core: DEBUG
+    # 어느 필터가 요청을 거절하는지 보기 위함 / shows which filter rejects a request
+    org.springframework.security: DEBUG
+    org.springframework.security.web.csrf: TRACE
