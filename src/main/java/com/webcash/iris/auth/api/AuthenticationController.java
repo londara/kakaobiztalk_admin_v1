@@ -7,10 +7,18 @@ import com.webcash.iris.common.audit.AuditEvent;
 import com.webcash.iris.common.audit.AuditService;
 import com.webcash.iris.common.tenant.TenantContextFilter;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -36,6 +44,24 @@ public class AuthenticationController {
     private final SessionRegistry sessions;
     private final RateLimiter rateLimiter;
     private final AuditService audit;
+
+    /**
+     * Spring Security 컨텍스트 저장소. / Spring Security context store.
+     *
+     * <p>커스텀 로그인은 자격증명·OTP 를 자체 검증한 뒤 여기서 Spring Security 의
+     * {@link org.springframework.security.core.Authentication} 을 세션에 저장한다. 이것이
+     * 없으면 이후 요청은 익명으로 취급되어 {@code anyRequest().authenticated()} 와
+     * {@code /api/admin/** → hasRole('OPERATOR')} 가 전부 403 을 반환한다(실측: 로그인 성공
+     * 후 InstitutionPage 의 /api/admin/institutions/search 가 403).</p>
+     * <p>The custom login verifies credentials and OTP itself, then stores a Spring Security
+     * {@code Authentication} in the session here. Without it, later requests are anonymous and
+     * {@code anyRequest().authenticated()} / {@code /api/admin/** hasRole('OPERATOR')} all return
+     * 403 — the exact symptom after a successful login.</p>
+     *
+     * // req: FR-LOGIN-018, FR-TEN-004
+     */
+    private final SecurityContextRepository securityContextRepository =
+            new HttpSessionSecurityContextRepository();
 
     /**
      * 컨트롤러 생성. / Creates the controller.
@@ -72,7 +98,8 @@ public class AuthenticationController {
     // req: FR-LOGIN-001, FR-LOGIN-016, FR-LOGIN-017, NFR-SEC-SESSION-L01
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest body,
-                                               HttpServletRequest request) {
+                                               HttpServletRequest request,
+                                               HttpServletResponse response) {
         String sourceIp = trustedSourceIp(request);
         String correlationId = UUID.randomUUID().toString();
 
@@ -122,6 +149,23 @@ public class AuthenticationController {
         session.setAttribute(TenantContextFilter.SESSION_INSTITUTION,
                 result.account().institutionCode());
         session.setAttribute(TenantContextFilter.SESSION_OPERATOR, result.operator());
+
+        // Spring Security 컨텍스트를 확립한다. 이것이 있어야 이후 요청에서
+        // anyRequest().authenticated() 와 /api/admin/** hasRole('OPERATOR') 가 통과한다.
+        // 운영자는 ROLE_OPERATOR, 그 외는 ROLE_USER 권한을 갖는다(FR-LOGIN-018).
+        // Establishes the Spring Security context so later requests pass authorization; operators
+        // get ROLE_OPERATOR, others ROLE_USER.
+        var authority = result.operator()
+                ? new SimpleGrantedAuthority("ROLE_OPERATOR")
+                : new SimpleGrantedAuthority("ROLE_USER");
+        var authToken = UsernamePasswordAuthenticationToken.authenticated(
+                body.email(), null, List.of(authority));
+        SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
+        securityContext.setAuthentication(authToken);
+        SecurityContextHolder.setContext(securityContext);
+        // 세션에 저장한다 — 저장하지 않으면 컨텍스트가 이 요청 한 번만 유효하다.
+        // Persist to the session; without saving, the context lives only for this one request.
+        securityContextRepository.saveContext(securityContext, request, response);
 
         Optional<?> displaced = sessions.register(
                 body.email(), sessionId, sourceIp, request.getHeader("User-Agent"));

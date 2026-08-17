@@ -432,3 +432,77 @@ tbody tr:hover {
   white-space: nowrap;
   border: 0;
 }
+
+/* =============================================================================
+   로그인 후 셸 + 우측 내비게이션 바. / Post-login shell + right-hand nav bar.
+   req: FR-LOGIN-018, NFR-COMPAT-01
+   ============================================================================= */
+.app-shell {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  min-height: 100vh;
+  /* 내비게이션을 왼쪽에 둔다: DOM 순서는 콘텐츠가 먼저이나 flex order 로 내비를 앞에 둔다.
+     Nav on the left: content is first in the DOM, but flex order places the nav ahead of it. */
+}
+
+.app-content {
+  flex: 1 1 auto;
+  min-width: 0;   /* 표 overflow 가 셸을 넘치지 않게 한다 / keep wide tables from overflowing */
+}
+
+.app-nav {
+  flex: 0 0 200px;
+  order: -1;                /* 왼쪽 배치 / place on the left */
+  position: sticky;
+  top: 0;
+  align-self: stretch;
+  padding: 16px 12px;
+  background: #f5f7fa;
+  border-right: 1px solid var(--border);
+}
+
+.app-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.app-nav .nav-item {
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--primary);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.app-nav .nav-item:hover:not(.active) {
+  background: #e9eef5;
+}
+
+.app-nav .nav-item.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+/* 좁은 화면에서는 상단 가로 메뉴로 전환. / On narrow screens, a top horizontal menu. */
+@media (max-width: 720px) {
+  .app-shell { flex-direction: column; }
+  .app-nav {
+    flex-basis: auto;
+    order: -1;              /* 콘텐츠 위로 / above the content */
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    position: static;
+  }
+  .app-nav ul { flex-direction: row; flex-wrap: wrap; }
+}
