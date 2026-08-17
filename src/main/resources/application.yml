@@ -74,7 +74,7 @@ iris:
       # Base64 of exactly 32 bytes. NO DEFAULT: the application must fail to start rather
       # than encrypt credential material under a key that is published in source.
       # Generate with: openssl rand -base64 32
-      secret-key: ${IRIS_OTP_SECRET_KEY:E0lV/9B+V4JTWEk31kwKH46Jwfg9UqzfadjRLu43e4U=}
+      secret-key: ${IRIS_OTP_SECRET_KEY}
 
     # req: ADR-LOGIN-011 — legacy SHA-256 verification.
     # MUST remain false until the PM rules on upgrade-on-login vs forced reset,
