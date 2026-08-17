@@ -1,15 +1,22 @@
 package com.webcash.iris.auth.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.webcash.iris.biztalk.api.MessageHistoryController;
 import com.webcash.iris.biztalk.domain.CsvExporter;
+import com.webcash.iris.biztalk.domain.MessageHistoryCriteria;
+import com.webcash.iris.biztalk.domain.MessageHistoryRow;
 import com.webcash.iris.biztalk.domain.MessageHistoryService;
+import com.webcash.iris.biztalk.domain.PagedResult;
 import jakarta.servlet.http.Cookie;
 import java.time.Clock;
+import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,6 +71,27 @@ class CsrfIntegrationTest {
     private static final String SEARCH = "/api/message-history/search";
     private static final String BODY =
             "{\"from\":\"2026-08-13T00:00:00\",\"to\":\"2026-08-14T00:00:00\"}";
+
+    /**
+     * 모의 서비스가 빈 페이지를 반환하도록 고정한다. / Stubs the mocked service to return an empty page.
+     *
+     * <p>이 테스트의 관심사는 <b>CSRF 필터 체인</b>이지 조회 결과가 아니다. 다만 토큰이 통과한
+     * 요청은 컨트롤러까지 도달하므로, 모의 객체가 기본값 {@code null} 을 반환하면
+     * {@code MessageHistoryResponse.from()} 이 {@code result.rows()} 에서
+     * {@code NullPointerException} 을 던지고, 그 예외가 MockMvc 밖으로 전파되어 상태 코드
+     * 판정 자체가 불가능해진다. 즉 <b>CSRF 가 정상 동작할 때만 실패하는</b> 테스트가 된다.</p>
+     * <p>This test is about the <b>CSRF filter chain</b>, not the search result. But a request
+     * that passes the token check reaches the controller, and an unstubbed mock returns
+     * {@code null}, so {@code MessageHistoryResponse.from()} throws a
+     * {@code NullPointerException} on {@code result.rows()}. That exception propagates out of
+     * MockMvc and makes the status assertion impossible — the test fails <b>precisely when CSRF
+     * works</b>, which is the opposite of what it is checking.</p>
+     */
+    @BeforeEach
+    void stubSearch() {
+        given(service.search(any(MessageHistoryCriteria.class), any(), any()))
+                .willReturn(new PagedResult<MessageHistoryRow>(List.of(), 0, 0, 50));
+    }
 
     // -------------------------------------------------------------------------
     // CR-01 회귀 방지 — 토큰 없는 요청은 거절된다
@@ -140,7 +168,10 @@ class CsrfIntegrationTest {
                 .andReturn();
 
         Cookie issued = first.getResponse().getCookie("XSRF-TOKEN");
-        assertThat(issued).isNotNull();
+        assertThat(issued)
+                .as("an authenticated request must also receive an XSRF-TOKEN cookie; "
+                        + "without one a logged-in SPA has no token to echo — see CR-02")
+                .isNotNull();
 
         mvc.perform(post(SEARCH)
                         .contentType(MediaType.APPLICATION_JSON)

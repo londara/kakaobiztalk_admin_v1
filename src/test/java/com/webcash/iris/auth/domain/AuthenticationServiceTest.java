@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.webcash.iris.auth.config.OtpDevBypass;
 import com.webcash.iris.auth.crypto.PasswordHasher;
 import com.webcash.iris.auth.crypto.SecretCipher;
 import com.webcash.iris.auth.crypto.TotpVerifier;
@@ -18,6 +19,7 @@ import com.webcash.iris.common.audit.AuditService;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import org.springframework.mock.env.MockEnvironment;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -64,14 +66,6 @@ class AuthenticationServiceTest {
     @Mock private UserMapper users;
     @Mock private PasswordHasher hasher;
     @Mock private TotpVerifier totp;
-    // 아래 4개는 Sprint L3~L5 에서 AuthenticationService 에 추가된 협력자다. 이 테스트가
-    // 한 번도 컴파일되지 않았으므로 그 변경이 여기에 반영되지 않았다.
-    // Added to AuthenticationService in sprints L3-L5; never reflected here because this test
-    // was never compiled.
-    @Mock private com.webcash.iris.auth.crypto.SecretCipher cipher;
-    @Mock private OtpReplayGuard replayGuard;
-    @Mock private IpAllowlistPolicy ipAllowlist;
-    @Mock private AdminLoginNotifier notifier;
     @Mock private SecretCipher cipher;
     @Mock private OtpReplayGuard replayGuard;
     @Mock private IpAllowlistPolicy ipAllowlist;
@@ -82,21 +76,18 @@ class AuthenticationServiceTest {
 
     @BeforeEach
     void setUp() {
+        // 개발용 OTP 우회는 <b>비활성</b> 인스턴스를 주입한다. 이 테스트 클래스가 검증하는
+        // 것은 우회가 없을 때의 인증 규칙이며, 특히 SingleFactorPrevention 은 비밀번호만으로
+        // 통과하는 경로가 없다는 것을 단정한다 — 우회가 켜진 채로는 그 단정이 무의미해진다.
+        // 우회 자체의 동작과 안전장치는 OtpDevBypassTest 가 검증한다.
+        // An <b>inactive</b> dev bypass is injected. This class verifies the authentication rules
+        // as they stand without it — SingleFactorPrevention in particular asserts that no path
+        // completes on a password alone, which the bypass would render vacuous. The bypass's own
+        // behaviour and its safety interlock are verified by OtpDevBypassTest.
         service = new AuthenticationService(
                 users, hasher, totp, cipher, replayGuard,
-                new AccountPolicy(FIXED, 90, 90), ipAllowlist, notifier, audit);
-
-        // 암호화된 OTP_KEY 를 복호화하는 단계가 SR-03 수정으로 추가되었다. 기본 동작을
-        // 지정하지 않으면 복호화 결과가 null 이 되어 모든 OTP 검증이 실패한다.
-        // The decrypt step was added by the SR-03 fix; without a default the OTP key becomes null
-        // and every verification fails.
-        when(cipher.decrypt(anyString())).thenAnswer(inv -> inv.getArgument(0));
-        when(replayGuard.tryConsume(anyString(), anyString())).thenReturn(true);
-        // assertAllowed 는 void 이고 위반 시 예외를 던진다. mock 기본 동작(무동작)이 곧
-        // "허용"이므로 별도 stub 이 필요 없다.
-        // assertAllowed is void and throws on violation, so the mock's default no-op means "allow".
-                users, hasher, totp, cipher, replayGuard,
-                new AccountPolicy(FIXED, 90, 90), ipAllowlist, notifier, audit);
+                new AccountPolicy(FIXED, 90, 90), ipAllowlist, notifier, audit,
+                new OtpDevBypass(false, new MockEnvironment()));
 
         // 저장된 OTP 비밀키는 암호화되어 있고 서비스가 검증 직전에 복호화한다. 테스트에서는
         // 항등 복호화를 사용해 각 테스트가 OTP_SECRET 을 그대로 다루게 한다 — 암호화 자체는
@@ -116,7 +107,6 @@ class AuthenticationServiceTest {
                                 LocalDate lastLogin, LocalDate lastPwdChange,
                                 boolean initialPwd, String otpKey, String modernHash) {
         return new UserAccount(EMAIL, modernHash, "legacy-sha256", otpKey,
-                loginAttempt, otpFail, status, lastLogin, lastPwdChange, initialPwd, false, "IS001");
                 loginAttempt, otpFail, status, lastLogin, lastPwdChange, initialPwd, false,
                 INSTITUTION);
     }

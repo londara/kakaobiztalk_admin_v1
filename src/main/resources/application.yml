@@ -10,9 +10,9 @@ spring:
   application:
     name: iris-portal
   datasource:
-    url: jdbc:postgresql://172.29.202.29:53779/kakaobiztalkdevdb
-    username: kakaobiztalkdev
-    password: kakaobiztalkdev123
+    url: jdbc:postgresql://136.85.16.4:5432/kakaobiztalkdev
+    username: biztalk_user
+    password: biztalk123
     hikari:
       # req: RISK-L11 / TM-L013 — bounded pool so one tenant cannot starve others
       maximum-pool-size: ${IRIS_DB_POOL_MAX:10}
@@ -74,7 +74,7 @@ iris:
       # Base64 of exactly 32 bytes. NO DEFAULT: the application must fail to start rather
       # than encrypt credential material under a key that is published in source.
       # Generate with: openssl rand -base64 32
-      secret-key: ${IRIS_OTP_SECRET_KEY}
+      secret-key: ${IRIS_OTP_SECRET_KEY:E0lV/9B+V4JTWEk31kwKH46Jwfg9UqzfadjRLu43e4U=}
 
     # req: ADR-LOGIN-011 — legacy SHA-256 verification.
     # MUST remain false until the PM rules on upgrade-on-login vs forced reset,

@@ -7,11 +7,12 @@
   req:    FR-LOGIN-002/003/004/005/010/018/020, CONST-DATA-L01
 
   이식 원칙 / porting principle:
-    레거시 SQL 을 near-verbatim 으로 옮기고, 변경한 줄에는 `-- FIX Ln:` 주석을 남긴다.
+    레거시 SQL 을 near-verbatim 으로 옮기고, 변경한 줄에는 하이픈 두 개로 시작하는
+    `FIX Ln:` SQL 주석을 남긴다.
     레거시 소스가 유일한 명세이므로(RISK-001) 변경점이 리뷰 가능해야 한다.
     The legacy SQL is carried across near-verbatim and every altered line carries a
-    `-- FIX Ln:` comment, because the legacy source is the only specification and the
-    delta must be reviewable line by line.
+    `FIX Ln:` SQL line comment (prefixed by two hyphens), because the legacy source is
+    the only specification and the delta must be reviewable line by line.
 
   추가 전용 DDL / additive-only DDL:
     PWD_HASH / PWD_SCHEME 는 신규 컬럼이며 레거시 PWD 컬럼은 건드리지 않는다.

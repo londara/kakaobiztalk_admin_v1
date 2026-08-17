@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ============================================================================
+  로깅 설정 / logging configuration
+  ============================================================================
+  req: NFR-SEC-LOG-L01, NFR-SEC-LOG-D01, NFR-OPS-AUDIT-D01, NFR-OPS-AUDIT-D02
+
+  application.yml 의 logging.level 설정은 그대로 유효하다. 이 파일은 <b>출력 형식</b>과
+  <b>보존</b>을 정의한다 — 특히 상관 식별자(%X{cid})를 모든 줄에 넣는 일은 패턴에서만
+  할 수 있다.
+  The logging.level settings in application.yml still apply. This file defines the output
+  format and retention; in particular, putting the correlation id on every line can only be
+  done in the pattern.
+
+  ============================================================================
+  감사 로그와 애플리케이션 로그는 다른 것이다 / audit log and application log differ
+  ============================================================================
+  전자금융감독규정 관점의 감사 증적은 DB(AuditService)에 있고 그쪽이 정본이다. 파일 로그는
+  운영 관찰용이며 <b>증적으로 쓰지 않는다</b> — 파일은 회전되고 삭제되며 위·변조 탐지가
+  없기 때문이다. 그래서 이 파일에는 신원(이메일)이 남지 않는다(ActorRef).
+  The audit trail of record lives in the database (AuditService). File logs are for operational
+  observation and are <b>not</b> evidence: they rotate, they are deleted, and they carry no
+  tamper detection. That is why no identity (email) reaches them — see ActorRef.
+-->
+<configuration>
+
+  <springProperty scope="context" name="instanceName" source="iris.instance-name" defaultValue="local"/>
+
+  <!--
+    Spring Boot 의 색상 변환기를 등록한다. 이 파일이 Boot 의 기본 콘솔 설정을 대체하면서
+    색상도 함께 사라졌다 — 기본 설정이 등록해 주던 것이 이 변환기들이다.
+    Registers Spring Boot's colour converters. This file replaced Boot's default console
+    configuration, and the colour went with it: these converters are what the default
+    configuration had registered.
+
+    defaults.xml 을 통째로 include 하지 않는 이유는, 그것이 콘솔 패턴과 몇몇 로거 레벨까지
+    함께 정의하기 때문이다. 여기서는 필요한 변환기만 가져와 이 파일이 형식의 단일 정의로
+    남게 한다.
+    defaults.xml is not included wholesale because it also defines the console pattern and some
+    logger levels; taking only the converters keeps this file the single definition of format.
+
+    %clr 은 AnsiOutput 설정(spring.output.ansi.enabled, 기본 DETECT)을 따른다. 색이 보이지
+    않는 터미널이라면 파일을 고치지 않고 환경변수로 강제할 수 있다:
+    %clr honours AnsiOutput (spring.output.ansi.enabled, DETECT by default). On a terminal where
+    detection fails it can be forced without editing any file:
+        SPRING_OUTPUT_ANSI_ENABLED=ALWAYS
+  -->
+  <conversionRule conversionWord="clr"
+                  converterClass="org.springframework.boot.logging.logback.ColorConverter"/>
+  <conversionRule conversionWord="wEx"
+                  converterClass="org.springframework.boot.logging.logback.ExtendedWhitespaceThrowableProxyConverter"/>
+
+  <!--
+    %X{cid} 가 상관 식별자다. 값이 없으면 빈 칸으로 나온다 — 스케줄러처럼 요청 밖에서
+    도는 코드가 여기에 해당하며, 그 자체가 "요청 맥락이 아니다"라는 정보다.
+    %X{cid} is the correlation id. It renders empty outside a request — scheduled jobs, for
+    instance — and that emptiness is itself the information that there is no request context.
+  -->
+  <!--
+    콘솔은 사람이 읽는다 — 색을 쓴다. 레벨은 %clr 이 심각도에 따라 자동으로 칠하므로
+    (ERROR 빨강, WARN 노랑, INFO 초록) WARN 과 ERROR 가 스크롤 속에서 눈에 띈다. 상관
+    식별자는 자홍색으로 고정해, 한 요청의 줄들을 시각적으로 묶어 따라가기 쉽게 한다.
+    The console is read by a human, so it is coloured. %clr paints the level by severity
+    (ERROR red, WARN yellow, INFO green) so those stand out while scrolling, and the correlation
+    id is pinned to magenta so one request's lines can be followed by eye.
+  -->
+  <property name="CONSOLE_PATTERN"
+            value="%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(%-5level) %clr([%X{cid:-________}]){magenta} %clr(%logger{36}){cyan} %clr(-){faint} %msg%n%wEx"/>
+
+  <!--
+    파일에는 색을 넣지 않는다. ANSI 이스케이프가 파일에 들어가면 grep·awk 결과에 제어문자가
+    섞이고, 로그 수집기가 필드를 잘못 파싱한다. 색은 터미널의 성질이지 로그의 내용이 아니다.
+    Files carry no colour. ANSI escapes in a file put control characters into grep and awk output
+    and make log collectors mis-parse fields. Colour is a property of the terminal, not of the
+    log's content.
+  -->
+  <property name="FILE_PATTERN"
+            value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [${instanceName}] [%X{cid:-________}] %logger{40} - %msg%n%wEx"/>
+
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>${CONSOLE_PATTERN}</pattern>
+      <charset>UTF-8</charset>
+    </encoder>
+  </appender>
+
+  <!--
+    운영 프로필에서만 파일로 남긴다. 로컬 개발에서 파일을 만들면 .gitignore 관리가 필요해지고,
+    실수로 커밋될 여지가 생긴다.
+    Files only in deployed profiles: writing them during local development creates something that
+    has to be kept out of version control, and therefore something that can be committed by
+    mistake.
+  -->
+  <springProfile name="dev,staging,prod">
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+      <file>${LOG_PATH:-logs}/iris-portal.log</file>
+      <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+        <fileNamePattern>${LOG_PATH:-logs}/iris-portal.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+        <maxFileSize>100MB</maxFileSize>
+        <!--
+          보존 기간은 잠정값이다. 감사 보존 기간(CONST-LEGAL-02 / OI-02)이 아직 미결이며,
+          그 결정이 나면 이 값도 함께 검토해야 한다 — 다만 이 파일은 증적이 아니므로
+          감사 보존 기간과 같을 필요는 없다.
+          Provisional. The audit retention term (CONST-LEGAL-02 / OI-02) is unresolved and this
+          value should be revisited alongside it — though as these files are not evidence, they
+          need not match the audit term.
+        -->
+        <maxHistory>30</maxHistory>
+        <totalSizeCap>3GB</totalSizeCap>
+      </rollingPolicy>
+      <encoder>
+        <pattern>${FILE_PATTERN}</pattern>
+        <charset>UTF-8</charset>
+      </encoder>
+    </appender>
+
+    <root level="INFO">
+      <appender-ref ref="CONSOLE"/>
+      <appender-ref ref="FILE"/>
+    </root>
+  </springProfile>
+
+  <springProfile name="local,test,default">
+    <root level="INFO">
+      <appender-ref ref="CONSOLE"/>
+    </root>
+  </springProfile>
+
+  <!--
+    인증 패키지는 절대 DEBUG 로 내리지 않는다. 레거시가 중복 로그인마다 이메일·세션
+    식별자·IP 를 debug 로 남겼고, NFR-SEC-LOG-L01 은 그 실패를 막기 위해 존재한다.
+    여기서 INFO 로 고정해 두면 application.yml 을 잘못 건드려도 한 겹이 남는다.
+    The auth package is never lowered to DEBUG. The legacy logged email, session id and IP at
+    debug on every duplicate login, and NFR-SEC-LOG-L01 exists to prevent that. Pinning it here
+    leaves one layer of protection if application.yml is edited carelessly.
+  -->
+  <logger name="com.webcash.iris.auth" level="INFO"/>
+
+  <!--
+    MyBatis 를 DEBUG 로 내리면 바인딩된 파라미터가 그대로 찍힌다 — 발신번호와 전화번호가
+    평문으로 로그에 남는 경로다(NFR-SEC-LOG-D01).
+    Lowering MyBatis to DEBUG prints bound parameters, which is a path for sender numbers and
+    phone numbers to reach the log in clear (NFR-SEC-LOG-D01).
+  -->
+  <logger name="com.webcash.iris.biztalk.infra.db" level="INFO"/>
+
+</configuration>
