@@ -230,10 +230,22 @@ describe('MessageHistoryPage', () => {
     return fetchMock;
   }
 
+  /**
+   * objectURL 메서드만 덧붙인다. / Patches only the objectURL methods.
+   *
+   * `vi.stubGlobal('URL', {...})` 로 전역을 교체하면 URL <b>생성자</b>가 사라지고, jsdom 의
+   * 쿠키 파서가 `new URL(...)` 을 쓰기 때문에 `document.cookie` 읽기가 깨진다. CSRF 헤더가
+   * 쿠키를 읽으므로(CR-01 수정) 그 방식은 더 이상 안전하지 않다.
+   *
+   * Replacing the global would drop the URL constructor, and jsdom's cookie parser needs it —
+   * which matters now that the CSRF header reads `document.cookie`.
+   */
   function stubObjectUrl() {
     const createObjectURL = vi.fn().mockReturnValue('blob:mock');
     const revokeObjectURL = vi.fn();
-    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
+    const url = URL as unknown as Record<string, unknown>;
+    url.createObjectURL = createObjectURL;
+    url.revokeObjectURL = revokeObjectURL;
     return { createObjectURL, revokeObjectURL };
   }
 

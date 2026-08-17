@@ -14,6 +14,7 @@
  */
 
 import { AuthApiError } from './authApi';
+import { csrfHeader } from './csrf';
 
 /** 조회 조건. / Search criteria. */
 export interface MessageHistoryQuery {
@@ -107,7 +108,8 @@ export class CriteriaError extends Error {
 async function post<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    // CR-01, ADR-014 — 없으면 조회·상세 전부 403.
+    headers: { 'Content-Type': 'application/json', ...csrfHeader() },
     credentials: 'same-origin',
     body: JSON.stringify(body),
   });
@@ -151,7 +153,11 @@ export function searchMessageHistory(query: MessageHistoryQuery): Promise<Messag
 export async function exportMessageHistory(query: MessageHistoryQuery): Promise<void> {
   const response = await fetch('/api/message-history/export', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    // 공용 `post` 를 쓰지 않는 경로이므로 CSRF 헤더를 <b>따로</b> 붙여야 한다.
+    // 이 중복이 CR-01 의 원인과 같은 유형이다 — 경로가 둘이면 한쪽만 고쳐진다.
+    // This path bypasses the shared `post`, so the header must be added separately — the same
+    // duplication that caused CR-01: two paths mean one of them gets fixed.
+    headers: { 'Content-Type': 'application/json', ...csrfHeader() },
     credentials: 'same-origin',
     body: JSON.stringify(query),
   });
