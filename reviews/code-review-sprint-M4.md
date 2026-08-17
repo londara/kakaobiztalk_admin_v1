@@ -1,8 +1,11 @@
 # 코드 리뷰 리포트 — Sprint M4 (전체 산출물)
 
 > **Skill**: 05 step [B] · **Date**: 2026-08-14 · **Agent**: `code-reviewer`
-> **대상**: 58 Java · 16 TS/TSX · 3 MyBatis XML · 8 QA 드라이버
+> **대상**: 58 Java · 18 TS/TSX · 3 MyBatis XML · 8 QA 드라이버
 > **판정**: **REJECT** — SEV-1 결함 1건 (전면 기능 정지)
+>
+> **2026-08-14 갱신**: **CR-01 은 코드 수정 완료**(ADR-014). 프론트엔드 12건 실행 검증.
+> 단 **서버 측 403 해소는 미검증**(기동 불가)이므로 판정은 SEC-01 과 함께 유지된다.
 
 ---
 
@@ -152,12 +155,30 @@ URL.revokeObjectURL(url);   // ← 동기 호출
 
 ## 요약
 
-| ID | 등급 | CVSS | 조치 시점 |
-|----|------|------|----------|
-| CR-01 | **SEV-1 기능** | N/A (오수정 시 8.8) | **즉시 · Skill 4 환송** |
-| CR-02 | MEDIUM | 4.3 | 다음 Sprint |
-| CR-03 | LOW | — | 다음 Sprint |
-| CR-04 | LOW | — | 백로그 |
-| CR-05 | LOW | — | 백로그 |
+| ID | 등급 | CVSS | 상태 |
+|----|------|------|------|
+| CR-01 | **SEV-1 기능** | N/A (오수정 시 8.8) | ✅ **FIXED** — ADR-014. 프론트 12건 검증. **서버 실측 미완** |
+| CR-02 | MEDIUM | 4.3 | OPEN — 다음 Sprint |
+| CR-03 | LOW | — | OPEN — 다음 Sprint |
+| CR-04 | LOW | — | OPEN — 백로그 |
+| CR-05 | LOW | — | OPEN — 백로그 |
 
-**판정: REJECT** (§7 — SEV-1 존재)
+## CR-01 수정 내역 / Fix record
+
+| 파일 | 변경 |
+|------|------|
+| `SecurityConfig.java` | 쿠키 저장소 + 평문 핸들러 + **`CsrfCookieFilter`** (지연 로딩 해제) |
+| `src/api/csrf.ts` (신규) | 쿠키 읽기 → `X-XSRF-TOKEN` 헤더 |
+| `authApi.ts` | 공용 `post` 에 헤더 부착 |
+| `messageHistoryApi.ts` | `post` **와** `exportMessageHistory` 양쪽에 부착 |
+| `csrf.test.ts` (신규) | **12건** — 토큰 읽기·경계 매칭·3개 API 경로 |
+
+**수정 중 발견한 것**: 흔한 처방(저장소만 쿠키로 교체)은 **Spring Security 6 에서 작동하지
+않는다.** 토큰이 지연 로딩되어 `Set-Cookie` 가 발행되지 않으며, **증상이 수정 전과 동일**하다.
+`CsrfCookieFilter` 가 없으면 "고쳤는데 그대로"가 된다.
+
+**부수 발견**: `vi.stubGlobal('URL', {...})` 이 URL **생성자**를 제거하여 jsdom 쿠키 파서를
+깨뜨렸다. `MessageHistoryPage.test.tsx` 의 헬퍼도 같은 문제를 갖고 있었고 함께 수정했다.
+
+**판정: REJECT 유지** — CR-01 은 닫혔으나 SEC-01(CVSS 7.5)이 미해결이고, CR-01 자체도
+서버 실행 검증이 없다.

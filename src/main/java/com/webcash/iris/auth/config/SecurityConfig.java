@@ -1,5 +1,10 @@
 package com.webcash.iris.auth.config;
 
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -7,7 +12,12 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * Spring Security 설정. / Spring Security configuration.
@@ -99,13 +109,46 @@ public class SecurityConfig {
                 .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                 .sessionFixation(fixation -> fixation.changeSessionId())
             )
-            // CSRF 는 활성 상태를 유지한다. SPA 는 토큰을 쿠키에서 읽어 헤더로 보낸다.
-            // 세션 쿠키 기반 인증(ADR-LOGIN-012)을 택했으므로 CSRF 는 실제 위협이다.
-            // CSRF stays enabled: having chosen cookie-based session authentication
-            // (ADR-LOGIN-012), CSRF is a real threat rather than a formality.
+            // CSRF 는 활성 상태를 유지한다. 세션 쿠키 기반 인증(ADR-LOGIN-012)을 택했으므로
+            // CSRF 는 형식이 아니라 실제 위협이다.
+            //
+            // ▼ CR-01 수정 (ADR-014). 이전에는 CSRF 만 활성화하고 토큰을 클라이언트에
+            //   전달하는 경로를 만들지 않았다. 기본 저장소는 HttpSessionCsrfTokenRepository
+            //   이므로 토큰이 세션에만 존재하고 JS 는 읽을 수 없었다 — 그 결과 로그인을
+            //   제외한 POST 9개가 전부 403 이었다.
+            //
+            // Fixes CR-01 (ADR-014): CSRF was enabled without any path for the client to obtain
+            // the token. The default repository keeps it in the session where JS cannot read it,
+            // so all nine POSTs other than login returned 403.
+            //
+            // req: NFR-SEC-CSRF, CR-01
             .csrf(csrf -> csrf
+                // ① 토큰을 JS 가 읽을 수 있는 쿠키(XSRF-TOKEN)로 내보낸다.
+                //    httpOnly=false 는 의도적이다 — SPA 가 값을 읽어 헤더에 실어야 한다.
+                //    이것이 XSS 위험을 만들지는 않는다: XSS 가 이미 성립했다면 공격자는
+                //    같은 출처에서 요청을 보낼 수 있으므로 CSRF 토큰은 애초에 방어선이 아니다.
+                //    httpOnly=false is deliberate; it does not create an XSS risk, because an
+                //    attacker with XSS can already issue same-origin requests.
+                .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                // ② 평문 핸들러를 쓴다. Spring Security 6 의 기본값
+                //    XorCsrfTokenRequestAttributeHandler 는 BREACH 대응으로 토큰을 마스킹하는데,
+                //    쿠키에서 값을 그대로 읽어 보내는 SPA 는 그 마스킹을 재현할 수 없다.
+                //    The default Xor handler masks the token for BREACH protection, which a SPA
+                //    echoing the cookie value cannot reproduce.
+                .csrfTokenRequestHandler(plainCsrfTokenHandler())
+                // ③ 로그인만 면제한다. 로그인 시점에는 세션도 토큰도 없다.
+                //    logout 은 면제하지 않는다 — 면제 목록이 길어지는 것 자체가 위험이다.
                 .ignoringRequestMatchers(new AntPathRequestMatcher("/api/auth/login", "POST"))
             )
+            // ④ 토큰을 <b>실제로 렌더링</b>하여 쿠키가 응답에 실리게 한다.
+            //    Spring Security 6 은 CsrfToken 을 지연 로딩한다. 아무도 getToken() 을
+            //    호출하지 않으면 값이 생성되지 않고, 따라서 Set-Cookie 도 나가지 않는다.
+            //    ①~③ 만으로는 쿠키가 <b>영원히 설정되지 않아</b> 수정이 무효가 된다.
+            //
+            //    Spring Security 6 loads the token lazily: if nothing calls getToken() the value
+            //    is never created and no Set-Cookie is emitted. Without this filter the first
+            //    three steps leave the cookie permanently absent and the fix does nothing.
+            .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
             .httpBasic(basic -> basic.disable())
             .formLogin(form -> form.disable());
 
@@ -148,5 +191,72 @@ public class SecurityConfig {
                                         + "form-action 'self'")));
 
         return http.build();
+    }
+
+    /**
+     * 마스킹하지 않는 CSRF 토큰 핸들러를 만든다.
+     * Builds a CSRF token handler that does not mask the token.
+     *
+     * <p>{@code setCsrfRequestAttributeName(null)} 은 지연 로딩을 해제한다. 설정하지 않으면
+     * 토큰이 요청 속성으로만 지연 등록되어, 이를 읽는 코드가 없는 요청에서는 값이 생성되지
+     * 않는다.</p>
+     * <p>{@code setCsrfRequestAttributeName(null)} opts out of deferred loading; otherwise the
+     * token is registered lazily and never materialises on requests where nothing reads it.</p>
+     *
+     * @return 평문 토큰 핸들러 / a non-masking token handler
+     */
+    // req: NFR-SEC-CSRF, CR-01
+    private static CsrfTokenRequestAttributeHandler plainCsrfTokenHandler() {
+        CsrfTokenRequestAttributeHandler handler = new CsrfTokenRequestAttributeHandler();
+        handler.setCsrfRequestAttributeName(null);
+        return handler;
+    }
+
+    /**
+     * CSRF 토큰을 강제로 렌더링하여 쿠키가 응답에 실리게 하는 필터.
+     * A filter that renders the CSRF token so the cookie is written to the response.
+     *
+     * <p><b>이 필터가 CR-01 수정의 핵심이다.</b> 저장소를 쿠키로 바꾸는 것만으로는 부족하다.
+     * Spring Security 6 은 {@link CsrfToken} 을 지연 로딩하므로, 어떤 코드도
+     * {@link CsrfToken#getToken()} 을 호출하지 않으면 토큰 값이 생성되지 않고
+     * {@code Set-Cookie} 도 발행되지 않는다. 그 상태에서 SPA 는 읽을 쿠키가 없고, 결과는
+     * 수정 전과 동일한 403 이다.</p>
+     * <p><b>This filter is the heart of the CR-01 fix.</b> Switching the repository to a cookie is
+     * not sufficient: Spring Security 6 loads the token lazily, so unless something calls
+     * {@link CsrfToken#getToken()} no value is generated and no {@code Set-Cookie} is issued —
+     * leaving the SPA with no cookie to read and the same 403 as before.</p>
+     *
+     * <p>{@link CsrfFilter} <b>뒤에</b> 배치해야 한다. 앞에 두면 요청 속성이 아직 없다.</p>
+     * <p>Must run <b>after</b> {@link CsrfFilter}; before it, the request attribute is absent.</p>
+     *
+     * // req: NFR-SEC-CSRF, CR-01
+     */
+    static final class CsrfCookieFilter extends OncePerRequestFilter {
+
+        /**
+         * 토큰을 렌더링한 뒤 체인을 계속한다. / Renders the token, then continues the chain.
+         *
+         * @param request  요청 / the request
+         * @param response 응답 / the response
+         * @param chain    필터 체인 / the filter chain
+         * @throws ServletException 서블릿 오류 / on servlet failure
+         * @throws IOException      입출력 오류 / on I/O failure
+         */
+        // req: NFR-SEC-CSRF, CR-01
+        @Override
+        protected void doFilterInternal(HttpServletRequest request,
+                                        HttpServletResponse response,
+                                        FilterChain chain)
+                throws ServletException, IOException {
+
+            CsrfToken token = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
+            if (token != null) {
+                // 반환값을 쓰지 않는다. 호출 자체가 토큰을 생성하고 쿠키를 기록하게 만든다.
+                // The return value is unused: the call itself materialises the token and causes
+                // the cookie to be written.
+                token.getToken();
+            }
+            chain.doFilter(request, response);
+        }
     }
 }

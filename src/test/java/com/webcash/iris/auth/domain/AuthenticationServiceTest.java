@@ -62,6 +62,14 @@ class AuthenticationServiceTest {
     @Mock private UserMapper users;
     @Mock private PasswordHasher hasher;
     @Mock private TotpVerifier totp;
+    // 아래 4개는 Sprint L3~L5 에서 AuthenticationService 에 추가된 협력자다. 이 테스트가
+    // 한 번도 컴파일되지 않았으므로 그 변경이 여기에 반영되지 않았다.
+    // Added to AuthenticationService in sprints L3-L5; never reflected here because this test
+    // was never compiled.
+    @Mock private com.webcash.iris.auth.crypto.SecretCipher cipher;
+    @Mock private OtpReplayGuard replayGuard;
+    @Mock private IpAllowlistPolicy ipAllowlist;
+    @Mock private AdminLoginNotifier notifier;
     @Mock private AuditService audit;
 
     private AuthenticationService service;
@@ -69,14 +77,25 @@ class AuthenticationServiceTest {
     @BeforeEach
     void setUp() {
         service = new AuthenticationService(
-                users, hasher, totp, new AccountPolicy(FIXED, 90, 90), audit);
+                users, hasher, totp, cipher, replayGuard,
+                new AccountPolicy(FIXED, 90, 90), ipAllowlist, notifier, audit);
+
+        // 암호화된 OTP_KEY 를 복호화하는 단계가 SR-03 수정으로 추가되었다. 기본 동작을
+        // 지정하지 않으면 복호화 결과가 null 이 되어 모든 OTP 검증이 실패한다.
+        // The decrypt step was added by the SR-03 fix; without a default the OTP key becomes null
+        // and every verification fails.
+        when(cipher.decrypt(anyString())).thenAnswer(inv -> inv.getArgument(0));
+        when(replayGuard.tryConsume(anyString(), anyString())).thenReturn(true);
+        // assertAllowed 는 void 이고 위반 시 예외를 던진다. mock 기본 동작(무동작)이 곧
+        // "허용"이므로 별도 stub 이 필요 없다.
+        // assertAllowed is void and throws on violation, so the mock's default no-op means "allow".
     }
 
     private UserAccount account(int loginAttempt, int otpFail, AccountStatus status,
                                 LocalDate lastLogin, LocalDate lastPwdChange,
                                 boolean initialPwd, String otpKey, String modernHash) {
         return new UserAccount(EMAIL, modernHash, "legacy-sha256", otpKey,
-                loginAttempt, otpFail, status, lastLogin, lastPwdChange, initialPwd, false);
+                loginAttempt, otpFail, status, lastLogin, lastPwdChange, initialPwd, false, "IS001");
     }
 
     private UserAccount healthy() {

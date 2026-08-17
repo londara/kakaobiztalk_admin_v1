@@ -41,7 +41,7 @@ class AccountPolicyTest {
     private UserAccount account(int loginAttempt, int otpFail, AccountStatus status,
                                 LocalDate lastLogin, LocalDate lastPwdChange, boolean initialPwd) {
         return new UserAccount("user@example.com", "$argon2id$hash", null, "SECRETKEY",
-                loginAttempt, otpFail, status, lastLogin, lastPwdChange, initialPwd, false);
+                loginAttempt, otpFail, status, lastLogin, lastPwdChange, initialPwd, false, "IS001");
     }
 
     private UserAccount healthy() {
