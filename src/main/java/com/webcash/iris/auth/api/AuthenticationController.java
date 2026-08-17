@@ -92,9 +92,19 @@ public class AuthenticationController {
         }
 
         // 세션 고정 방지 — 인증 성공 시점에 식별자를 교체한다.
-        // Session fixation defence: replace the id at the moment authentication succeeds.
-        request.changeSessionId();
+        //
+        // 순서가 중요하다: changeSessionId() 는 <b>기존 세션이 있어야</b> 동작하고, 없으면
+        // "Cannot change session ID. There is no session associated with this request." 로
+        // 실패한다. 레거시는 request.getSession() 으로 세션을 먼저 생성했다. 따라서 세션을
+        // 먼저 확보한 뒤 식별자를 교체한다. (이 경로는 인증 성공 시에만 도달하므로 실패
+        // 로그인이 세션을 만들지는 않는다.)
+        //
+        // Order matters: changeSessionId() requires an existing session and throws otherwise.
+        // The session is obtained first (as the legacy did with getSession()), then its id is
+        // rotated. Only a successful authentication reaches this code, so failed logins create
+        // no session.
         var session = request.getSession();
+        request.changeSessionId();
         String sessionId = session.getId();
 
         // 테넌트 컨텍스트의 근거를 세션에 심는다. TenantContextFilter 가 매 요청에서 이

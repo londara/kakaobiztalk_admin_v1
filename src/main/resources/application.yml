@@ -91,6 +91,13 @@ iris:
     otp:
       allowed-skew-steps: 1
 
+      # 레거시 OTP_KEY 는 평문 Base32 로 저장되어 있다(GoogleOTP). 복호화하지 않고 그대로
+      # TOTP 검증에 사용한다. false 가 아니면 평문 키를 복호화하려다 OTP 검증이 실패한다.
+      # The legacy OTP_KEY is stored as plaintext Base32; used as-is, not decrypted. If this were
+      # not false, OTP verification would fail trying to decrypt a plaintext key.
+      # req: ADR-LOGIN-011, AMB-L07
+      key-encrypted: ${IRIS_OTP_KEY_ENCRYPTED:false}
+
       # req: FR-OTP-003 — issuer label shown in Google Authenticator
       issuer: ${IRIS_OTP_ISSUER:IRIS BizTalk}
 
@@ -101,11 +108,21 @@ iris:
       secret-key: ${IRIS_OTP_SECRET_KEY:E0lV/9B+V4JTWEk31kwKH46Jwfg9UqzfadjRLu43e4U=}
 
     # req: ADR-LOGIN-011 — legacy SHA-256 verification.
-    # MUST remain false until the PM rules on upgrade-on-login vs forced reset,
-    # which depends on whether the legacy hash database has ever been exposed
-    # (RISK-L01 / TM-L002).
+    #
+    # PM 결정(2026-08-17): 레거시 A_USER_LDGR.PWD(Base64 SHA-256)를 그대로 검증한다
+    # ("use only PWD"). 따라서 기본값을 true 로 둔다 — 프로파일과 무관하게(IDE 실행,
+    # jar 실행 포함) 로그인이 동작해야 하기 때문이다. 이 값이 false 이면 PWD_HASH(Argon2)가
+    # 없는 모든 레거시 계정이 올바른 비밀번호에도 INVALID_CREDENTIALS 로 거절된다.
+    #
+    # PM ruling (2026-08-17): verify against the legacy PWD (Base64 SHA-256) directly. Default is
+    # therefore true so login works in every run mode (IDE, jar, mvn), not only the local profile.
+    # With false, every legacy account (no Argon2 PWD_HASH) is rejected as INVALID_CREDENTIALS
+    # even with the correct password.
+    #
+    # ⚠ 보안: SHA-256(무솔트)은 Argon2 보다 약하다. 향후 로그인 성공 시 재해시(upgrade-on-login)
+    #   로 전환하려면 IRIS_LEGACY_HASH_VERIFICATION=false 로 끄고 마이그레이션 절차를 밟는다.
     legacy-hash-verification:
-      enabled: false
+      enabled: ${IRIS_LEGACY_HASH_VERIFICATION:true}
 
     # req: FR-LOGIN-025 / RISK-L07 — rate limiting sits BEFORE password hashing
     rate-limit:
@@ -121,9 +138,21 @@ iris:
       cidrs: ${IRIS_IP_ALLOWLIST_CIDRS:}
 
     # req: NFR-SEC-CHANNEL-L01 — TLS.
-    # Defaults to true: local development disables it explicitly, so production never
-    # fails open through omission.
-    require-https: ${IRIS_REQUIRE_HTTPS:true}
+    #
+    # 기본값 false: 애플리케이션은 http://localhost:8080 로만 동작하고, 어떤 요청도
+    # https://localhost:8443 으로 리다이렉트하지 않는다. true 일 때 Spring Security 가
+    # 평문 요청을 HTTPS 로 302 리다이렉트하며, 기본 포트 매핑(8080→8443)때문에 8443 이
+    # 등장한다 — 로컬에 8443 리스너가 없어 "서버에 연결할 수 없습니다" 오류가 났다.
+    #
+    # ⚠ 운영 배포는 반드시 IRIS_REQUIRE_HTTPS=true 로 실행해야 한다(리버스 프록시가 TLS 를
+    #   종단하지 않는 경우). 운영에서 이 값을 켜지 않으면 자격증명이 평문으로 흐른다.
+    #
+    # Default false: the app serves only on http://localhost:8080 and never redirects to
+    # https://localhost:8443. With true, Spring Security 302-redirects plaintext to HTTPS, and
+    # the default 8080→8443 port mapping is where the 8443 came from — with no TLS listener
+    # there, that produced the "cannot connect to server" error. Production MUST run with
+    # IRIS_REQUIRE_HTTPS=true unless a reverse proxy terminates TLS.
+    require-https: ${IRIS_REQUIRE_HTTPS:false}
     hsts-max-age-seconds: 31536000
 
     # req: FR-LOGIN-021 — administrator login notification.

@@ -115,6 +115,25 @@
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+        <!--
+          `mvn spring-boot:run` 시 local 프로파일을 기본 활성화한다.
+          이 설정은 <b>run 골(개발용)에만</b> 적용되며, 패키징된 jar(운영 배포)에는 영향이
+          없다. local 프로파일이 빠지면 require-https=true 로 실행되어 모든 요청이
+          https://localhost:8443 으로 302 리다이렉트되고 "서버에 연결할 수 없습니다" 오류가
+          난다 — 이 실수가 반복되어 기본값으로 고정한다.
+          운영에서 HTTPS 를 강제하려면 profiles 없이 빌드된 jar 를 실행하면 된다.
+
+          Activates the `local` profile by default for `mvn spring-boot:run`. This applies only to
+          the run goal (development); a packaged jar (production) is unaffected. Without the local
+          profile the app runs with require-https=true and 302-redirects everything to
+          https://localhost:8443, producing the "cannot connect to server" error. Pinned here
+          because this mistake has recurred; production simply runs the built jar with no profile.
+        -->
+        <configuration>
+          <profiles>
+            <profile>local</profile>
+          </profiles>
+        </configuration>
       </plugin>
 
       <!--

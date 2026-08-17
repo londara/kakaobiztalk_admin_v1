@@ -1,6 +1,10 @@
 package com.webcash.iris.auth.crypto;
 
 import com.webcash.iris.auth.domain.PasswordPolicy;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -97,21 +101,79 @@ public class PasswordHasher implements PasswordPolicy.PasswordMatcher {
     }
 
     /**
-     * 레거시 SHA-256 해시와 평문을 비교한다. <b>ADR-LOGIN-011 결정 대기로 미구현.</b>
-     * Verifies against the legacy unsalted SHA-256 hash. <b>Unimplemented pending
-     * the ADR-LOGIN-011 ruling.</b>
+     * 레거시 SHA-256 해시와 평문을 비교한다. / Verifies against the legacy SHA-256 hash.
+     *
+     * <h2>ADR-LOGIN-011 결정 / the ruling</h2>
+     * <p>PM 결정: 레거시 {@code PWD} 컬럼을 그대로 사용한다(상향 마이그레이션·강제 초기화
+     * 모두 채택하지 않음). 따라서 레거시 알고리즘을 <b>바이트 단위로 재현</b>한다.</p>
+     * <p>PM decision: use the legacy {@code PWD} column as-is (neither upgrade-on-login nor forced
+     * reset). The legacy algorithm is therefore reproduced exactly.</p>
+     *
+     * <h2>레거시 알고리즘 (실측 확인) / the legacy algorithm, verified</h2>
+     * <p>{@code JexMessageDigest.getHashString(SHA_256, pwd)} 를 {@code JexCore.0.3.0.jar}
+     * 역어셈블로 확인했다:</p>
+     * <pre>Base64( SHA-256( pwd.getBytes() ) )</pre>
+     * <p>솔트 없음, 반복 없음, 표준 Base64(패딩 포함) — 저장값 길이 44자와 일치한다
+     * (SHA-256 32바이트 → Base64 44자). {@code apc_login_proc_act.jsp} 은
+     * {@code strHash.equals(oldPwd)} 로 단순 비교했다.</p>
+     * <p>No salt, no iteration, standard Base64 with padding — consistent with the stored length
+     * of 44 (32 bytes → 44 Base64 chars). The legacy compared with {@code strHash.equals(oldPwd)}.</p>
+     *
+     * <p><b>문자셋 가정 (AMB-L06)</b>: 레거시 {@code String.getBytes()} 는 플랫폼 기본
+     * 문자셋을 사용했다. UTF-8 로 가정한다 — ASCII 비밀번호에는 영향이 없고, 비ASCII
+     * 문자를 포함한 비밀번호에서만 문제가 된다. 대상 서버의 기본 문자셋 확인이 필요하다.</p>
+     * <p><b>Charset assumption (AMB-L06)</b>: the legacy used the platform default charset. UTF-8
+     * is assumed here — immaterial for ASCII passwords, relevant only for non-ASCII ones; the
+     * target server's default charset needs confirming.</p>
+     *
+     * <p>이 방식은 레거시 결함 L2(솔트·작업계수 없음)를 <b>그대로 유지</b>한다. 보안상
+     * 열등하나 PM 이 데이터 호환을 우선했다. 향후 상향 마이그레이션 여지를 위해 로그인
+     * 성공 시 Argon2id 로 재해시하는 것은 별도 결정 사항이다.</p>
+     * <p>This preserves legacy defect L2 (no salt, no work factor) by design; the PM prioritised
+     * data compatibility. Re-hashing to Argon2id on successful login remains a separate decision.</p>
      *
      * @param raw        평문 비밀번호 / the raw password
-     * @param legacyHash 레거시 해시 / the legacy hash
+     * @param legacyHash 레거시 해시 (Base64 SHA-256) / the legacy hash
      * @return 일치 여부 / true when they match
-     * @throws UnsupportedOperationException 항상 (결정 전) / always, until the ruling lands
      */
-    // req: ADR-LOGIN-011, RISK-L01
+    // source: JexCore.0.3.0.jar — JexMessageDigest.getHashString → Base64(SHA-256(bytes))
+    // source: apc_login_proc_act.jsp:117,123 — strHash.equals(oldPwd)
+    // req: ADR-LOGIN-011, FR-LOGIN-002
     public boolean matchesLegacy(String raw, String legacyHash) {
-        throw new UnsupportedOperationException(
-                "Legacy hash verification is blocked pending the ADR-LOGIN-011 ruling "
-                        + "(upgrade-on-login vs forced reset). See RISK-L01 / TM-L002: the choice "
-                        + "depends on whether the legacy password database has ever been exposed.");
+        if (!legacyVerificationEnabled) {
+            throw new UnsupportedOperationException(
+                    "Legacy hash verification is disabled (iris.auth.legacy-hash-verification.enabled).");
+        }
+        if (raw == null || legacyHash == null || legacyHash.isBlank()) {
+            return false;
+        }
+        String computed = legacySha256Base64(raw);
+        // 상수 시간 비교. 레거시의 String.equals 는 조기 반환으로 미세한 타이밍 차이를
+        // 노출했다(이론적). MessageDigest.isEqual 로 그 여지를 없앤다.
+        // Constant-time comparison; the legacy String.equals returned early. isEqual removes the
+        // (theoretical) timing signal.
+        return MessageDigest.isEqual(
+                computed.getBytes(StandardCharsets.UTF_8),
+                legacyHash.trim().getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * 레거시 해시를 계산한다. / Computes the legacy hash.
+     *
+     * @param raw 평문 / the raw password
+     * @return {@code Base64(SHA-256(raw))}
+     */
+    // source: JexMessageDigest.getHashString(SHA_256, String)
+    // req: ADR-LOGIN-011
+    public static String legacySha256Base64(String raw) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(raw.getBytes(StandardCharsets.UTF_8));
+            return Base64.getEncoder().encodeToString(digest);
+        } catch (NoSuchAlgorithmException e) {
+            // SHA-256 은 모든 JVM 에 존재한다. / SHA-256 exists on every JVM.
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
     }
 
     /**

@@ -22,7 +22,7 @@ import java.time.LocalDate;
  * @param status            가입상태 / membership status
  * @param lastLoginDate     최종 로그인 일자 / last successful login date
  * @param lastPasswordChangeDate 최종 비밀번호 변경 일자 / last password change date
- * @param initialPassword   초기 비밀번호 여부 (PWD_INIT_YN='N') / still holding the initial password
+ * @param initialPassword   초기 비밀번호 여부 (PWD_INIT_YN='Y', PM 2026-08-17 반전) / still holding the initial password
  * @param operator          운영자 권한 보유 (GRP_0) / holds the operator group
  * @param institutionCode   소속 이용기관 코드 / the 이용기관 the user belongs to
  *

@@ -8,6 +8,7 @@ import java.io.IOException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -79,6 +80,17 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .authorizeHttpRequests(auth -> auth
+                // 정적 프론트엔드 자원. Spring 이 classpath:/static/ 에서 서빙한다. 이 규칙이
+                // 없으면 anyRequest().authenticated() 가 index.html·JS·CSS 까지 인증 대상으로
+                // 만들어, 로그인 화면 자체를 열 수 없다 — 인증하려면 화면이 필요한데 화면이
+                // 인증을 요구하는 교착이다.
+                // Static frontend assets served from classpath:/static/. Without this the
+                // authenticated-by-default rule would also gate index.html/JS/CSS, so the login
+                // screen could never load — reaching auth needs the page, the page needs auth.
+                // req: FR-LOGIN-001, ADR-001
+                .requestMatchers(HttpMethod.GET,
+                        "/", "/index.html", "/favicon.ico", "/assets/**").permitAll()
+
                 // 미인증 허용 — 진입점과 세션 이전 단계에 한정한다.
                 // 각 엔드포인트는 요청 본문에 자격증명 2요소를 직접 요구하므로 인증을
                 // 건너뛰는 것이 아니라 요청 단위로 수행한다.
@@ -168,12 +180,21 @@ public class SecurityConfig {
         if (requireHttps) {
             http.requiresChannel(channel -> channel.anyRequest().requiresSecure());
         }
-        http.headers(headers -> headers
-                .httpStrictTransportSecurity(hsts -> hsts
-                        .includeSubDomains(true)
-                        .maxAgeInSeconds(hstsMaxAgeSeconds))
+        http.headers(headers -> {
+                // HSTS 는 HTTPS 를 강제할 때만 보낸다. 평문 HTTP 개발 서버가 HSTS 를 보내면
+                // 브라우저가 이후 localhost 를 https 로 강제 업그레이드해 접속이 끊긴다.
+                // HSTS is sent only when HTTPS is enforced; a plain-HTTP dev server advertising
+                // HSTS would make the browser force-upgrade localhost to https and break access.
+                if (requireHttps) {
+                    headers.httpStrictTransportSecurity(hsts -> hsts
+                            .includeSubDomains(true)
+                            .maxAgeInSeconds(hstsMaxAgeSeconds));
+                } else {
+                    headers.httpStrictTransportSecurity(hsts -> hsts.disable());
+                }
                 // 로그인 화면이 프레임에 담기는 것을 막는다 (clickjacking).
                 // Prevents the login screen being framed (clickjacking).
+                headers
                 .frameOptions(frame -> frame.deny())
                 .contentSecurityPolicy(csp -> csp
                         // req: TM-L017 — SPA 의 XSS 노출면을 좁힌다. 인라인 스크립트를
@@ -188,7 +209,8 @@ public class SecurityConfig {
                                         + "connect-src 'self'; "
                                         + "frame-ancestors 'none'; "
                                         + "base-uri 'self'; "
-                                        + "form-action 'self'")));
+                                        + "form-action 'self'"));
+        });
 
         return http.build();
     }

@@ -13,6 +13,16 @@
 
 iris:
   auth:
+    # ADR-LOGIN-011 결정: 레거시 PWD(Base64 SHA-256)를 그대로 검증한다.
+    # PM ruling: verify against the legacy PWD column directly.
+    legacy-hash-verification:
+      enabled: true
+    otp:
+      # 레거시 OTP_KEY 는 평문 Base32 로 저장되어 있다(GoogleOTP). 복호화하지 않는다.
+      # The legacy OTP_KEY is stored as plaintext Base32; do not decrypt it.
+      key-encrypted: false
+      # 레거시 GoogleOTP 는 skew=0 이었으나, 기기 시계 오차 허용을 위해 1 로 둔다(문서 기본값).
+      allowed-skew-steps: 1
     # HTTPS 강제를 끈다.
     #
     # 왜 필요한가 / why this exists:
@@ -27,6 +37,16 @@ iris:
     # ⚠ 운영에서는 절대 false 로 두지 않는다. 자격증명과 OTP 코드가 평문으로 흐른다.
     #   Never false in production: credentials and OTP codes would travel in the clear.
     require-https: false
+
+server:
+  servlet:
+    session:
+      cookie:
+        # 로컬은 평문 HTTP 이므로 Secure 쿠키는 브라우저가 저장·재전송하지 않는다. 세션이
+        # 요청 간 유지되려면 로컬에서만 false 로 둔다. 운영 기본값(true)은 그대로다.
+        # Local dev is plain HTTP, so a Secure cookie is never stored or resent; set false for
+        # local only so the session persists across requests. Production stays true.
+        secure: false
 
 logging:
   level:

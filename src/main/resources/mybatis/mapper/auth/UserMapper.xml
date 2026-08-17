@@ -43,10 +43,20 @@
     source: IDO.USER_LDGR_R006
     req: FR-LOGIN-002
 
-    PWD_INIT_YN 은 레거시에서 'N' 이 "초기 비밀번호 상태"를 뜻한다(직관과 반대).
-    PWD_INIT_YN='N' means "still holding the initial password" in the legacy — the
-    opposite of what the column name suggests. Converted to an explicit boolean here
-    so the inversion is stated once rather than re-derived at every call site.
+    PWD_INIT_YN 의미 — PM 결정(2026-08-17)으로 <b>직관적 방향</b>으로 재정렬한다.
+      · 'Y' = 초기(임시) 비밀번호 상태 → 로그인 시 변경 강제
+      · 'N' = 사용자가 비밀번호를 변경 완료 → 정상 로그인
+    컬럼명(PWD_INIT_YN)의 자연스러운 해석과 일치한다.
+
+    ⚠ 레거시(apc_login_proc_act.jsp)는 <b>반대</b>였다: 'N' 이 변경을 강제했다
+      (if("N".equals(pwdInitYn)) CHNG_PWD). 이 프로젝트는 그 관례를 뒤집기로 했다.
+      읽기(이 CASE), 쓰기(updatePasswordHash='N', resetPasswordHash='Y')를 함께 뒤집어
+      전체가 일관되게 "Y = 변경 필요" 를 뜻하도록 한다.
+
+    PM ruling (2026-08-17): the column is realigned to its intuitive direction — 'Y' = initial
+    (temporary) password → force a change; 'N' = user has changed it → normal login. This is the
+    opposite of the legacy (which forced a change on 'N'); the read here and the two write sites
+    are flipped together so the whole column consistently means "Y = must change".
   -->
   <select id="findByEmail" resultMap="userAccountMap">
     SELECT
@@ -69,7 +79,8 @@
         U.JNNG_STTS,
         TO_DATE(NULLIF(U.LAST_LOGIN_DT, ''), 'YYYYMMDD')   AS LAST_LOGIN_DT,
         TO_DATE(NULLIF(U.LAST_CHNG_PWD_DT, ''), 'YYYYMMDD') AS LAST_CHNG_PWD_DT,
-        CASE WHEN COALESCE(U.PWD_INIT_YN, 'N') = 'N' THEN TRUE ELSE FALSE END AS PWD_INIT_FLAG,
+        <!-- PM 2026-08-17: force change when 'Y' (inverted from legacy 'N'). null -> 'Y' (안전 기본값: 미상이면 변경 강제). -->
+        CASE WHEN COALESCE(U.PWD_INIT_YN, 'Y') = 'Y' THEN TRUE ELSE FALSE END AS PWD_INIT_FLAG,
         CASE WHEN EXISTS (
             SELECT 1 FROM a_user_grp_jnng_infm G
              WHERE G.EML = U.EML AND G.GRP_ID = 'GRP_0'
@@ -167,23 +178,23 @@
        SET PWD_HASH         = #{hash},
            PWD_SCHEME       = 'ARGON2ID',
            LAST_CHNG_PWD_DT = TO_CHAR(NOW(), 'YYYYMMDD'),
-           PWD_INIT_YN      = 'Y'
+           PWD_INIT_YN      = 'N'   <!-- PM 2026-08-17: change 완료 = 'N' (더 이상 초기 아님) -->
      WHERE EML = #{email}
   </update>
 
   <!--
     req: FR-PWD-007, FR-LOGIN-015 — operator-set temporary password.
-    PWD_INIT_YN='N' 로 표시하여 다음 로그인에서 변경을 강제한다. 레거시 PWD 컬럼은
-    여기서도 건드리지 않는다 (RISK-L04).
-    Marked PWD_INIT_YN='N' so the next login forces a change. The legacy PWD column is
-    left untouched here too (RISK-L04).
+    PWD_INIT_YN='Y' 로 표시하여 다음 로그인에서 변경을 강제한다(PM 2026-08-17, 레거시의
+    'N' 에서 반전). 레거시 PWD 컬럼은 여기서도 건드리지 않는다 (RISK-L04).
+    Marked PWD_INIT_YN='Y' so the next login forces a change (inverted from the legacy 'N' per the
+    PM ruling). The legacy PWD column is left untouched here too (RISK-L04).
   -->
   <update id="resetPasswordHash">
     UPDATE a_user_ldgr
        SET PWD_HASH         = #{hash},
            PWD_SCHEME       = 'ARGON2ID',
            LAST_CHNG_PWD_DT = TO_CHAR(NOW(), 'YYYYMMDD'),
-           PWD_INIT_YN      = 'N',
+           PWD_INIT_YN      = 'Y',
            LOGIN_ATTEMPT    = 0
      WHERE EML = #{email}
   </update>

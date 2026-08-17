@@ -2,6 +2,7 @@ package com.webcash.iris;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
 
 /**
  * IRIS BizTalk Portal 애플리케이션 진입점.
@@ -18,7 +19,26 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  *
  * @see <a href="../../../../../docs/design/architecture-overview-LOGIN.md">architecture-overview-LOGIN.md</a>
  */
-@SpringBootApplication
+/*
+ * UserDetailsServiceAutoConfiguration 을 제외한다.
+ *
+ * 이 자동설정은 UserDetailsService 빈이 없을 때 임의 비밀번호를 가진 인메모리 사용자
+ * (inMemoryUserDetailsManager)를 만들고 "Using generated security password: ..." 를
+ * 로그에 남긴다. 그러나 이 시스템의 로그인은 Spring 의 AuthenticationManager 를 전혀
+ * 사용하지 않는다 — AuthenticationController 가 AuthenticationService 를 통해
+ * A_USER_LDGR 을 직접 검증한다(레거시 apc_login_proc_act.jsp 와 동일한 방식). 따라서
+ * 생성된 기본 사용자는 <b>사용되지 않는 잔여물</b>이며, 존재 자체가 혼란과 불필요한
+ * 계정을 만든다. 레거시에는 이런 개념이 없었다.
+ *
+ * Excludes UserDetailsServiceAutoConfiguration: it creates an in-memory user with a random
+ * password (and logs "Using generated security password: ...") when no UserDetailsService bean
+ * exists. But login here never uses Spring's AuthenticationManager — the controller verifies
+ * A_USER_LDGR directly through AuthenticationService, as the legacy did. The generated user is
+ * therefore an unused artifact; the legacy had no such concept.
+ *
+ * req: FR-LOGIN-001, CONST-TECH-L01
+ */
+@SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)
 public class IrisPortalApplication {
 
     /**

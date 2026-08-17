@@ -50,6 +50,27 @@ public class AuthenticationService {
     private final AuditService audit;
 
     /**
+     * OTP 비밀키가 저장 시 암호화되어 있는지 여부. / Whether the stored OTP key is encrypted at rest.
+     *
+     * <p>포트의 기본 보안 모델은 {@code true}(AES-256-GCM, NFR-SEC-PII-L01)다. 그러나
+     * 레거시({@code GoogleOTP})는 {@code OTP_KEY} 를 <b>평문 Base32</b>로 저장했고, 실제
+     * {@code a_user_ldgr.otp_key} 도 평문(길이 16)이다. ADR-LOGIN-011 결정("데이터를 그대로
+     * 사용")과 동일한 취지로, 기존 평문 키에 대해서는 복호화를 건너뛴다(AMB-L07).</p>
+     * <p>The port's default is {@code true} (AES-256-GCM). But the legacy stored {@code OTP_KEY}
+     * as plaintext Base32 and the live column is plaintext (length 16), so — consistent with the
+     * "use the data as-is" ruling — decryption is skipped for these keys.</p>
+     *
+     * <p>⚠ {@code false} 는 저장 시 암호화 통제를 포기하는 것이다. 이후 신규 등록 키를
+     * 암호화하려면 마이그레이션(평문 → 암호문 재저장)이 필요하다.</p>
+     * <p>{@code false} abandons encryption-at-rest; re-encrypting on a later migration is a
+     * separate step.</p>
+     *
+     * // source: GoogleOTP.java — Base32-encoded 80-bit key stored plaintext
+     * // req: ADR-LOGIN-011, AMB-L07, NFR-SEC-PII-L01
+     */
+    private final boolean otpKeyEncrypted;
+
+    /**
      * 인증 서비스 생성. / Creates the authentication service.
      *
      * @param users         사용자 매퍼 / the user mapper
@@ -70,7 +91,9 @@ public class AuthenticationService {
                                  AccountPolicy accountPolicy,
                                  IpAllowlistPolicy ipAllowlist,
                                  AdminLoginNotifier notifier,
-                                 AuditService audit) {
+                                 AuditService audit,
+                                 @org.springframework.beans.factory.annotation.Value(
+                                         "${iris.auth.otp.key-encrypted:true}") boolean otpKeyEncrypted) {
         this.users = users;
         this.hasher = hasher;
         this.totp = totp;
@@ -80,6 +103,7 @@ public class AuthenticationService {
         this.ipAllowlist = ipAllowlist;
         this.notifier = notifier;
         this.audit = audit;
+        this.otpKeyEncrypted = otpKeyEncrypted;
     }
 
     /**
@@ -185,11 +209,13 @@ public class AuthenticationService {
             denied(email, AuditEvent.ACTION_LOGIN, "otp-malformed", sourceIp, correlationId);
             throw new AuthenticationException(AuthFailureReason.OTP_MALFORMED);
         }
-        // 저장된 비밀키는 AES-256-GCM 으로 암호화되어 있다(NFR-SEC-PII-L01). 검증 직전에
-        // 복호화하고 그 값은 이 메서드를 벗어나지 않는다.
-        // The stored secret is AES-256-GCM encrypted (NFR-SEC-PII-L01). It is decrypted
-        // immediately before verification and the plaintext never leaves this method.
-        if (!totp.verify(cipher.decrypt(account.otpKey()), otpCode)) {
+        // 저장된 비밀키를 해석한다. 포트 기본값은 AES-256-GCM 복호화(NFR-SEC-PII-L01)이나,
+        // 레거시 평문 Base32 키는 그대로 사용한다(AMB-L07). 어느 경로든 평문 비밀키는 이
+        // 메서드를 벗어나지 않는다.
+        // Resolves the stored secret: AES-GCM decrypt by default, or use the legacy plaintext
+        // Base32 key as-is. Either way the plaintext never leaves this method.
+        String otpSecret = otpKeyEncrypted ? cipher.decrypt(account.otpKey()) : account.otpKey();
+        if (!totp.verify(otpSecret, otpCode)) {
             int otpFailures = users.incrementOtpFailCount(email);
             if (otpFailures >= AccountPolicy.MAX_FAILURES) {
                 audit.recordAuth(email, AuditEvent.ACTION_LOCKOUT, AuditEvent.Outcome.DENIED,
