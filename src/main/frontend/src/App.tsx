@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { LoginPage } from './features/auth/LoginPage';
 import { OtpRegisterPage } from './features/auth/OtpRegisterPage';
 import { PasswordChangePage } from './features/auth/PasswordChangePage';
-import { MessageHistoryPage } from './features/biztalk/MessageHistoryPage';
+import { InstitutionPage } from './features/biztalk/InstitutionPage';
 
 /**
  * 인증 화면 흐름. / Authentication screen flow.
@@ -81,11 +81,12 @@ export default function App() {
             </p>
           )}
           {/*
-            req: FR-MSG-001 — 인증 후 문자내역 화면으로 진입한다.
-            operator 여부를 전달하여 이용기관 선택 UI 노출을 결정한다(FR-TEN-003/004).
-            The operator flag decides whether the 이용기관 selector renders at all.
+            PM 결정(2026-08-17): 로그인 성공 시 이용기관 관리 화면(InstitutionPage)으로
+            진입한다. (이전에는 MessageHistoryPage 였다.)
+            On a successful login the user lands on the 이용기관 management screen
+            (InstitutionPage); previously this was MessageHistoryPage.
           */}
-          <MessageHistoryPage operator={view.operator} />
+          <InstitutionPage />
         </>
       );
   }

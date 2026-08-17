@@ -152,7 +152,11 @@ public class PasswordChangeService {
             return violations;
         }
 
-        String newHash = hasher.hash(newPassword);
+        // PM 결정(2026-08-17): 레거시 PWD(Base64 SHA-256)만 사용한다. Argon2 가 아니라
+        // 레거시 알고리즘으로 해시하여 PWD 에 저장해야 로그인 검증(PWD)과 일치한다.
+        // Uses the legacy PWD (Base64 SHA-256) only; hashing with the legacy algorithm keeps the
+        // stored value consistent with the PWD-based login check (not Argon2).
+        String newHash = PasswordHasher.legacySha256Base64(newPassword);
         users.updatePasswordHash(email, newHash);
         users.insertPasswordHistory(email, newHash);
 
@@ -237,7 +241,8 @@ public class PasswordChangeService {
                             + "TemporaryPasswordGenerator and PasswordPolicy are misaligned.");
         }
 
-        String hash = hasher.hash(temporary);
+        // PM 결정(2026-08-17): 레거시 PWD(Base64 SHA-256)만 사용한다. / Legacy PWD only.
+        String hash = PasswordHasher.legacySha256Base64(temporary);
         users.resetPasswordHash(targetEmail, hash);
         users.insertPasswordHistory(targetEmail, hash);
 

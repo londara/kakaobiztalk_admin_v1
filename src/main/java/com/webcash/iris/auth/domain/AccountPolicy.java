@@ -126,15 +126,25 @@ public class AccountPolicy {
     // source: apc_login_proc_act.jsp — LAST_CHNG_PWD_DT / PWD_INIT_YN branches
     // req: FR-LOGIN-014, FR-LOGIN-015
     public boolean passwordChangeRequired(UserAccount account) {
-        if (account.initialPassword()) {
-            return true;
+        // PM 결정(2026-08-17): 비밀번호 변경 페이지는 <b>오직</b> 다음 두 조건이 모두
+        // 참일 때만 표시한다 — PWD_INIT_YN='N' 이고 마지막 변경일이 90일 이상 경과.
+        // 그 외(PWD_INIT_YN='Y', 변경 이력 없음, 90일 미만)는 정상 로그인으로 처리하여
+        // InstitutionPage 로 진입한다.
+        //
+        // PM ruling (2026-08-17): the change page is shown ONLY when BOTH hold — PWD_INIT_YN='N'
+        // AND the last change is at least 90 days old. Anything else (PWD_INIT_YN='Y', no change
+        // history, or younger than 90 days) is a normal login that proceeds to InstitutionPage.
+        //
+        // account.initialPassword() 는 매퍼에서 (PWD_INIT_YN = 'N') 로 매핑된다.
+        // account.initialPassword() maps to (PWD_INIT_YN = 'N') in the mapper.
+        if (!account.initialPassword()) {
+            return false;
         }
         LocalDate lastChange = account.lastPasswordChangeDate();
         if (lastChange == null) {
-            // 변경 이력이 없으면 초기 상태로 간주하여 변경을 강제한다.
-            // No change history is treated as initial state — force a change rather
-            // than granting indefinite access to an unknown-age password.
-            return true;
+            // 변경 이력이 없으면 강제하지 않는다(사용자 요구: 90일 경과 조건 미충족).
+            // No change history → not forced (the 90-day condition is not met).
+            return false;
         }
         return ChronoUnit.DAYS.between(lastChange, today()) >= passwordMaxAgeDays;
     }

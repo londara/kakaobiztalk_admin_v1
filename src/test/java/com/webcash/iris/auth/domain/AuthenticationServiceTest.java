@@ -372,12 +372,17 @@ class AuthenticationServiceTest {
     // 비밀번호 변경 강제 / forced password change
     // -------------------------------------------------------------------------
 
+    // PM 결정(2026-08-17): 변경 강제는 PWD_INIT_YN='N'(initialPassword=true) 이고 마지막
+    // 변경일이 90일 이상일 때만. 아래 두 테스트가 그 경계를 인증 흐름에서 검증한다.
+    // Forced change only when PWD_INIT_YN='N' (initialPassword=true) AND 90+ days old.
+
     @Test
-    @DisplayName("비밀번호 만료 시 세션을 확립하지 않는다 / an expired password does not establish a session")
+    @DisplayName("N 이고 90일 이상 경과 시 세션을 확립하지 않는다 / N and expired does not establish a session")
         // req: FR-LOGIN-014
     void expiredPasswordRequiresChangeWithoutSession() {
+        // initialPassword=true(=N) + 120일 경과 → 변경 강제
         arrangeHappyPath(account(0, 0, AccountStatus.ACTIVE,
-                TODAY.minusDays(1), TODAY.minusDays(120), false, OTP_SECRET, HASH));
+                TODAY.minusDays(1), TODAY.minusDays(120), true, OTP_SECRET, HASH));
 
         var result = service.authenticate(EMAIL, PASSWORD, OTP_CODE, IP, CORRELATION);
 
@@ -386,14 +391,17 @@ class AuthenticationServiceTest {
     }
 
     @Test
-    @DisplayName("초기 비밀번호는 변경을 강제한다 / an initial password forces a change")
-        // req: FR-LOGIN-015
-    void initialPasswordRequiresChange() {
+    @DisplayName("N 이지만 최근 변경이면 바로 로그인한다 / N with a recent change logs straight in")
+        // req: FR-LOGIN-014, FR-LOGIN-015
+    void nWithRecentChangeLogsStraightIn() {
+        // initialPassword=true(=N) 이지만 1일 전 변경 → 변경 강제 안 함 → 정상 로그인
         arrangeHappyPath(account(0, 0, AccountStatus.ACTIVE,
                 TODAY.minusDays(1), TODAY.minusDays(1), true, OTP_SECRET, HASH));
 
-        assertThat(service.authenticate(EMAIL, PASSWORD, OTP_CODE, IP, CORRELATION)
-                .passwordChangeRequired()).isTrue();
+        var result = service.authenticate(EMAIL, PASSWORD, OTP_CODE, IP, CORRELATION);
+
+        assertThat(result.passwordChangeRequired()).isFalse();
+        verify(users).touchLastLogin(EMAIL);
     }
 
     // -------------------------------------------------------------------------

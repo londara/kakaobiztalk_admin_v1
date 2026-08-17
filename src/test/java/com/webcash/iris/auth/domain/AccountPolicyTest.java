@@ -158,31 +158,46 @@ class AccountPolicyTest {
     @DisplayName("비밀번호 주기 / password age")
     class PasswordAge {
 
-        @ParameterizedTest(name = "최종 변경 {0}일 전 → 변경 강제 {1}")
+        // PM 결정(2026-08-17): 변경 페이지는 PWD_INIT_YN='N'(initialPassword=true) 이고
+        // 마지막 변경일이 90일 이상일 때만 표시된다. 아래 테스트는 initialPassword=true 로
+        // 두어 나이 경계를 검증한다.
+        // The change page shows only when PWD_INIT_YN='N' (initialPassword=true) AND the last
+        // change is 90+ days old. These tests fix initialPassword=true to check the age boundary.
+        @ParameterizedTest(name = "N & 최종 변경 {0}일 전 → 변경 강제 {1}")
         @CsvSource({"1,false", "89,false", "90,true", "200,true"})
-        @DisplayName("90일 경과 시 변경을 강제한다 / forces a change after 90 days")
+        @DisplayName("N 이고 90일 이상 경과했을 때만 강제한다 / forces only when N and 90+ days old")
             // req: FR-LOGIN-014
-        void forcesChangeAfterNinetyDays(int daysAgo, boolean required) {
+        void forcesChangeWhenNAndOverNinetyDays(int daysAgo, boolean required) {
             UserAccount acc = account(0, 0, AccountStatus.ACTIVE,
-                    TODAY.minusDays(1), TODAY.minusDays(daysAgo), false);
+                    TODAY.minusDays(1), TODAY.minusDays(daysAgo), true);
             assertThat(policy.passwordChangeRequired(acc)).isEqualTo(required);
         }
 
         @Test
-        @DisplayName("초기 비밀번호는 즉시 변경을 강제한다 / an initial password forces a change")
+        @DisplayName("PWD_INIT_YN!='N' 은 나이와 무관하게 강제하지 않는다 / non-N never forces")
             // req: FR-LOGIN-015
-        void initialPasswordForcesChange() {
+        void nonNNeverForcesChange() {
+            // initialPassword=false 는 PWD_INIT_YN!='N'. 200일이 지나도 강제하지 않는다.
             UserAccount acc = account(0, 0, AccountStatus.ACTIVE,
-                    TODAY.minusDays(1), TODAY.minusDays(1), true);
-            assertThat(policy.passwordChangeRequired(acc)).isTrue();
+                    TODAY.minusDays(1), TODAY.minusDays(200), false);
+            assertThat(policy.passwordChangeRequired(acc)).isFalse();
         }
 
         @Test
-        @DisplayName("변경 이력이 없으면 변경을 강제한다 / no change history forces a change")
+        @DisplayName("N 이지만 최근 변경이면 강제하지 않는다 / N with a recent change does not force")
             // req: FR-LOGIN-014
-        void missingHistoryForcesChange() {
-            UserAccount acc = account(0, 0, AccountStatus.ACTIVE, TODAY.minusDays(1), null, false);
-            assertThat(policy.passwordChangeRequired(acc)).isTrue();
+        void nWithRecentChangeDoesNotForce() {
+            UserAccount acc = account(0, 0, AccountStatus.ACTIVE,
+                    TODAY.minusDays(1), TODAY.minusDays(1), true);
+            assertThat(policy.passwordChangeRequired(acc)).isFalse();
+        }
+
+        @Test
+        @DisplayName("변경 이력이 없으면 강제하지 않는다 / no change history does not force")
+            // req: FR-LOGIN-014
+        void missingHistoryDoesNotForce() {
+            UserAccount acc = account(0, 0, AccountStatus.ACTIVE, TODAY.minusDays(1), null, true);
+            assertThat(policy.passwordChangeRequired(acc)).isFalse();
         }
     }
 }

@@ -92,11 +92,30 @@ class PasswordHasherTest {
     }
 
     @Test
-    @DisplayName("레거시 검증 호출은 ADR 결정 전까지 차단된다 / legacy verification is blocked pending the ADR ruling")
-        // req: ADR-LOGIN-011, RISK-L01
-    void legacyVerificationBlockedPendingRuling() {
-        assertThatThrownBy(() -> hasher(true).matchesLegacy(PASSWORD, "abc123"))
-                .isInstanceOf(UnsupportedOperationException.class)
-                .hasMessageContaining("ADR-LOGIN-011");
+    @DisplayName("레거시 검증은 활성 시 올바른 비밀번호를 통과시킨다 / legacy verification accepts the right password when enabled")
+        // req: ADR-LOGIN-011 (PM 결정: 레거시 PWD 사용), FR-LOGIN-002
+    void legacyVerificationAcceptsRightPassword() {
+        // PM 결정(2026-08-17): matchesLegacy 는 이제 Base64(SHA-256(pwd)) 를 검증한다.
+        // matchesLegacy now verifies Base64(SHA-256(pwd)).
+        String legacyHash = PasswordHasher.legacySha256Base64(PASSWORD);
+        assertThat(hasher(true).matchesLegacy(PASSWORD, legacyHash)).isTrue();
+        assertThat(hasher(true).matchesLegacy("Tr0ubled-Kettle!8", legacyHash)).isFalse();
+    }
+
+    @Test
+    @DisplayName("레거시 검증이 비활성이면 예외를 던진다 / legacy verification throws when disabled")
+        // req: ADR-LOGIN-011
+    void legacyVerificationThrowsWhenDisabled() {
+        String legacyHash = PasswordHasher.legacySha256Base64(PASSWORD);
+        assertThatThrownBy(() -> hasher(false).matchesLegacy(PASSWORD, legacyHash))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("레거시 해시는 44자 Base64(SHA-256)이다 / the legacy hash is 44-char Base64 SHA-256")
+        // req: ADR-LOGIN-011
+    void legacyHashFormat() {
+        String h = PasswordHasher.legacySha256Base64(PASSWORD);
+        assertThat(h).hasSize(44).endsWith("=");
     }
 }

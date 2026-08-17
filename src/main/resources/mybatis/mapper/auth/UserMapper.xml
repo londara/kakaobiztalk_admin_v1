@@ -62,7 +62,15 @@
   <select id="findByEmail" resultMap="userAccountMap">
     SELECT
         U.EML,
-        U.PWD_HASH,
+        <!--
+          PM 결정(2026-08-17): a_user_ldgr 에 PWD_HASH 컬럼이 없다. 레거시 PWD(Base64 SHA-256)만
+          사용한다. 존재하지 않는 컬럼을 참조하지 않도록 NULL 을 매핑한다 — passwordHash 가
+          null 이면 hasModernHash()=false 가 되어 로그인이 항상 레거시 PWD 경로를 탄다.
+          The a_user_ldgr table has no PWD_HASH column; only the legacy PWD (Base64 SHA-256) is
+          used. NULL is mapped so the missing column is never referenced; a null passwordHash makes
+          hasModernHash() false, so login always takes the legacy PWD path.
+        -->
+        CAST(NULL AS VARCHAR) AS PWD_HASH,
         U.PWD,
         U.OTP_KEY,
         <!--
@@ -80,8 +88,12 @@
         U.JNNG_STTS,
         TO_DATE(NULLIF(U.LAST_LOGIN_DT, ''), 'YYYYMMDD')   AS LAST_LOGIN_DT,
         TO_DATE(NULLIF(U.LAST_CHNG_PWD_DT, ''), 'YYYYMMDD') AS LAST_CHNG_PWD_DT,
-        <!-- PM 2026-08-17: force change when 'Y' (inverted from legacy 'N'). null -> 'Y' (안전 기본값: 미상이면 변경 강제). -->
-        CASE WHEN COALESCE(U.PWD_INIT_YN, 'Y') = 'Y' THEN TRUE ELSE FALSE END AS PWD_INIT_FLAG,
+        <!-- PM 2026-08-17: PWD_INIT_FLAG = (PWD_INIT_YN = 'N'). 변경 페이지는 이 플래그가
+             true 이면서 마지막 변경일이 90일 이상일 때만 표시된다(AccountPolicy 참조).
+             null 은 'N' 이 아니므로 false → 변경 강제하지 않음.
+             PWD_INIT_FLAG = (PWD_INIT_YN = 'N'); the change page shows only when this is true AND
+             the password is 90+ days old (see AccountPolicy). NULL is not 'N' → false. -->
+        CASE WHEN U.PWD_INIT_YN = 'N' THEN TRUE ELSE FALSE END AS PWD_INIT_FLAG,
         CASE WHEN EXISTS (
             SELECT 1 FROM a_user_grp_jnng_infm G
              WHERE G.EML = U.EML AND G.GRP_ID = 'GRP_0'
@@ -176,10 +188,13 @@
   -->
   <update id="updatePasswordHash">
     UPDATE a_user_ldgr
-       SET PWD_HASH         = #{hash},
-           PWD_SCHEME       = 'ARGON2ID',
+       <!-- PM 2026-08-17: PWD_HASH/PWD_SCHEME 컬럼이 없다. 레거시 PWD 에 직접 쓴다.
+            #{hash} 는 legacySha256Base64(newPassword) — 로그인이 PWD 를 검증하므로 일관된다.
+            No PWD_HASH/PWD_SCHEME columns; write the legacy PWD directly. #{hash} is the
+            Base64 SHA-256 of the new password, consistent with the PWD login check. -->
+       SET PWD              = #{hash},
            LAST_CHNG_PWD_DT = TO_CHAR(NOW(), 'YYYYMMDD'),
-           PWD_INIT_YN      = 'N'   <!-- PM 2026-08-17: change 완료 = 'N' (더 이상 초기 아님) -->
+           PWD_INIT_YN      = 'N'   <!-- change 완료 = 'N' (더 이상 초기 아님) -->
      WHERE EML = #{email}
   </update>
 
@@ -192,8 +207,9 @@
   -->
   <update id="resetPasswordHash">
     UPDATE a_user_ldgr
-       SET PWD_HASH         = #{hash},
-           PWD_SCHEME       = 'ARGON2ID',
+       <!-- PM 2026-08-17: 레거시 PWD 에 직접 쓴다(PWD_HASH/PWD_SCHEME 컬럼 없음).
+            #{hash} 는 legacySha256Base64(temporary). / Writes the legacy PWD directly. -->
+       SET PWD              = #{hash},
            LAST_CHNG_PWD_DT = TO_CHAR(NOW(), 'YYYYMMDD'),
            PWD_INIT_YN      = 'Y',
            LOGIN_ATTEMPT    = 0
