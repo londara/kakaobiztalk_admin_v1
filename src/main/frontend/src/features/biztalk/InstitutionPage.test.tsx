@@ -277,6 +277,38 @@ describe('InstitutionPage', () => {
   // 범위 제외 확인 / scope exclusions
   // ---------------------------------------------------------------------------
 
+  it('긴 설명은 CSS 로만 잘린다 / a long description is clipped by CSS, never by the string', async () => {
+    /*
+      설명 열은 한 줄로 잘려 '…' 로 끝나지만, 그것은 <b>표시</b>일 뿐이다. 문자열을 잘라
+      '…' 를 이어 붙이면 잘린 부분이 DOM 에서 사라져 스크린리더도 Ctrl+F 도 원문을 잃는다.
+      이 테스트는 셀이 원문 전체를 그대로 들고 있는지만 확인한다 — jsdom 은 레이아웃을
+      계산하지 않으므로 '…' 자체는 여기서 관찰할 수 없고, 자르는 일은 CSS 몫이다.
+
+      The 설명 column is clipped to one line ending in an ellipsis, but that is presentation only.
+      Truncating the string and appending '…' would drop the tail out of the DOM, losing it for
+      screen readers and Ctrl+F. This asserts the cell still carries the whole text; the ellipsis
+      itself is not observable here because jsdom does not lay out, and clipping is CSS's job.
+    */
+    const long =
+      '휴대폰 판매 관련 알림톡 전송용도 영업담당자 : 황동섭 부장님 페일백 문자메시지 발송 포함 ' +
+      '2022-07-11 수정 / 최초등록 : 비즈플레이 비폰제로페이';
+    stubFetch(200, page([{ ...row, description: long }]));
+
+    renderWithProviders(<InstitutionPage />);
+    const table = await screen.findByRole('table');
+
+    // 원문이 통째로 남아 있다 / the whole text survives
+    const cell = within(table).getByText(long);
+    expect(cell).toBeInTheDocument();
+    expect(cell.textContent).toBe(long);
+
+    // 마우스 사용자를 위한 전체 문장 / the full sentence for pointer users
+    expect(cell).toHaveAttribute('title', long);
+
+    // 자르기는 이 클래스를 통해 CSS 가 한다 / the clipping hook CSS relies on
+    expect(cell.closest('td')).toHaveClass('lg-cell-ellipsis');
+  });
+
   it('D-I13: 담당자관리 탭이 없다 / there is no 담당자관리 tab', async () => {
     stubFetch(200, page());
 

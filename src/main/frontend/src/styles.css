@@ -269,10 +269,19 @@ a {
  * req: NFR-USE-01, NFR-COMPAT-01, WCAG 2.1 AA
  * ========================================================================== */
 
+/*
+  폭 상한은 두지 않는다. 문자내역 그리드는 12 컬럼이고, 상한을 두면 넓은 화면에서 남는
+  공간을 놔둔 채 표 안에 가로 스크롤이 생긴다 — 화면은 남는데 표만 좁아지는 셈이다.
+  가장자리와의 간격은 margin(위아래)과 padding(좌우)이 만든다.
+
+  No width cap. The 문자내역 grid is twelve columns wide, and a cap would leave space unused on a
+  wide screen while the table scrolls horizontally inside it — the room is there, only the table
+  is narrow. The gap from the edges comes from the margin (vertical) and the padding
+  (horizontal).
+*/
 .page-wrap {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 24px;
+  margin: 20px 0;
+  padding: 0 20px 20px;
 }
 
 .search-panel {
@@ -758,4 +767,259 @@ table.lg-grid td.lg-empty {
   gap: 10px;
   margin-top: 14px;
   font-size: 0.875rem;
+}
+
+/* --------------------------------------------------------------------------
+ * 조회 조건 폼 — 라벨/입력 격자 / criteria form — a label/field lattice
+ * source: biztalk_admin_40_view.jsp — table.tb_type01 검색 폼
+ * req: NFR-USE-01, NFR-COMPAT-01, WCAG 2.1 AA
+ *
+ * 레거시는 이 폼을 <table> 로 그렸다 — 라벨 셀과 입력 셀이 번갈아 놓인 배치였다. 여기서는
+ * 같은 <b>배치</b>를 CSS grid 로 만든다. 표가 아닌 것을 표로 표시하면 스크린리더가 행·열을
+ * 읽어 주며(WCAG 1.3.1), 폼은 표가 아니다.
+ *
+ * The legacy drew this form as a <table> of alternating label and input cells. The same
+ * <b>arrangement</b> is built here with CSS grid: marking up a non-table as a table makes screen
+ * readers announce rows and columns (WCAG 1.3.1), and a form is not tabular data.
+ * -------------------------------------------------------------------------- */
+.lg-form {
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-top: 2px solid #6b7785;
+  margin-bottom: 14px;
+}
+
+.lg-form-grid {
+  display: grid;
+  /* 라벨 · 입력 쌍 3벌 / three label-and-field pairs */
+  grid-template-columns: 7.5rem minmax(0, 1fr) 7.5rem minmax(0, 1fr) 7.5rem minmax(0, 1fr);
+  gap: 9px 12px;
+  align-items: center;
+}
+
+/*
+  라벨은 격자의 셀이므로 블록 라벨의 세로 여백을 없앤다 — styles.css 상단의 label 규칙은
+  세로로 쌓이는 로그인 폼을 위한 것이다.
+  Labels are grid cells here, so the stacked-form margins from the label rule at the top of this
+  file are removed.
+*/
+.lg-form-grid > label {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.9375rem;
+  white-space: nowrap;
+}
+
+/* 남은 칸을 모두 차지하는 넓은 필드 / a field that runs to the end of the row */
+.lg-form-wide {
+  grid-column: 2 / -1;
+}
+
+.lg-form-grid input[type='text'],
+.lg-form-grid input[type='datetime-local'],
+.lg-form-grid select {
+  width: 100%;
+  /*
+    조밀한 레거시 배치를 위해 로그인 폼의 44px 보다 낮추되, WCAG 2.5.8 Target Size
+    (Minimum, AA) 의 24px 은 넉넉히 넘긴다. 글꼴 크기와 대비는 낮추지 않는다.
+    Shorter than the login form's 44px to keep the legacy density, but comfortably above the
+    24px floor of WCAG 2.5.8 Target Size (Minimum, AA). Type size and contrast are not reduced.
+  */
+  min-height: 34px;
+  padding: 5px 8px;
+  font-size: 0.9375rem;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+
+/* 시작 ~ 종료 한 줄 / the from-to pair on one line */
+.lg-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lg-range input {
+  flex: 0 1 15rem;
+}
+
+.lg-range-sep {
+  color: var(--muted);
+}
+
+/* 조회 버튼 줄 — 오른쪽 정렬 / the action row, right-aligned */
+.lg-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e6ea;
+}
+
+/*
+  .form-actions 의 button.primary 규칙(flex:1 1 12rem)이 여기까지 오지 않게 한다 —
+  이 줄의 버튼은 내용 너비여야 한다.
+  Keeps the button.primary sizing from .form-actions out of this row: these buttons size to
+  their content.
+*/
+.lg-form-actions button {
+  flex: 0 0 auto;
+  min-height: 32px;
+}
+
+/* 결과 요약 줄 / the result summary line */
+.lg-result-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 6px;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.lg-result-line strong {
+  color: var(--text);
+}
+
+/* 좁은 화면에서는 라벨을 입력 위로 / on narrow screens labels stack above fields */
+@media (max-width: 900px) {
+  .lg-form-grid {
+    grid-template-columns: 7.5rem minmax(0, 1fr);
+  }
+  .lg-form-wide {
+    grid-column: 2 / -1;
+  }
+}
+
+@media (max-width: 560px) {
+  .lg-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .lg-form-grid > label {
+    margin-top: 6px;
+  }
+  .lg-form-wide {
+    grid-column: 1 / -1;
+  }
+}
+
+/* 라디오 한 줄 — 레거시의 상태 선택 / inline radio row, the legacy's status filter */
+.lg-radio-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  /* fieldset 의 기본 여백을 지운다 — 격자 셀 안에서는 어긋나 보인다.
+     Clears the fieldset defaults, which look misaligned inside a grid cell. */
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.lg-radio-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  font-weight: 400;
+  font-size: 0.9375rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.lg-radio-group input[type='radio'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+}
+
+/*
+  그리드 셀 안의 링크 버튼. .link-button 은 본문 흐름에 놓일 때를 기준으로 위 여백을
+  갖는데, 셀 안에서는 그 여백이 행 높이만 키운다.
+  Link buttons inside a grid cell: .link-button carries a top margin sized for running text,
+  which inside a cell only makes the row taller.
+*/
+table.lg-grid .link-button {
+  /*
+    전역 button 규칙은 로그인 화면 기준이다 — min-height 44px 과 1rem 글꼴은 홀로 선
+    버튼에는 맞지만, 0.875rem 글꼴의 표 안에서는 행 높이를 부풀리고 주변 셀보다 큰 글자를
+    만든다. 셀 안에서는 주변 텍스트와 같은 크기로 흐르고, 링크처럼 보여야 한다.
+    The global button rule is sized for the login screen: 44px min-height and 1rem type suit a
+    standalone button, but inside a 0.875rem grid they inflate the row and make the text larger
+    than the cells around it. In a cell it should flow at the surrounding size and read as a link.
+  */
+  margin: 0;
+  font-size: inherit;
+  border-radius: 2px;
+  /*
+    padding 은 0 이 아니다. 클릭 대상이 글자 높이로 줄어들면 WCAG 2.5.8 Target Size
+    (Minimum, AA) 의 24px 을 밑돈다 — 3px 을 위아래로 주어 ~27px 을 확보한다.
+    The padding is not zero: shrinking the target to the height of the text alone would fall
+    under the 24px of WCAG 2.5.8 Target Size (Minimum, AA); 3px top and bottom keeps it at ~27px.
+  */
+  min-height: 0;
+  padding: 3px 2px;
+}
+
+table.lg-grid .link-button:hover {
+  color: var(--primary-hover);
+  background: #eef3fa;
+}
+
+/*
+  격자의 라벨 칸에 놓이는 비-label 제목. 라디오 그룹의 이름처럼 <label> 로 만들 수 없는
+  경우에 쓰며, 보이는 모양은 .lg-form-grid > label 과 같아야 줄이 맞는다.
+  A heading that sits in the grid's label column but cannot be a <label> — the name of a radio
+  group, for instance. It has to look identical to .lg-form-grid > label to stay aligned.
+*/
+.lg-form-grid > .lg-form-label {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.9375rem;
+  white-space: nowrap;
+}
+
+/* 조회 중 표시 / shown while a search is in flight */
+.lg-loading {
+  margin: 0;
+  padding: 14px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+/*
+  긴 설명은 한 줄로 잘라 '…' 로 끝낸다. / Long descriptions are clipped to one line with an ellipsis.
+
+  자르는 것은 <td> 가 아니라 그 안의 블록이다. 표의 기본 레이아웃(table-layout:auto)에서는
+  브라우저가 내용에 맞춰 열 너비를 다시 계산하므로 <td> 의 max-width 가 그대로 지켜진다는
+  보장이 없다. 안쪽에 너비가 정해진 블록을 하나 두면 레이아웃 알고리즘과 무관하게 잘린다.
+
+  The clipping happens on a block inside the <td>, not on the cell itself: under the default
+  table-layout:auto the browser recomputes column widths from content, so a max-width on the cell
+  is not reliably honoured. A block of known width inside it clips regardless of the algorithm.
+
+  잘리는 것은 <b>보이는 모양뿐</b>이다. 전체 문장은 DOM 에 그대로 남아 스크린리더가 끝까지
+  읽고, 마우스 사용자는 title 로 전체를 볼 수 있다 — 화면을 좁히려고 정보를 지우지 않는다.
+  Only the <b>appearance</b> is truncated. The full sentence stays in the DOM, so a screen reader
+  still reads all of it and a pointer user gets it from the title: narrowing the column does not
+  destroy the information.
+*/
+table.lg-grid tbody td.lg-cell-ellipsis {
+  text-align: left;
+}
+
+table.lg-grid tbody td.lg-cell-ellipsis > span {
+  display: block;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

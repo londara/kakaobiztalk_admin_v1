@@ -272,11 +272,26 @@ export function MessageHistoryPage({ operator }: Props) {
 
   return (
     <main className="page-wrap">
-      <h1>문자내역</h1>
+      {/*
+        제목 + breadcrumb — 레거시 title_wrpa. 발신번호 화면과 같은 골격을 쓴다.
+        Title with breadcrumb (legacy title_wrpa), the same shell as the sender-number screen.
+      */}
+      <div className="lg-title">
+        <h1>문자내역</h1>
+        <span className="lg-breadcrumb">
+          BIZTALK <span aria-hidden="true">›</span> <strong>문자내역</strong>
+        </span>
+      </div>
 
-      <form className="search-panel" onSubmit={runSearch} noValidate>
+      {/*
+        레거시 검색 폼(table.tb_type01)의 배치를 격자로 재현한다. 라벨은 왼쪽, 입력은
+        오른쪽, 한 줄에 최대 세 쌍 — 레거시와 같은 밀도다.
+        Reproduces the legacy search table's arrangement as a lattice: labels left, fields right,
+        up to three pairs per row — the legacy's density.
+      */}
+      <form className="lg-form" onSubmit={runSearch} noValidate aria-label="문자내역 조회">
         <fieldset>
-          <legend>조회 조건</legend>
+          <legend className="sr-only">조회 조건</legend>
 
           <div role="alert" aria-live="assertive" className={error ? 'field-error visible' : 'field-error'}>
             {error}
@@ -289,14 +304,20 @@ export function MessageHistoryPage({ operator }: Props) {
             </ul>
           )}
 
-          <div className="search-grid">
+          <div className="lg-form-grid">
             {/*
-              이용기관 선택은 운영자에게만 렌더링한다. 레거시는 모든 사용자에게
-              전체 고객사 명단을 드롭다운으로 제공했다(TM-011, FR-TEN-004).
-              Rendered for operators only; the legacy showed every customer to everyone.
+              이용기관은 <b>자유 입력</b>이며 드롭다운이 아니다. 레거시는 전 고객사 명단을
+              모든 사용자의 select 에 채워 넣었고, 그것이 TM-011(Info disclosure) 이다.
+              목록을 내려받지 않으면 유출할 목록도 없다. 운영자에게만 렌더링하는 것은
+              그 위에 놓인 두 번째 방어선이다(FR-TEN-004).
+
+              이용기관 is a free-text field, not a dropdown: the legacy populated every user's
+              select with the full customer list, which is TM-011 (info disclosure). A list that
+              is never fetched cannot leak; rendering it for operators only is the second line
+              of defence on top of that (FR-TEN-004).
             */}
             {operator && (
-              <div className="field">
+              <>
                 <label htmlFor="mh-institution">이용기관</label>
                 <input
                   id="mh-institution"
@@ -305,184 +326,218 @@ export function MessageHistoryPage({ operator }: Props) {
                   onChange={(e) => setInstitutionCode(e.target.value)}
                   placeholder="전체"
                 />
-              </div>
+              </>
             )}
 
-            <div className="field">
-              <label htmlFor="mh-from">요청일시 (시작)</label>
+            <label htmlFor="mh-result">결과코드</label>
+            <input
+              id="mh-result"
+              type="text"
+              value={resultCode}
+              onChange={(e) => setResultCode(e.target.value)}
+              placeholder="전체"
+            />
+
+            {/*
+              운영자가 아니면 이용기관 쌍이 없으므로 결과코드가 첫 칸에서 시작한다. 격자는
+              자동으로 메워지며, 빈 칸을 남기기 위한 자리채움 요소는 두지 않는다 —
+              스크린리더에 읽히는 빈 요소가 된다.
+              Without the institution pair the result-code field starts in the first column; the
+              lattice reflows on its own. No spacer elements: they would be announced as empty
+              nodes by a screen reader.
+            */}
+
+            <label htmlFor="mh-from">요청일자</label>
+            <div className="lg-form-wide lg-range">
+              {/*
+                datetime-local 하나로 날짜와 시각을 함께 받는다. 레거시는 날짜 입력과 시각
+                입력을 따로 두고 두 값을 문자열로 이어 붙였는데, 시각을 비워 둔 채 조회하면
+                조건이 조용히 00:00 으로 굳었다. 한 컨트롤이면 그 틈이 없고, 브라우저가
+                지역 형식과 달력을 함께 제공한다.
+                One datetime-local takes both parts. The legacy had a separate date box and time
+                box and concatenated the two strings, so leaving the time empty silently pinned
+                the bound to 00:00. A single control removes that gap and brings the browser's
+                own calendar and locale formatting with it.
+              */}
               <input
                 id="mh-from"
                 type="datetime-local"
                 required
                 value={from}
                 onChange={(e) => setFrom(e.target.value)}
+                aria-label="요청일자 시작"
               />
-            </div>
-
-            <div className="field">
-              <label htmlFor="mh-to">요청일시 (종료)</label>
+              <span className="lg-range-sep" aria-hidden="true">
+                ~
+              </span>
               <input
                 id="mh-to"
                 type="datetime-local"
                 required
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
+                aria-label="요청일자 종료"
                 aria-describedby="mh-range-help"
               />
-              <p id="mh-range-help" className="field-help">
+              <span id="mh-range-help" className="field-help">
                 조회 기간은 최대 31일까지 가능합니다.
-              </p>
+              </span>
             </div>
 
-            <div className="field">
-              <label htmlFor="mh-msgkey">메시지키</label>
-              <input
-                id="mh-msgkey"
-                type="text"
-                inputMode="numeric"
-                value={messageKey}
-                onChange={(e) => setMessageKey(e.target.value.replace(/\D/g, ''))}
-              />
-            </div>
+            <label htmlFor="mh-msgkey">메시지키</label>
+            <input
+              id="mh-msgkey"
+              type="text"
+              inputMode="numeric"
+              value={messageKey}
+              onChange={(e) => setMessageKey(e.target.value.replace(/\D/g, ''))}
+            />
 
             {/*
-              라벨과 컬럼이 일치한다. 레거시: 발신번호→PHONE(수신 컬럼), 수신번호→CALLBACK(발신 컬럼).
-              Labels match columns. Legacy: 발신번호→PHONE (recipient), 수신번호→CALLBACK (sender).
+              라벨과 컬럼이 일치한다. 레거시: 발신번호→PHONE(수신 컬럼), 수신번호→CALLBACK
+              (발신 컬럼)으로 서로 뒤바뀌어 있었다(D3). 레거시 화면의 '발신번호' 라벨을
+              그대로 옮기지 <b>않는</b> 이유이며, 여기서는 실제로 거르는 컬럼의 이름을 쓴다.
+              Labels match the columns they filter. The legacy had them crossed — 발신번호→PHONE
+              (the recipient column) and 수신번호→CALLBACK (the sender column), defect D3 — which
+              is why the legacy screen's 발신번호 caption is not carried across verbatim.
             */}
-            <div className="field">
-              <label htmlFor="mh-sender">발송번호</label>
-              <input
-                id="mh-sender"
-                type="text"
-                value={senderNumber}
-                onChange={(e) => setSenderNumber(e.target.value)}
-              />
-            </div>
+            <label htmlFor="mh-sender">발송번호</label>
+            <input
+              id="mh-sender"
+              type="text"
+              value={senderNumber}
+              onChange={(e) => setSenderNumber(e.target.value)}
+            />
 
-            <div className="field">
-              <label htmlFor="mh-recipient">수신번호</label>
-              <input
-                id="mh-recipient"
-                type="text"
-                value={recipientNumber}
-                onChange={(e) => setRecipientNumber(e.target.value)}
-              />
-            </div>
+            <label htmlFor="mh-recipient">수신번호</label>
+            <input
+              id="mh-recipient"
+              type="text"
+              value={recipientNumber}
+              onChange={(e) => setRecipientNumber(e.target.value)}
+            />
 
-            <div className="field">
-              <label htmlFor="mh-status">상태</label>
-              <select id="mh-status" value={status} onChange={(e) => setStatus(e.target.value)}>
-                <option value="">전체</option>
-                <option value="1">미전송</option>
-                <option value="2">전송완료</option>
-                <option value="3">톡결과수신</option>
-                <option value="4">문자결과수신</option>
-                <option value="6">큐입력</option>
-              </select>
-            </div>
+            <label htmlFor="mh-status">상태</label>
+            <select id="mh-status" value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="">전체</option>
+              <option value="1">미전송</option>
+              <option value="2">전송완료</option>
+              <option value="3">톡결과수신</option>
+              <option value="4">문자결과수신</option>
+              <option value="6">큐입력</option>
+            </select>
 
-            <div className="field">
-              <label htmlFor="mh-type">유형</label>
-              <select
-                id="mh-type"
-                value={messageType}
-                onChange={(e) => setMessageType(e.target.value)}
-              >
-                <option value="">전체</option>
-                <option value="AT">알림톡</option>
-                <option value="FT">친구톡</option>
-              </select>
-            </div>
+            <label htmlFor="mh-type">유형</label>
+            <select id="mh-type" value={messageType} onChange={(e) => setMessageType(e.target.value)}>
+              <option value="">전체</option>
+              <option value="AT">알림톡</option>
+              <option value="FT">친구톡</option>
+            </select>
 
-            <div className="field">
-              <label htmlFor="mh-table">문자타입</label>
-              <select id="mh-table" value={tableType} onChange={(e) => setTableType(e.target.value)}>
-                <option value="">전체</option>
-                <option value="SMS">SMS</option>
-                <option value="MMS">MMS</option>
-              </select>
-            </div>
-
-            <div className="field">
-              <label htmlFor="mh-result">결과코드</label>
-              <input
-                id="mh-result"
-                type="text"
-                value={resultCode}
-                onChange={(e) => setResultCode(e.target.value)}
-              />
-            </div>
+            <label htmlFor="mh-table">문자타입</label>
+            <select id="mh-table" value={tableType} onChange={(e) => setTableType(e.target.value)}>
+              <option value="">전체</option>
+              <option value="SMS">SMS</option>
+              <option value="MMS">MMS</option>
+            </select>
           </div>
 
-          <div className="form-actions">
-            <button type="submit" className="primary" disabled={loading}>
-              {loading ? '조회 중…' : '조회'}
-            </button>
+          <div className="lg-form-actions">
             {/*
               type="button" 이 필수다. 기본 type 은 submit 이므로 생략하면 내보내기 버튼이
               폼을 제출해 조회가 함께 실행된다.
               type="button" is required: the default is submit, so omitting it would make the
-              export button also run a search.
-
-              조회 결과가 없으면 비활성화한다 — 조건만 입력한 상태에서 내보내면 사용자가
-              무엇을 받게 되는지 알 수 없다.
-              Disabled until there are results: exporting before searching gives the user a file
-              whose contents they have not seen.
+              export button run a search as well.
             */}
             <button
               type="button"
-              className="secondary"
+              className="lg-btn"
               onClick={runExport}
               disabled={exporting || loading || !result || result.totalCount === 0}
             >
               {exporting ? '내보내는 중…' : 'CSV 내보내기'}
             </button>
+            <button type="submit" className="lg-btn lg-btn-primary" disabled={loading}>
+              {loading ? '조회 중…' : '조회'}
+            </button>
           </div>
         </fieldset>
       </form>
 
-      {result && (
-        <section aria-live="polite">
-          <p className="result-summary">
-            총 <strong>{result.totalCount.toLocaleString()}</strong>건 · {result.page + 1} /{' '}
-            {Math.max(result.totalPages, 1)} 페이지
+      <section aria-live="polite">
+        {/*
+          결과 요약은 조회를 한 뒤에만 의미가 있다. 조회 전 '총 0건' 은 조회해 보니 없었다는
+          뜻으로 읽힌다.
+          The summary only means anything after a search: '총 0건' before one reads as a search
+          that came back empty.
+        */}
+        {result && (
+          <p className="lg-result-line">
+            <span>
+              총 <strong>{result.totalCount.toLocaleString()}</strong>건
+            </span>
+            <span>
+              {result.page + 1} / {Math.max(result.totalPages, 1)} 페이지
+            </span>
           </p>
+        )}
 
-          {result.rows.length === 0 ? (
-            /*
-              빈 결과와 오류를 구분한다. 레거시는 둘 다 같은 빈 그리드로 표시했다.
-              An empty result is distinguished from an error; the legacy showed both identically.
-            */
-            <p className="empty-state">조회 결과가 없습니다.</p>
-          ) : (
-            <>
-              <DataTable
-                table={table}
-                caption="문자내역 조회 결과"
-                captionClassName="sr-only"
-                wrapperClassName="table-scroll"
-              />
+        {/*
+          그리드는 <b>항상</b> 머리글과 함께 렌더링한다 — 레거시 화면도, 발신번호 화면도
+          그렇다. 표를 통째로 감추면 조회 전에는 어떤 열이 있는지조차 알 수 없고, 조회 후
+          결과가 없을 때는 화면이 무너진 것처럼 보인다. 빈 사유는 본문 한 칸에 넣는다.
+          The grid always renders with its headers, as both the legacy screen and the
+          sender-number screen do. Hiding the table leaves the user unable to see which columns
+          exist before searching, and makes an empty result look like a broken screen; the reason
+          for the emptiness goes in a single body cell.
+        */}
+        <DataTable
+          table={table}
+          caption="문자내역 조회 결과"
+          captionClassName="sr-only"
+          className="lg-grid"
+          wrapperClassName="lg-grid-wrap"
+          emptyClassName="lg-empty"
+          emptyContent={
+            loading ? '조회 중입니다.' : criteria ? '조회 결과가 없습니다.' : '조회 조건을 입력하고 조회하세요.'
+          }
+        />
 
-              <nav className="paging" aria-label="페이지 이동">
-                <button
-                  type="button"
-                  disabled={!table.getCanPreviousPage() || loading}
-                  onClick={() => table.previousPage()}
-                >
-                  이전
-                </button>
-                <button
-                  type="button"
-                  disabled={!table.getCanNextPage() || loading}
-                  onClick={() => table.nextPage()}
-                >
-                  다음
-                </button>
-              </nav>
-            </>
-          )}
-        </section>
-      )}
+        {/*
+          페이지 이동은 결과가 있을 때만 의미가 있다 — 조회 전 비활성 버튼 두 개는 조작할
+          것이 있다는 인상만 준다.
+          Paging only means something once there is a result; two disabled buttons before a
+          search merely suggest there is something to operate.
+        */}
+        {result && result.rows.length > 0 && (
+          <nav className="lg-paging" aria-label="페이지 이동">
+            <button
+              type="button"
+              className="lg-btn"
+              disabled={!table.getCanPreviousPage() || loading}
+              onClick={() => table.previousPage()}
+            >
+              이전
+            </button>
+            <span>
+              {result.page + 1} / {Math.max(result.totalPages, 1)}
+            </span>
+            <button
+              type="button"
+              className="lg-btn"
+              disabled={!table.getCanNextPage() || loading}
+              onClick={() => table.nextPage()}
+            >
+              다음
+            </button>
+          </nav>
+        )}
+      </section>
+
+      {/* 레거시 화면 하단의 출처 표시 / the source note at the foot of the legacy screen */}
+      <ul className="lg-info">
+        <li>Biz Message Message LOG</li>
+      </ul>
 
       {selected && <MessageDetailPanel row={selected} onClose={() => setSelected(null)} />}
     </main>

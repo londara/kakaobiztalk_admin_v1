@@ -157,7 +157,22 @@ describe('MessageHistoryPage', () => {
     await user.click(screen.getByRole('button', { name: '조회' }));
 
     await waitFor(() => expect(screen.getByText('조회 결과가 없습니다.')).toBeInTheDocument());
-    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+
+    /*
+      빈 사유는 그리드 <b>본문 안</b>에 있고, 머리글은 그대로 남는다. 표를 통째로 감추면
+      어떤 열이 있는지조차 알 수 없다 — 발신번호 화면과 같은 규칙이다.
+      두 상태를 가르는 것은 표의 유무가 아니라 <b>경보의 유무</b>다: 빈 결과는 role="alert"
+      를 울리지 않고, 오류는 울린다. 그것이 FR-MSG-020 이 요구하는 구분이다.
+
+      The reason sits <b>inside</b> the grid body and the headers stay, matching the
+      sender-number screen; hiding the table would leave the columns unknowable. What separates
+      the two states is not the table's presence but the <b>absence of an alert</b>: an empty
+      result raises none, an error does — which is the distinction FR-MSG-020 asks for.
+    */
+    const grid = screen.getByRole('table');
+    expect(within(grid).getByText('조회 결과가 없습니다.')).toBeInTheDocument();
+    expect(within(grid).getAllByRole('columnheader')).toHaveLength(12);
+    expect(screen.queryByRole('alert')?.textContent ?? '').toBe('');
   });
 
   it('메시지키가 조작 가능한 button 이다 / the message key is an actionable button', async () => {

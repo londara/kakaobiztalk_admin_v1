@@ -189,7 +189,11 @@ export function InstitutionPage({ onSelect }: Props) {
               The legacy built this link by string concatenation, dropping a DB value into an
               inline onclick (D-I12). React renders values as text, so the same hole cannot open.
             */
-            <button type="button" onClick={() => onSelect?.(ctx.row.original)}>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => onSelect?.(ctx.row.original)}
+            >
               {ctx.getValue()}
             </button>
           ),
@@ -206,7 +210,32 @@ export function InstitutionPage({ onSelect }: Props) {
           header: '수정일시',
           cell: (ctx) => formatTimestamp(ctx.getValue()),
         }),
-        columnHelper.accessor('description', { header: '설명' }),
+        columnHelper.accessor('description', {
+          header: '설명',
+          /*
+            설명은 한 줄로 자르고 넘치면 '…' 로 끝낸다(레거시와 같다). 자르는 일 자체는
+            CSS 가 하고 여기서는 감싸는 요소만 둔다 — 문자열을 잘라 '…' 를 붙이면 잘린
+            글자가 DOM 에서 사라져 스크린리더도 검색(Ctrl+F)도 원문을 잃는다. CSS 로
+            자르면 보이는 모양만 짧아지고 원문은 그대로 남는다.
+
+            title 로 전체 문장을 붙여 마우스 사용자가 확인할 수 있게 한다. title 은
+            보조 수단이다 — 스크린리더는 셀의 텍스트를 끝까지 읽으므로 title 이 없어도
+            정보를 잃지 않는다.
+
+            The description is clipped to one line and ends in an ellipsis when it overflows, as
+            in the legacy. CSS does the clipping and this only supplies the element to clip:
+            truncating the string here would delete the tail from the DOM, losing it for screen
+            readers and for Ctrl+F alike. Clipping in CSS shortens only the appearance.
+
+            The title carries the whole sentence for pointer users. It is a convenience, not the
+            mechanism: the cell's text is complete, so a screen reader reads all of it regardless.
+          */
+          cell: (ctx) => {
+            const text = ctx.getValue() ?? '';
+            return text === '' ? '' : <span title={text}>{text}</span>;
+          },
+          meta: { cellClassName: 'lg-cell-ellipsis' },
+        }),
       ]),
     [onSelect],
   );
@@ -258,60 +287,149 @@ export function InstitutionPage({ onSelect }: Props) {
   }
 
   return (
-    <section aria-labelledby="institution-heading">
-      <h1 id="institution-heading">서비스 관리</h1>
-      <p>이용기관 관리</p>
+    /*
+      AppLayout 이 이미 <main> 을 렌더링한다. 여기서 또 <main> 을 쓰면 main 랜드마크가 둘이
+      되어 스크린리더의 '본문으로 건너뛰기' 가 어느 쪽을 가리키는지 모호해진다.
+      AppLayout already renders a <main>; a second one here would give the page two main
+      landmarks and make "skip to content" ambiguous.
+    */
+    <section className="page-wrap" aria-labelledby="institution-heading">
+      {/*
+        제목 + breadcrumb — 레거시 title_wrpa. 문자내역·발신번호 화면과 같은 골격이다.
+        Title with breadcrumb (legacy title_wrpa), the same shell as the other two screens.
+      */}
+      <div className="lg-title">
+        <h1 id="institution-heading">서비스 관리</h1>
+        <span className="lg-breadcrumb">
+          BIZTALK <span aria-hidden="true">›</span> <strong>서비스 관리</strong>
+        </span>
+      </div>
 
-      <form onSubmit={submit} aria-label="이용기관 조회">
-        <div>
+      {/*
+        탭이 하나뿐이므로 이것은 사실상 구역 제목이며, 그렇게 쓴다 — 레거시의 두 번째 탭
+        '담당자관리' 는 마크업에만 있고 동작하지 않았다(D-I13). 없는 탭을 그려 두지 않는다.
+        With a single tab this is really a section heading and is used as one: the legacy's second
+        tab, 담당자관리, existed in the markup and did nothing (D-I13). A tab that leads nowhere
+        is not drawn.
+      */}
+      <div className="lg-tabs">
+        <span className="lg-tab">이용기관관리</span>
+      </div>
+
+      {/* 레거시 infoList01 */}
+      <ul className="lg-info">
+        <li>이용기관 관리</li>
+      </ul>
+
+      <form className="lg-form" onSubmit={submit} aria-label="이용기관 조회">
+        <div className="lg-form-grid">
           <label htmlFor="institution-name">검색</label>
           <input
             id="institution-name"
+            className="lg-form-wide"
             type="text"
             value={name}
             placeholder="이용기관 검색"
             onChange={(e) => setName(e.target.value)}
           />
+
+          {/*
+            fieldset/legend 대신 role="radiogroup" + aria-labelledby 를 쓴다. 그룹 이름이
+            격자의 라벨 칸에, 선택지가 입력 칸에 놓여야 다른 행과 줄이 맞는데, legend 는
+            flex/grid 컨테이너 안에서 브라우저마다 배치가 달라 그 정렬을 신뢰할 수 없다.
+            접근성상 전달되는 것은 같다 — 스크린리더는 그룹 이름을 먼저 읽고 각 선택지를
+            읽으며, 각 라디오는 자기 <label> 을 그대로 갖는다.
+
+            role="radiogroup" with aria-labelledby replaces fieldset/legend. The group name has
+            to sit in the grid's label column and the options in the field column to line up with
+            the other rows, and a <legend> inside a flex or grid container is laid out
+            inconsistently across browsers. What is conveyed is the same: the group name is
+            announced ahead of the options, and each radio keeps its own <label>.
+          */}
+          <span className="lg-form-label" id="institution-status-label">
+            상태
+          </span>
+          <div
+            className="lg-form-wide lg-radio-group"
+            role="radiogroup"
+            aria-labelledby="institution-status-label"
+          >
+            {STATUS_OPTIONS.map((option) => (
+              <label key={option.value} htmlFor={`status-${option.value}`}>
+                <input
+                  id={`status-${option.value}`}
+                  type="radio"
+                  name="status"
+                  value={option.value}
+                  checked={status === option.value}
+                  onChange={() => setStatus(option.value)}
+                />
+                {option.label}
+              </label>
+            ))}
+          </div>
         </div>
 
-        <fieldset>
-          <legend>상태</legend>
-          {STATUS_OPTIONS.map((option) => (
-            <label key={option.value} htmlFor={`status-${option.value}`}>
-              <input
-                id={`status-${option.value}`}
-                type="radio"
-                name="status"
-                value={option.value}
-                checked={status === option.value}
-                onChange={() => setStatus(option.value)}
-              />
-              {option.label}
-            </label>
-          ))}
-        </fieldset>
-
-        <button type="submit" disabled={loading}>
-          조회
-        </button>
+        <div className="lg-form-actions">
+          <button type="submit" className="lg-btn lg-btn-primary" disabled={loading}>
+            {loading ? '조회 중…' : '조회'}
+          </button>
+        </div>
       </form>
 
-      {error && <p role="alert">{error}</p>}
+      {/*
+        레거시 화면은 그리드 위에 등록·수정·중지·삭제 버튼 줄을 두었다. 그 줄은 여기에
+        없다 — Sprint I1 은 조회만 제공하며, 뒤에 동작이 없는 버튼을 두는 것이 레거시의
+        결함 D-I13 이었다(핸들러 없는 담당자 추가·삭제 버튼). 버튼은 기능과 함께 I2 에서
+        들어온다. 같은 이유로 행 선택 체크박스도 두지 않는다: 선택을 소비할 동작이 없다.
+        The legacy put a 등록/수정/중지/삭제 button row above the grid. It is absent here: Sprint
+        I1 provides search only, and a button with no operation behind it is precisely defect
+        D-I13. They arrive in I2 with their operations. Row-selection checkboxes are omitted for
+        the same reason — nothing would consume the selection.
+      */}
 
-      {loading && <p role="status">조회 중입니다.</p>}
+      {error && (
+        <p role="alert" className="field-error visible">
+          {error}
+        </p>
+      )}
+
+      {loading && (
+        <p role="status" className="lg-loading">
+          조회 중입니다.
+        </p>
+      )}
 
       {result && !loading && (
-        <>
-          <DataTable table={table} caption="이용기관 목록" />
+        <section aria-live="polite">
+          {/*
+            결과가 없어도 그리드는 머리글과 함께 그린다 — 표를 통째로 감추면 어떤 열이
+            있는지조차 알 수 없다. 빈 사유는 본문 한 칸에 넣는다. 세 화면이 같은 규칙이다.
+            다만 그리드가 나타나는 시점은 <b>조회가 끝난 뒤</b>다: 아직 아무것도 받지 못한
+            상태에서 머리글만 떠 있으면 결과가 없는 것처럼 읽힌다.
 
-          {result.rows.length === 0 && <p>조회 결과가 없습니다.</p>}
+            An empty result still draws the grid with its headers — hiding the table leaves the
+            user unable to see which columns exist — and the reason goes in a single body cell,
+            as on the other two screens. The grid appears only once the search has finished,
+            though: headers alone before any response read as a result that came back empty.
+          */}
+          <DataTable
+            table={table}
+            caption="이용기관 목록"
+            captionClassName="sr-only"
+            className="lg-grid"
+            wrapperClassName="lg-grid-wrap"
+            emptyClassName="lg-empty"
+            emptyContent="조회 결과가 없습니다."
+          />
 
           {result.totalPages > 1 && (
-            <nav aria-label="페이지">
+            <nav className="lg-paging" aria-label="페이지">
               <button
                 type="button"
+                className="lg-btn"
                 onClick={() => table.previousPage()}
-                disabled={!table.getCanPreviousPage()}
+                disabled={!table.getCanPreviousPage() || loading}
               >
                 이전
               </button>
@@ -320,16 +438,17 @@ export function InstitutionPage({ onSelect }: Props) {
               </span>
               <button
                 type="button"
+                className="lg-btn"
                 onClick={() => table.nextPage()}
-                disabled={!table.getCanNextPage()}
+                disabled={!table.getCanNextPage() || loading}
               >
                 다음
               </button>
             </nav>
           )}
 
-          <p>총 {result.totalCount} 건</p>
-        </>
+          <p className="lg-result-line">총 {result.totalCount} 건</p>
+        </section>
       )}
     </section>
   );
