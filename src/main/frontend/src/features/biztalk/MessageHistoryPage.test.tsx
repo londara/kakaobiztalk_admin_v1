@@ -1,6 +1,7 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { renderWithProviders } from '../../test/renderWithProviders';
 import { MessageHistoryPage } from './MessageHistoryPage';
 
 /**
@@ -53,7 +54,7 @@ describe('MessageHistoryPage', () => {
     // req: FR-MSG-004 — source: biztalk_admin_40.js gridColName
     const user = userEvent.setup();
     stubFetch(200, page());
-    render(<MessageHistoryPage operator={false} />);
+    renderWithProviders(<MessageHistoryPage operator={false} />);
 
     await user.click(screen.getByRole('button', { name: '조회' }));
 
@@ -69,7 +70,7 @@ describe('MessageHistoryPage', () => {
     // 레거시: 발신번호→PHONE(수신 컬럼), 수신번호→CALLBACK(발신 컬럼)
     const user = userEvent.setup();
     const fetchMock = stubFetch(200, page());
-    render(<MessageHistoryPage operator={false} />);
+    renderWithProviders(<MessageHistoryPage operator={false} />);
 
     await user.type(screen.getByLabelText('발송번호'), '15883987');
     await user.type(screen.getByLabelText('수신번호'), '01089136864');
@@ -83,11 +84,11 @@ describe('MessageHistoryPage', () => {
 
   it('FR-TEN-004: 이용기관 선택은 운영자에게만 보인다 / the 이용기관 field renders for operators only', () => {
     // 레거시는 모든 사용자에게 전체 고객사 명단을 드롭다운으로 제공했다 (TM-011)
-    const { unmount } = render(<MessageHistoryPage operator={false} />);
+    const { unmount } = renderWithProviders(<MessageHistoryPage operator={false} />);
     expect(screen.queryByLabelText('이용기관')).not.toBeInTheDocument();
     unmount();
 
-    render(<MessageHistoryPage operator />);
+    renderWithProviders(<MessageHistoryPage operator />);
     expect(screen.getByLabelText('이용기관')).toBeInTheDocument();
   });
 
@@ -95,7 +96,7 @@ describe('MessageHistoryPage', () => {
     // req: FR-TEN-001 — 서버가 무시하지만 보내지 않는 것이 의도를 분명히 한다
     const user = userEvent.setup();
     const fetchMock = stubFetch(200, page());
-    render(<MessageHistoryPage operator={false} />);
+    renderWithProviders(<MessageHistoryPage operator={false} />);
 
     await user.click(screen.getByRole('button', { name: '조회' }));
 
@@ -108,7 +109,7 @@ describe('MessageHistoryPage', () => {
     // req: FR-MSG-005
     const user = userEvent.setup();
     stubFetch(200, page());
-    render(<MessageHistoryPage operator={false} />);
+    renderWithProviders(<MessageHistoryPage operator={false} />);
 
     await user.click(screen.getByRole('button', { name: '조회' }));
 
@@ -129,7 +130,7 @@ describe('MessageHistoryPage', () => {
       code: 'INVALID_CRITERIA',
       violations: ['조회 기간은 최대 31일까지 가능합니다.', '시작일시가 종료일시보다 이후일 수 없습니다.'],
     });
-    render(<MessageHistoryPage operator={false} />);
+    renderWithProviders(<MessageHistoryPage operator={false} />);
 
     await user.click(screen.getByRole('button', { name: '조회' }));
 
@@ -151,7 +152,7 @@ describe('MessageHistoryPage', () => {
     // req: FR-MSG-020 — 레거시는 둘 다 빈 그리드로 표시했다
     const user = userEvent.setup();
     stubFetch(200, { rows: [], totalCount: 0, page: 0, size: 50, totalPages: 0 });
-    render(<MessageHistoryPage operator={false} />);
+    renderWithProviders(<MessageHistoryPage operator={false} />);
 
     await user.click(screen.getByRole('button', { name: '조회' }));
 
@@ -163,7 +164,7 @@ describe('MessageHistoryPage', () => {
     // 레거시는 <a onclick> 이었다 — 키보드 접근 불가 (WCAG 2.1.1)
     const user = userEvent.setup();
     stubFetch(200, page());
-    render(<MessageHistoryPage operator={false} />);
+    renderWithProviders(<MessageHistoryPage operator={false} />);
 
     await user.click(screen.getByRole('button', { name: '조회' }));
 
@@ -174,7 +175,7 @@ describe('MessageHistoryPage', () => {
     // req: FR-MSG-007 — 레거시는 전량을 받아 클라이언트에서 페이징했다(D7)
     const user = userEvent.setup();
     const fetchMock = stubFetch(200, { rows: [row], totalCount: 120, page: 0, size: 50, totalPages: 3 });
-    render(<MessageHistoryPage operator={false} />);
+    renderWithProviders(<MessageHistoryPage operator={false} />);
 
     await user.click(screen.getByRole('button', { name: '조회' }));
     await waitFor(() => expect(screen.getByText(/총/)).toBeInTheDocument());
@@ -192,7 +193,7 @@ describe('MessageHistoryPage', () => {
   it('메시지키 입력은 숫자만 받는다 / the message key accepts digits only', async () => {
     // req: FR-MSG-008, CONST-DATA-03
     const user = userEvent.setup();
-    render(<MessageHistoryPage operator={false} />);
+    renderWithProviders(<MessageHistoryPage operator={false} />);
     const input = screen.getByLabelText('메시지키');
     await user.type(input, '12a34b');
     expect(input).toHaveValue('1234');
@@ -202,7 +203,7 @@ describe('MessageHistoryPage', () => {
     // req: NFR-SEC-PII — 조회 조건에 전화번호가 포함될 수 있어 GET 을 쓰지 않는다
     const user = userEvent.setup();
     const fetchMock = stubFetch(200, page());
-    render(<MessageHistoryPage operator={false} />);
+    renderWithProviders(<MessageHistoryPage operator={false} />);
 
     await user.click(screen.getByRole('button', { name: '조회' }));
 
@@ -252,7 +253,7 @@ describe('MessageHistoryPage', () => {
   it('조회 전에는 내보내기가 비활성이다 / export is disabled before a search', () => {
     // req: FR-MSG-017 — 사용자가 보지 않은 내용을 파일로 받게 하지 않는다.
     stubFetch(200, page());
-    render(<MessageHistoryPage operator={false} />);
+    renderWithProviders(<MessageHistoryPage operator={false} />);
 
     expect(screen.getByRole('button', { name: 'CSV 내보내기' })).toBeDisabled();
   });
@@ -261,7 +262,7 @@ describe('MessageHistoryPage', () => {
     // req: FR-MSG-017
     const user = userEvent.setup();
     stubFetch(200, page([], 0));
-    render(<MessageHistoryPage operator={false} />);
+    renderWithProviders(<MessageHistoryPage operator={false} />);
 
     await user.click(screen.getByRole('button', { name: '조회' }));
 
@@ -289,7 +290,7 @@ describe('MessageHistoryPage', () => {
       clicked.push((this as HTMLAnchorElement).download);
     };
 
-    render(<MessageHistoryPage operator={false} />);
+    renderWithProviders(<MessageHistoryPage operator={false} />);
     await user.click(screen.getByRole('button', { name: '조회' }));
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'CSV 내보내기' })).toBeEnabled(),
@@ -319,7 +320,7 @@ describe('MessageHistoryPage', () => {
     const realClick = HTMLAnchorElement.prototype.click;
     HTMLAnchorElement.prototype.click = function () {};
 
-    render(<MessageHistoryPage operator />);
+    renderWithProviders(<MessageHistoryPage operator />);
     await user.type(screen.getByLabelText('이용기관'), 'IS001');
     await user.type(screen.getByLabelText('메시지키'), '12345');
     await user.click(screen.getByRole('button', { name: '조회' }));
@@ -353,7 +354,7 @@ describe('MessageHistoryPage', () => {
       }),
     } as unknown as Partial<Response> & { ok: boolean });
 
-    render(<MessageHistoryPage operator={false} />);
+    renderWithProviders(<MessageHistoryPage operator={false} />);
     await user.click(screen.getByRole('button', { name: '조회' }));
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'CSV 내보내기' })).toBeEnabled(),
@@ -385,7 +386,7 @@ describe('MessageHistoryPage', () => {
     const realClick = HTMLAnchorElement.prototype.click;
     HTMLAnchorElement.prototype.click = function () {};
 
-    render(<MessageHistoryPage operator={false} />);
+    renderWithProviders(<MessageHistoryPage operator={false} />);
     await user.click(screen.getByRole('button', { name: '조회' }));
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'CSV 내보내기' })).toBeEnabled(),

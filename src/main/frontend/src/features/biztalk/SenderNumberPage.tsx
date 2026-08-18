@@ -1,10 +1,18 @@
-import { useCallback, useEffect, useState } from 'react';
-import { formatTimestamp, InstitutionRow, searchInstitutions } from '../../api/institutionApi';
+import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
-  listSenderNumbers,
-  SenderNumberPage as Page,
-  SenderNumberRow,
-} from '../../api/senderNumberApi';
+  createColumnHelper,
+  rowPaginationFeature,
+  rowSelectionFeature,
+  tableFeatures,
+  useTable,
+  type PaginationState,
+  type RowSelectionState,
+} from '@tanstack/react-table';
+import { formatTimestamp } from '../../api/institutionApi';
+import type { SenderNumberRow } from '../../api/senderNumberApi';
+import { DataTable, type GridColumnMeta } from '../../components/DataTable';
+import { useInstitutionOptions, useSenderNumbers } from './queries';
 
 /**
  * 이용기관 정보 관리 — 발신번호 화면. / 이용기관 정보 관리 — the sender-number screen.
@@ -26,31 +34,40 @@ import {
  *       쿼리도 존재하지 않는다(§2.7)</li>
  * </ul>
  *
+ * <h2>선택한 기관이 URL 에 있는 이유 / why the chosen institution lives in the URL</h2>
+ * <p>기관 코드와 페이지 번호는 개인정보가 아니므로 URL 에 두어도 무방하고, 두면 특정 기관의
+ * 발신번호 화면을 그대로 공유할 수 있다. 표시되는 발신번호 자체는 URL 에 넣지 않는다 —
+ * 화면에 보이는 것과 주소창에 남는 것은 다른 문제다(FR-SND-011 의 조회 감사는 서버가 한다).</p>
+ * <p>An institution code and a page number are not personal data, so the URL can carry them and a
+ * given institution's screen becomes shareable. The sender numbers themselves never enter the
+ * URL: what is displayed and what is left in the address bar are different questions.</p>
+ *
  * <h2>동작하지 않는 버튼을 두지 않는다 / no buttons that do nothing</h2>
  * <p>레거시 화면에는 '등록'·'삭제' 버튼이 있었고 JS 에는 '수정' 핸들러까지 있었지만,
  * <b>수정 버튼 자체가 마크업에 없어</b> 상세·수정 화면은 도달 불가능한 죽은 코드였다(D-S8).
- * 이 화면은 Sprint S1 범위인 <b>조회</b>만 제공한다. 등록·수정·삭제는 해당 동작이 구현되는
- * Sprint S2 에서 함께 추가한다.</p>
+ * 이 화면은 Sprint S1 범위인 <b>조회</b>만 제공한다.</p>
  * <p>The legacy had 등록/삭제 buttons and even a 수정 handler in JS — but no 수정 button in the
  * markup, so the detail screen was unreachable dead code (D-S8). This screen offers only the
- * <b>list</b> that Sprint S1 covers; 등록/수정/삭제 arrive in Sprint S2 with the operations they
- * invoke.</p>
+ * <b>list</b> that Sprint S1 covers.</p>
  */
-
-/** 그리드 컬럼 정의 — 레거시 7컬럼. / Grid columns, the legacy's seven. */
-const COLUMNS: ReadonlyArray<{ key: keyof SenderNumberRow; label: string }> = [
-  { key: 'institutionName', label: '기관명' },
-  { key: 'number', label: '발신번호' },
-  { key: 'registeredBy', label: '등록자' },
-  { key: 'registeredAt', label: '등록일자' },
-  { key: 'updatedBy', label: '수정자' },
-  { key: 'updatedAt', label: '수정일자' },
-  { key: 'description', label: '설명' },
-];
 
 const PAGE_SIZE = 20;
 
-const EMPTY_PAGE: Page = { rows: [], totalCount: 0, page: 0, size: PAGE_SIZE, totalPages: 0 };
+/**
+ * 안정적인 빈 배열. / A stable empty array.
+ *
+ * <p>매 렌더 새 배열을 넘기면 데이터가 바뀐 것으로 보여 테이블 모델이 계속 다시 계산된다.</p>
+ * <p>A fresh array each render looks like new data and rebuilds the table model every time.</p>
+ */
+const NO_ROWS: SenderNumberRow[] = [];
+
+const features = tableFeatures({
+  rowPaginationFeature,
+  rowSelectionFeature,
+  columnMeta: {} as GridColumnMeta,
+});
+
+const columnHelper = createColumnHelper<typeof features, SenderNumberRow>();
 
 interface Props {
   /**
@@ -64,86 +81,182 @@ interface Props {
  * 발신번호 관리 화면 컴포넌트. / The sender-number management screen component.
  */
 export function SenderNumberPage({ onSelect }: Props) {
-  const [institutions, setInstitutions] = useState<InstitutionRow[]>([]);
-  const [institution, setInstitution] = useState('');
-  const [page, setPage] = useState(0);
-  const [result, setResult] = useState<Page>(EMPTY_PAGE);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const institution = searchParams.get('institution') ?? '';
+  const pageParam = Number(searchParams.get('page'));
+  const page = Number.isInteger(pageParam) && pageParam > 0 ? pageParam : 0;
+
+  /*
+    선택 상태는 `ref` 로 관리한다 — 표시되는 발신번호가 아니다. 레거시 그리드가 표시값을
+    그대로 선택·삭제에 사용한 것이 D-S1 의 직접 원인이었다(FR-SND-007). 아래 `getRowId` 가
+    행 식별자를 `ref` 로 못박으므로, 이 상태의 키는 언제나 `ref` 다.
+    Selection is keyed by `ref`, never by the displayed number: the legacy grid carrying the
+    displayed value into selection and deletion is the direct cause of D-S1 (FR-SND-007). The
+    `getRowId` below pins the row identifier to `ref`, so this state's keys are always refs.
+  */
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
   // 이용기관 목록. 레거시는 USE_YN=ALL 로 전 기관을 받아 사용 여부를 구분 없이 나열했다.
   // 여기서는 상태를 함께 보여 준다(FR-SND-010).
   // The institution list. The legacy fetched every institution with USE_YN=ALL and listed them
   // without distinguishing status; here the status is shown alongside (FR-SND-010).
-  useEffect(() => {
-    let cancelled = false;
-    searchInstitutions({ status: 'ALL', page: 0, size: 200 })
-      .then((response) => {
-        if (!cancelled) {
-          setInstitutions(response.rows);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setInstitutions([]);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const institutions = useInstitutionOptions();
 
-  const load = useCallback(
-    async (targetInstitution: string, targetPage: number) => {
-      // D-S19: 기관을 고르기 전에는 요청하지 않는다.
-      // D-S19: no request before an institution is chosen.
-      if (!targetInstitution) {
-        setResult(EMPTY_PAGE);
-        setError(null);
-        return;
-      }
+  const senderNumbers = useSenderNumbers(institution, page, PAGE_SIZE);
 
-      setLoading(true);
-      setError(null);
-      try {
-        setResult(
-          await listSenderNumbers({
-            institution: targetInstitution,
-            page: targetPage,
-            size: PAGE_SIZE,
-          }),
-        );
-      } catch (e) {
-        setResult(EMPTY_PAGE);
-        setError(e instanceof Error ? e.message : '발신번호를 조회할 수 없습니다.');
-      } finally {
-        setLoading(false);
-      }
-    },
-    [],
+  /*
+    오류 상태에서는 캐시에 남아 있는 직전 성공 응답을 읽지 않는다 — 실패한 조회 뒤에 남은
+    행은 조회에 성공한 것처럼 보인다.
+    While the query is in error the previous successful response in the cache is not read: rows
+    left over from a failed search read as a successful one.
+  */
+  const result = senderNumbers.isError ? undefined : senderNumbers.data;
+  const loading = senderNumbers.isFetching;
+  const error = senderNumbers.isError
+    ? senderNumbers.error instanceof Error
+      ? senderNumbers.error.message
+      : '발신번호를 조회할 수 없습니다.'
+    : null;
+
+  const pagination = useMemo<PaginationState>(
+    () => ({ pageIndex: page, pageSize: PAGE_SIZE }),
+    [page],
   );
 
-  useEffect(() => {
-    void load(institution, page);
-  }, [institution, page, load]);
+  const columns = useMemo(
+    () =>
+      columnHelper.columns([
+        columnHelper.display({
+          id: 'select',
+          header: (ctx) => {
+            const rows = ctx.table.getRowModel().rows;
+            return (
+              <input
+                type="checkbox"
+                aria-label="전체 선택"
+                checked={rows.length > 0 && rows.every((row) => row.getIsSelected())}
+                disabled={rows.length === 0}
+                onChange={ctx.table.getToggleAllRowsSelectedHandler()}
+              />
+            );
+          },
+          cell: (ctx) => (
+            <input
+              type="checkbox"
+              aria-label={`${ctx.row.original.number} 선택`}
+              checked={ctx.row.getIsSelected()}
+              onChange={ctx.row.getToggleSelectedHandler()}
+            />
+          ),
+        }),
+        columnHelper.accessor('institutionName', { header: '기관명' }),
+        columnHelper.accessor('number', {
+          header: '발신번호',
+          cell: (ctx) =>
+            onSelect ? (
+              // 레거시 그리드는 행 전체를 클릭 대상으로 삼았다. 버튼을 쓰면 키보드로 접근
+              // 가능하고 스크린리더가 조작 가능한 요소로 인식한다(WCAG 2.1.1).
+              // The legacy made the whole row clickable. A button is keyboard reachable and
+              // announced as operable (WCAG 2.1.1).
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => onSelect(ctx.row.original)}
+              >
+                {ctx.getValue()}
+              </button>
+            ) : (
+              ctx.getValue()
+            ),
+        }),
+        columnHelper.accessor('registeredBy', { header: '등록자', cell: (ctx) => ctx.getValue() ?? '' }),
+        columnHelper.accessor('registeredAt', {
+          header: '등록일자',
+          cell: (ctx) => formatTimestamp(ctx.getValue()),
+        }),
+        columnHelper.accessor('updatedBy', { header: '수정자', cell: (ctx) => ctx.getValue() ?? '' }),
+        columnHelper.accessor('updatedAt', {
+          header: '수정일자',
+          cell: (ctx) => formatTimestamp(ctx.getValue()),
+        }),
+        columnHelper.accessor('description', {
+          header: '설명',
+          cell: (ctx) => ctx.getValue() ?? '',
+          meta: { cellClassName: 'lg-cell-text' },
+        }),
+      ]),
+    [onSelect],
+  );
+
+  const table = useTable({
+    features,
+    columns,
+    data: result?.rows ?? NO_ROWS,
+    // 행 식별자는 `ref` 다. 이 한 줄이 선택·후속 동작이 표시값을 잡지 못하게 막는다(D-S1).
+    // The row identifier is `ref`; this single line keeps selection and any follow-up action
+    // from ever taking hold of a displayed value (D-S1).
+    getRowId: (row) => row.ref,
+    manualPagination: true,
+    pageCount: result?.totalPages ?? 0,
+    state: { pagination, rowSelection },
+    onRowSelectionChange: setRowSelection,
+    onPaginationChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(pagination) : updater;
+      setSearchParams((previous) => {
+        const params = new URLSearchParams(previous);
+        params.set('page', String(next.pageIndex));
+        return params;
+      });
+    },
+  });
 
   const onInstitutionChange = (value: string) => {
     // 기관이 바뀌면 페이지를 처음으로 되돌린다. 3페이지를 보다 기관을 바꿨을 때
     // 3페이지가 유지되면 결과가 없는 것처럼 보인다.
     // Changing institution resets to the first page: keeping page 3 after a switch would look
     // like an empty result.
-    setPage(0);
-    setInstitution(value);
+    const params = new URLSearchParams();
+    if (value) {
+      params.set('institution', value);
+    }
+    params.set('page', '0');
+    setSearchParams(params);
+
+    // 선택도 함께 비운다. 선택은 화면에 보이는 행에 대한 것이며, 보이지 않는 기관의 행을
+    // 선택된 채로 들고 있는 것은 Sprint S2 의 삭제가 붙는 순간 D-S1 과 같은 종류의 사고가
+    // 된다 — 사용자가 보지 못한 행에 동작이 걸린다.
+    // The selection is cleared too: it refers to rows on screen, and holding selected rows from
+    // an institution no longer displayed becomes a D-S1-shaped accident the moment Sprint S2's
+    // delete lands — an operation applied to rows the user never saw.
+    setRowSelection({});
   };
 
   return (
-    <section aria-labelledby="senderno-heading">
-      <h1 id="senderno-heading">이용기관 정보 관리</h1>
+    <main className="page-wrap">
+      {/* 제목 + breadcrumb — 레거시 title_wrpa / legacy title_wrpa */}
+      <div className="lg-title">
+        <h1>이용기관 정보 관리</h1>
+        <span className="lg-breadcrumb">
+          BIZTALK <span aria-hidden="true">›</span> <strong>이용기관 정보 관리</strong>
+        </span>
+      </div>
 
+      {/* 레거시 infoList01 */}
+      <ul className="lg-info">
+        <li>이용기관을 선택하면 해당 기관에 등록된 발신번호가 조회됩니다.</li>
+      </ul>
+
+      {/* 레거시 tb_srchBtn */}
       <form
+        className="lg-search"
+        aria-label="발신번호 조회"
         onSubmit={(e) => {
           e.preventDefault();
-          void load(institution, page);
+          // 조건이 그대로이므로 URL 도 캐시 키도 바뀌지 않는다. '조회' 는 "지금 다시
+          // 조회하라" 는 뜻이므로 명시적으로 다시 요청한다.
+          // Nothing about the criteria changed, so neither the URL nor the cache key moves.
+          // 조회 means "run it again now", so the refetch is explicit.
+          void senderNumbers.refetch();
         }}
       >
         <label htmlFor="senderno-institution">이용기관</label>
@@ -152,8 +265,8 @@ export function SenderNumberPage({ onSelect }: Props) {
           value={institution}
           onChange={(e) => onInstitutionChange(e.target.value)}
         >
-          <option value="">이용기관을 선택하세요</option>
-          {institutions.map((row) => (
+          <option value="">-</option>
+          {(institutions.data?.rows ?? []).map((row) => (
             <option key={row.code} value={row.code}>
               {row.name ?? row.code}
               {row.statusLabel ? ` (${row.statusLabel})` : ''}
@@ -161,67 +274,96 @@ export function SenderNumberPage({ onSelect }: Props) {
           ))}
         </select>
 
-        <button type="submit" disabled={loading || !institution}>
-          조회
-        </button>
+        <span className="lg-search-actions">
+          <button type="submit" className="lg-btn lg-btn-primary" disabled={loading || !institution}>
+            조회
+          </button>
+        </span>
       </form>
 
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? (
+        <p role="alert" className="field-error visible">
+          {error}
+        </p>
+      ) : null}
 
-      {!institution ? (
-        <p>이용기관을 선택하면 등록된 발신번호가 표시됩니다.</p>
-      ) : (
-        <>
-          <table>
-            <caption>발신번호 목록</caption>
-            <thead>
-              <tr>
-                {COLUMNS.map((column) => (
-                  <th key={String(column.key)} scope="col">
-                    {column.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {result.rows.map((row) => (
-                <tr
-                  key={row.ref}
-                  onClick={onSelect ? () => onSelect(row) : undefined}
-                >
-                  {COLUMNS.map((column) => (
-                    <td key={String(column.key)}>
-                      {column.key === 'registeredAt' || column.key === 'updatedAt'
-                        ? formatTimestamp(row[column.key] as string | null)
-                        : ((row[column.key] as string | null) ?? '')}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/*
+        레거시 tabType02. 탭은 하나뿐이다 — 수수료 탭은 레거시 JSP 에서 주석 처리되어
+        있었고 서비스 계약도 쿼리도 없다(§2.7). 하나뿐인 탭은 사실상 구획 제목이며,
+        여기서는 그 역할로만 쓴다.
+        Legacy tabType02. There is one tab: the 수수료 tab was commented out of the legacy JSP
+        and has neither a service contract nor a query (§2.7). A lone tab is really a section
+        heading, and it is used as one here.
+      */}
+      <div className="lg-tabs">
+        <span className="lg-tab">발신번호</span>
+        <span className="lg-tab-actions">
+          {/*
+            등록·삭제는 Sprint S2 에서 구현된다. 배치를 레거시와 맞추기 위해 자리는 두되
+            <b>비활성</b>으로 둔다 — 눌러도 아무 일이 없는 버튼을 두는 것은 레거시가
+            수정 핸들러만 두고 버튼을 두지 않았던 결함(D-S8)을 뒤집어 반복하는 것이다.
+            Register and delete arrive in Sprint S2. The slots are kept so the layout matches the
+            legacy, but <b>disabled</b>: a button that does nothing when pressed repeats D-S8 —
+            the legacy's 수정 handler with no button — with the sides reversed.
+          */}
+          <button type="button" className="lg-btn" disabled title="Sprint S2 에서 제공됩니다">
+            등록
+          </button>
+          <button type="button" className="lg-btn" disabled title="Sprint S2 에서 제공됩니다">
+            삭제
+          </button>
+        </span>
+      </div>
 
-          {!loading && result.rows.length === 0 ? (
-            <p>등록된 발신번호가 없습니다.</p>
-          ) : null}
+      <section aria-live="polite">
+        {/*
+          그리드는 <b>항상</b> 머리글과 함께 렌더링한다. 표 자체를 숨기면 어떤 열이 있는지조차
+          조회 전에는 알 수 없다 — 레거시도 빈 상태에서 머리글을 갖춘 그리드를 보여 주고
+          본문에만 "조회된 내용이 없습니다" 를 넣었다.
+          The grid is <b>always</b> rendered with its headers. Hiding the table leaves the user
+          unable to see even which columns exist before querying; the legacy showed a
+          full-header grid and put "조회된 내용이 없습니다" in the body.
+        */}
+        <DataTable
+          table={table}
+          caption="발신번호 목록"
+          captionClassName="sr-only"
+          className="lg-grid"
+          wrapperClassName="lg-grid-wrap"
+          emptyClassName="lg-empty"
+          emptyContent={
+            loading
+              ? '조회 중입니다.'
+              : institution
+                ? '조회된 내용이 없습니다.'
+                : '이용기관을 선택하세요.'
+          }
+        />
 
-          <nav aria-label="페이지">
-            <button type="button" disabled={page === 0 || loading} onClick={() => setPage(page - 1)}>
-              이전
-            </button>
-            <span>
-              {result.totalPages === 0 ? 0 : page + 1} / {result.totalPages} (총 {result.totalCount}건)
-            </span>
-            <button
-              type="button"
-              disabled={loading || page + 1 >= result.totalPages}
-              onClick={() => setPage(page + 1)}
-            >
-              다음
-            </button>
-          </nav>
-        </>
-      )}
-    </section>
+        <nav className="lg-paging" aria-label="페이지 이동">
+          <button
+            type="button"
+            className="lg-btn"
+            disabled={!table.getCanPreviousPage() || loading}
+            onClick={() => table.previousPage()}
+          >
+            이전
+          </button>
+          <span>
+            {result && result.totalPages > 0 ? page + 1 : 0} /{' '}
+            {Math.max(result?.totalPages ?? 0, 1)} · 총{' '}
+            {(result?.totalCount ?? 0).toLocaleString()}건
+          </span>
+          <button
+            type="button"
+            className="lg-btn"
+            disabled={loading || !table.getCanNextPage()}
+            onClick={() => table.nextPage()}
+          >
+            다음
+          </button>
+        </nav>
+      </section>
+    </main>
   );
 }

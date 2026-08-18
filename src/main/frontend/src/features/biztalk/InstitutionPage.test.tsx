@@ -1,6 +1,7 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { renderWithProviders } from '../../test/renderWithProviders';
 import { InstitutionPage } from './InstitutionPage';
 import { formatTimestamp } from '../../api/institutionApi';
 
@@ -50,7 +51,7 @@ describe('InstitutionPage', () => {
   it('진입 시 목록을 조회한다 / searches on entry', async () => {
     const fetchMock = stubFetch(200, page());
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(await screen.findByText('쿠콘_마이데이터사업1본부')).toBeInTheDocument();
@@ -59,7 +60,7 @@ describe('InstitutionPage', () => {
   it('레거시 그리드 8컬럼을 표시한다 / renders the legacy grid\'s eight columns', async () => {
     stubFetch(200, page());
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
 
     const table = await screen.findByRole('table');
     const headers = within(table).getAllByRole('columnheader').map((h) => h.textContent);
@@ -82,7 +83,7 @@ describe('InstitutionPage', () => {
   it('D-I5: 마스킹된 인증키만 표시한다 / shows only the masked 인증키', async () => {
     stubFetch(200, page());
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
 
     // 레거시 화면은 전 기관의 인증키를 평문 컬럼으로 렌더링했다 — 화면 캡처 한 장이면
     // 모든 고객사 키가 함께 나간다.
@@ -95,7 +96,7 @@ describe('InstitutionPage', () => {
   it('D-I5: 문서 어디에도 평문 키 형태가 없다 / no plaintext key shape appears in the document', async () => {
     stubFetch(200, page());
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
     await screen.findByRole('table');
 
     // 20자 연속 영숫자 = 레거시 생성기가 만든 키의 형태.
@@ -110,7 +111,7 @@ describe('InstitutionPage', () => {
   it('상태 라벨을 표시한다 / renders the status label', async () => {
     stubFetch(200, page([{ ...row, status: 'N', statusLabel: '미사용' }]));
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
 
     expect(await screen.findByText('미사용')).toBeInTheDocument();
   });
@@ -118,7 +119,7 @@ describe('InstitutionPage', () => {
   it('FR-INST-006: 매핑되지 않는 상태를 원문으로 표시한다 / renders an unmapped status verbatim', async () => {
     stubFetch(200, page([{ ...row, status: 'X', statusLabel: 'X' }]));
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
 
     const table = await screen.findByRole('table');
     // 레거시는 'Y' 가 아닌 모든 값을 '미사용' 으로 표시해 데이터 이상을 감췄다.
@@ -134,7 +135,7 @@ describe('InstitutionPage', () => {
   it('FR-INST-008: 등록·수정일시에 시각까지 표시한다 / shows the time, not only the date', async () => {
     stubFetch(200, page());
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
 
     // 레거시는 substring(0,8) 로 날짜만 표시했고, 그 절단이 D-I9 을 가렸다.
     // The legacy displayed substring(0,8), date only, and that truncation hid D-I9.
@@ -157,7 +158,7 @@ describe('InstitutionPage', () => {
   it('FR-INST-003: 페이지 이동이 서버 요청을 발생시킨다 / paging issues a server request', async () => {
     const fetchMock = stubFetch(200, page([row], 55, 0, 3));
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
     await screen.findByRole('table');
 
     await userEvent.click(screen.getByRole('button', { name: '다음' }));
@@ -173,7 +174,7 @@ describe('InstitutionPage', () => {
   it('첫 페이지에서는 이전 버튼이 비활성이다 / the previous button is disabled on page one', async () => {
     stubFetch(200, page([row], 55, 0, 3));
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
     await screen.findByRole('table');
 
     expect(screen.getByRole('button', { name: '이전' })).toBeDisabled();
@@ -182,7 +183,7 @@ describe('InstitutionPage', () => {
   it('전체 건수를 표시한다 / shows the total count', async () => {
     stubFetch(200, page([row], 55, 0, 3));
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
 
     expect(await screen.findByText(/총 55 건/)).toBeInTheDocument();
   });
@@ -190,7 +191,7 @@ describe('InstitutionPage', () => {
   it('페이지가 하나면 페이지 네비게이션을 감춘다 / hides navigation for a single page', async () => {
     stubFetch(200, page());
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
     await screen.findByRole('table');
 
     expect(screen.queryByRole('navigation', { name: '페이지' })).not.toBeInTheDocument();
@@ -203,7 +204,7 @@ describe('InstitutionPage', () => {
   it('검색어와 상태를 전송한다 / sends the term and status', async () => {
     const fetchMock = stubFetch(200, page());
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
     await screen.findByRole('table');
 
     await userEvent.type(screen.getByLabelText('검색'), '쿠콘');
@@ -219,7 +220,7 @@ describe('InstitutionPage', () => {
   it('조건을 바꾸면 첫 페이지로 돌아간다 / a criteria change returns to page one', async () => {
     const fetchMock = stubFetch(200, page([row], 55, 0, 3));
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
     await screen.findByRole('table');
     await userEvent.click(screen.getByRole('button', { name: '다음' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
@@ -237,7 +238,7 @@ describe('InstitutionPage', () => {
   it('D-I2: 권한이 없으면 오류를 표시한다 / shows an error when the operator role is missing', async () => {
     stubFetch(403, {});
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
 
     // 레거시의 '권한 없음' 은 브라우저 안의 alert 였고 서버는 아무도 막지 않았다.
     // 이제 서버가 거부하고 화면은 그 결과를 보고할 뿐이다.
@@ -254,7 +255,7 @@ describe('InstitutionPage', () => {
       .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) } as Response);
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
     expect(await screen.findByText('쿠콘_마이데이터사업1본부')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: '조회' }));
@@ -267,7 +268,7 @@ describe('InstitutionPage', () => {
   it('결과가 없으면 빈 상태를 명시한다 / states the empty case explicitly', async () => {
     stubFetch(200, page([], 0));
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
 
     expect(await screen.findByText('조회 결과가 없습니다.')).toBeInTheDocument();
   });
@@ -279,7 +280,7 @@ describe('InstitutionPage', () => {
   it('D-I13: 담당자관리 탭이 없다 / there is no 담당자관리 tab', async () => {
     stubFetch(200, page());
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
     await screen.findByRole('table');
 
     expect(screen.queryByText('담당자관리')).not.toBeInTheDocument();
@@ -288,7 +289,7 @@ describe('InstitutionPage', () => {
   it('D-I13: 동작하지 않는 버튼을 두지 않는다 / no button exists without an operation behind it', async () => {
     stubFetch(200, page());
 
-    render(<InstitutionPage />);
+    renderWithProviders(<InstitutionPage />);
     await screen.findByRole('table');
 
     // 레거시는 핸들러가 없는 '추가'·'삭제' 버튼을 마크업에 남겨두었다. Sprint I1 은

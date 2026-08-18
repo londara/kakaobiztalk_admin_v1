@@ -1,9 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import {
-  MessageDetail,
-  MessageHistoryRow,
-  fetchMessageDetail,
-} from '../../api/messageHistoryApi';
+import { useEffect, useRef } from 'react';
+import type { MessageHistoryRow } from '../../api/messageHistoryApi';
+import { useMessageDetail } from './queries';
 
 /**
  * 문자상세내역 패널. / Message detail panel.
@@ -34,39 +31,24 @@ interface Props {
  * 문자상세내역 패널 컴포넌트. / The detail panel component.
  */
 export function MessageDetailPanel({ row, onClose }: Props) {
-  const [detail, setDetail] = useState<MessageDetail | null>(null);
-  const [notFound, setNotFound] = useState(false);
-  const [loading, setLoading] = useState(true);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    setNotFound(false);
-    fetchMessageDetail(row)
-      .then((d) => {
-        if (active) {
-          setDetail(d);
-        }
-      })
-      .catch(() => {
-        // 404 는 "없음" 또는 "다른 테넌트의 것"을 구분하지 않는다. 서버가 의도적으로
-        // 구분하지 않으므로(TM-009) 화면도 구분하지 않는다.
-        // A 404 covers both not-found and not-owned; the server declines to distinguish them
-        // (TM-009), so neither does the screen.
-        if (active) {
-          setNotFound(true);
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [row]);
+  /*
+    행이 바뀌면 쿼리 키가 바뀌므로 조회도 함께 바뀐다 — 직접 취소 플래그를 들고 있을 필요가
+    없다. 이전 코드의 `active` 플래그가 막던 것(느린 응답이 뒤늦게 도착해 다른 행의 상세를
+    덮어쓰는 일)은 캐시가 행마다 다른 항목을 들고 있으므로 애초에 일어나지 않는다.
+    A different row is a different query key, so no cancellation flag is needed: what the previous
+    `active` flag prevented — a slow response landing late and overwriting another row's detail —
+    cannot happen when the cache holds a separate entry per row.
+  */
+  const query = useMessageDetail(row);
+  const detail = query.data;
+  // 404 는 "없음" 또는 "다른 테넌트의 것"을 구분하지 않는다. 서버가 의도적으로 구분하지
+  // 않으므로(TM-009) 화면도 구분하지 않는다.
+  // A 404 covers both not-found and not-owned; the server declines to distinguish them (TM-009),
+  // so neither does the screen.
+  const notFound = query.isError;
+  const loading = query.isPending;
 
   // 패널이 열리면 제목으로 포커스를 옮긴다. 인라인 패널은 시각적으로만 나타나므로
   // 키보드·스크린리더 사용자에게는 아무 일도 일어나지 않은 것처럼 보인다.

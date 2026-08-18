@@ -12,13 +12,17 @@ import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -27,14 +31,17 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 인증 REST 엔드포인트. / Authentication REST endpoints.
  *
- * <p>이 컨트롤러의 두 엔드포인트는 시스템의 유일한 미인증 진입점이며, 인터넷에
- * 직접 노출된다. 레거시에서 가장 많이 공격받는 표면이었고 신규에서도 그렇다.</p>
- * <p>The two endpoints here are the system's only unauthenticated entry point and are
- * directly internet-facing — the most-probed surface in the legacy and in the
- * replacement alike.</p>
+ * <p>이 컨트롤러의 <b>미인증</b> 엔드포인트(로그인·로그아웃)는 시스템의 유일한 미인증
+ * 진입점이며, 인터넷에 직접 노출된다. 레거시에서 가장 많이 공격받는 표면이었고 신규에서도
+ * 그렇다. {@code /session} 은 그 둘과 달리 인증을 요구하며, 세션이 없으면 컨트롤러에
+ * 도달하지 못한다.</p>
+ * <p>The <b>unauthenticated</b> endpoints here — login and logout — are the system's only
+ * unauthenticated entry point and are directly internet-facing, the most-probed surface in the
+ * legacy and in the replacement alike. {@code /session} differs: it requires authentication and is
+ * refused before reaching the controller when no session exists.</p>
  *
  * // source: apc_login_proc_act.jsp, apm_0001_01.js
- * // req: FR-LOGIN-001, FR-LOGIN-016, FR-LOGIN-017, FR-LOGIN-019, FR-LOGIN-023
+ * // req: FR-LOGIN-001, FR-LOGIN-016, FR-LOGIN-017, FR-LOGIN-018, FR-LOGIN-019, FR-LOGIN-023
  */
 @RestController
 @RequestMapping("/api/auth")
@@ -172,6 +179,66 @@ public class AuthenticationController {
 
         return ResponseEntity.ok(
                 new LoginResponse(false, result.operator(), displaced.isPresent()));
+    }
+
+    /**
+     * 현재 세션을 확인한다. / Reports the current session.
+     *
+     * <h2>이 엔드포인트가 필요한 이유 / why this endpoint exists</h2>
+     * <p>세션 쿠키는 {@code HttpOnly} 다(ADR-LOGIN-012). 그래서 브라우저의 JS 는 자기가
+     * 로그인되어 있는지 <b>알 수 없다</b> — 쿠키를 읽을 수 없기 때문이다. SPA 를 새로
+     * 고치면 자바스크립트 상태는 전부 사라지지만 쿠키와 서버 세션은 그대로 남는다. 물어볼
+     * 곳이 없으면 클라이언트는 "로그인 안 된 것으로 간주" 밖에 할 수 없고, 사용자는 세션이
+     * 멀쩡한데도 로그인 화면으로 되돌아간다.</p>
+     * <p>The session cookie is {@code HttpOnly}, so browser JS cannot tell whether it is signed in
+     * — it cannot read the cookie. Refreshing the SPA discards all JavaScript state while the
+     * cookie and the server session survive. With nowhere to ask, the client can only assume
+     * signed-out, and the user lands back on the login screen with a perfectly good session.</p>
+     *
+     * <p>대안은 운영자 여부를 {@code sessionStorage} 같은 곳에 클라이언트가 보관하는 것이지만,
+     * 그 값은 <b>거짓말을 할 수 있다</b>: 서버 세션이 만료된 뒤에도 화면은 로그인된 것처럼
+     * 보이고 모든 요청은 403 이 된다. 서버에 묻는 편이 그 상태를 애초에 만들지 않는다.</p>
+     * <p>The alternative — the client keeping the role in {@code sessionStorage} — can lie: after
+     * the server session expires the screen still looks signed in while every request returns 403.
+     * Asking the server never creates that state.</p>
+     *
+     * <p>보안 설정을 바꾸지 않는다. 이 경로는 어떤 {@code permitAll()} 규칙에도 없으므로
+     * {@code anyRequest().authenticated()} 에 걸리고, 세션이 없으면 컨트롤러에 도달하기 전에
+     * 거절된다. 아래의 익명 검사는 그 위의 이중 확인이다 — 앞으로 누군가 이 경로를
+     * {@code permitAll} 로 옮기더라도 "세션이 없는데 세션이 있다고 답하는" 일은 없어야 한다.</p>
+     * <p>No security configuration changes: the path appears in no {@code permitAll()} rule, so it
+     * falls under {@code anyRequest().authenticated()} and is refused before reaching the
+     * controller when there is no session. The anonymous check below is a second line — should
+     * anyone later move this path to {@code permitAll}, it must still never claim a session that
+     * does not exist.</p>
+     *
+     * <p>감사 기록을 남기지 않는다. 이것은 인증 사건이 아니라 <b>상태 조회</b>이며, 새로고침
+     * 한 번마다 감사 로그가 한 줄 늘면 실제 로그인·로그아웃 기록이 그 소음에 묻힌다.</p>
+     * <p>Not audited: this is a state read rather than an authentication event, and one audit row
+     * per page refresh would bury the real login and logout records in noise.</p>
+     *
+     * @param authentication 현재 인증 / the current authentication
+     * @return 운영자 여부, 세션이 없으면 403 / the operator flag, or 403 when there is no session
+     */
+    // req: FR-LOGIN-018, ADR-001
+    @GetMapping("/session")
+    public ResponseEntity<SessionResponse> session(Authentication authentication) {
+        if (authentication == null
+                || !authentication.isAuthenticated()
+                || authentication instanceof AnonymousAuthenticationToken) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        // 로그인 시 심은 권한을 그대로 읽는다. 세션 속성(SESSION_OPERATOR)에도 같은 값이
+        // 있지만, 클라이언트가 이 값으로 판단하려는 것은 "/api/admin/** 에 들어갈 수 있는가"
+        // 이므로 그 판정에 실제로 쓰이는 권한을 근거로 삼는 것이 맞다.
+        // Reads the authority granted at login. The session attribute carries the same value, but
+        // what the client decides with it is "will /api/admin/** admit me", so the authority that
+        // actually decides that is the right basis.
+        boolean operator = authentication.getAuthorities().stream()
+                .anyMatch(granted -> "ROLE_OPERATOR".equals(granted.getAuthority()));
+
+        return ResponseEntity.ok(new SessionResponse(operator));
     }
 
     /**

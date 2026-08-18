@@ -434,6 +434,24 @@ tbody tr:hover {
 }
 
 /* =============================================================================
+   세션 확인 중 표시. / Shown while the session is being restored.
+   req: FR-LOGIN-018, ADR-001
+
+   새로고침 직후 서버에 세션을 묻는 동안만 보인다(SessionGate). 보통 한 번의 왕복이라
+   순간이지만, 그때 화면이 비어 있으면 앱이 죽은 것처럼 보인다.
+   Visible only while the session is being confirmed after a refresh (SessionGate). It is usually
+   one round trip, but a blank screen in that moment looks like a dead app.
+   ============================================================================= */
+.session-probe {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: var(--muted, #667);
+}
+
+/* =============================================================================
    로그인 후 셸 + 우측 내비게이션 바. / Post-login shell + right-hand nav bar.
    req: FR-LOGIN-018, NFR-COMPAT-01
    ============================================================================= */
@@ -471,7 +489,16 @@ tbody tr:hover {
   gap: 6px;
 }
 
+/*
+  메뉴 항목은 <a>(NavLink)다. 버튼이었을 때와 같은 모양을 유지하려면 두 가지가 필요하다:
+  <a> 는 기본이 inline 이라 width:100% 가 듣지 않으므로 block 으로, 그리고 기본 밑줄을 없앤다.
+  The menu items are anchors (NavLink). Keeping the look they had as buttons needs two things: an
+  anchor is inline by default so width:100% does nothing until it is block, and the default
+  underline has to go.
+*/
 .app-nav .nav-item {
+  display: block;
+  text-decoration: none;
   width: 100%;
   text-align: left;
   padding: 10px 12px;
@@ -505,4 +532,230 @@ tbody tr:hover {
     position: static;
   }
   .app-nav ul { flex-direction: row; flex-wrap: wrap; }
+}
+
+/* ==========================================================================
+ * 레거시 스킨 / legacy skin
+ * source: IRIS_ADMIN biztalk_admin_10_view.jsp — title_wrpa, infoList01,
+ *         tb_srchBtn, tabType02, JGM grid
+ * req: NFR-USE-D01, NFR-COMPAT-D01, WCAG 2.1 AA
+ *
+ * 레거시 화면의 배치를 재현하되 <b>접근성 기준은 낮추지 않는다.</b> 레거시는 11~12px
+ * 글꼴과 4.5:1 미만 대비를 흔히 썼고, 그리드 행 전체를 클릭 대상으로 삼았다. 여기서는
+ * 배치·테두리·머리글 음영 같은 <b>형태</b>를 가져오고, 글꼴 크기·대비·포커스 표시는
+ * 이 파일 상단의 기준을 유지한다 — 익숙함을 위해 읽을 수 없는 화면을 만들지 않는다.
+ *
+ * Reproduces the legacy layout without lowering the accessibility floor. The legacy used
+ * 11–12px type, sub-4.5:1 contrast and whole-row click targets. What is carried across is the
+ * <b>shape</b> — placement, rules, header shading — while type size, contrast and focus
+ * visibility keep the standards set at the top of this file. Familiarity is not worth an
+ * unreadable screen.
+ * ========================================================================== */
+
+/* 제목 줄 + 우측 breadcrumb / title row with right-hand breadcrumb */
+.lg-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #6b7785;
+  margin-bottom: 16px;
+}
+
+.lg-title h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.lg-breadcrumb {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.lg-breadcrumb strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+/* 안내 상자 / the bordered note box (legacy infoList01) */
+.lg-info {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  list-style: none;
+  background: #f7f8f9;
+  border: 1px solid var(--border);
+}
+
+.lg-info li {
+  position: relative;
+  padding-left: 12px;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.lg-info li::before {
+  content: '▪';
+  position: absolute;
+  left: 0;
+  color: #8a939d;
+}
+
+/* 조회 상자 / the search box (legacy tb_srchBtn) */
+.lg-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-top: 2px solid #6b7785;
+  background: var(--panel);
+  margin-bottom: 16px;
+}
+
+.lg-search label {
+  font-weight: 700;
+  font-size: 0.9375rem;
+  white-space: nowrap;
+}
+
+.lg-search select {
+  min-width: 320px;
+  max-width: 100%;
+  padding: 7px 8px;
+  font-size: 0.9375rem;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.lg-search .lg-search-actions {
+  margin-left: auto;
+}
+
+/* 탭 줄 + 동작 버튼 / tab strip with inline action buttons (legacy tabType02) */
+.lg-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: -1px;
+}
+
+.lg-tab {
+  padding: 9px 26px;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-bottom: 1px solid var(--panel);
+  color: var(--text);
+}
+
+.lg-tab-actions {
+  display: flex;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+
+/* 버튼 / buttons — 레거시의 회색 그라데이션을 단색 대비로 대체 */
+.lg-btn {
+  padding: 7px 16px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text);
+  background: linear-gradient(#fdfdfd, #e8eaed);
+  border: 1px solid #9aa3ad;
+  cursor: pointer;
+}
+
+.lg-btn:hover:not(:disabled) {
+  background: linear-gradient(#ffffff, #dde1e6);
+}
+
+.lg-btn:disabled {
+  color: #8a939d;
+  background: #f2f3f5;
+  border-color: var(--border);
+  cursor: not-allowed;
+}
+
+.lg-btn-primary {
+  color: #ffffff;
+  background: linear-gradient(#8d99a6, #6b7785);
+  border-color: #5b6672;
+}
+
+.lg-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(#7c8996, #5b6672);
+}
+
+/* 그리드 / the data grid (legacy JGM grid) */
+.lg-grid-wrap {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  overflow-x: auto;
+}
+
+table.lg-grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+table.lg-grid thead th {
+  padding: 9px 10px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--text);
+  background: linear-gradient(#fbfbfc, #e9ecef);
+  border: 1px solid var(--border);
+  border-top: 0;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+}
+
+table.lg-grid tbody td {
+  padding: 8px 10px;
+  text-align: center;
+  border: 1px solid #e2e6ea;
+  white-space: nowrap;
+}
+
+/* 설명 열은 좌측 정렬 — 문장은 가운데 정렬하면 읽기 어렵다.
+   The description column is left-aligned: centring prose makes it harder to read. */
+table.lg-grid tbody td.lg-cell-text {
+  text-align: left;
+  white-space: normal;
+  min-width: 200px;
+}
+
+table.lg-grid tbody tr:hover {
+  background: #f4f7fa;
+}
+
+/* 빈 상태는 그리드 <b>안에</b> 둔다 — 레거시와 같다. 표를 통째로 숨기면 어떤 열이
+   있는지조차 조회 전에는 알 수 없다.
+   The empty state lives <b>inside</b> the grid, as in the legacy: hiding the table entirely
+   leaves the user unable to see even which columns exist before querying. */
+table.lg-grid td.lg-empty {
+  padding: 90px 12px;
+  text-align: center;
+  color: var(--muted);
+  background: var(--panel);
+}
+
+/* 페이지 이동 / pagination */
+.lg-paging {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
+  font-size: 0.875rem;
 }

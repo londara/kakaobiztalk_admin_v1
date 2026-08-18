@@ -1,6 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { renderWithProviders } from '../../test/renderWithProviders';
 import { SenderNumberPage } from './SenderNumberPage';
 
 /**
@@ -61,7 +62,7 @@ describe('SenderNumberPage', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<SenderNumberPage />);
+    renderWithProviders(<SenderNumberPage />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
@@ -79,7 +80,7 @@ describe('SenderNumberPage', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<SenderNumberPage />);
+    renderWithProviders(<SenderNumberPage />);
     await screen.findByRole('option', { name: /○○기관/ });
 
     await userEvent.selectOptions(screen.getByLabelText('이용기관'), 'K0ABCD');
@@ -99,7 +100,7 @@ describe('SenderNumberPage', () => {
       ),
     );
 
-    render(<SenderNumberPage />);
+    renderWithProviders(<SenderNumberPage />);
     await screen.findByRole('option', { name: /○○기관/ });
     await userEvent.selectOptions(screen.getByLabelText('이용기관'), 'K0ABCD');
 
@@ -119,7 +120,7 @@ describe('SenderNumberPage', () => {
       ),
     );
 
-    render(<SenderNumberPage />);
+    renderWithProviders(<SenderNumberPage />);
     await screen.findByRole('option', { name: /○○기관/ });
     await userEvent.selectOptions(screen.getByLabelText('이용기관'), 'K0ABCD');
 
@@ -135,7 +136,7 @@ describe('SenderNumberPage', () => {
       ),
     );
 
-    render(<SenderNumberPage />);
+    renderWithProviders(<SenderNumberPage />);
     await screen.findByRole('option', { name: /○○기관/ });
     await userEvent.selectOptions(screen.getByLabelText('이용기관'), 'K0ABCD');
 
@@ -150,12 +151,12 @@ describe('SenderNumberPage', () => {
       ),
     );
 
-    render(<SenderNumberPage />);
+    renderWithProviders(<SenderNumberPage />);
 
     expect(await screen.findByRole('option', { name: /△△기관 \(미사용\)/ })).toBeInTheDocument();
   });
 
-  it('D-S8 — 동작하지 않는 버튼을 두지 않는다', async () => {
+  it('D-S8 — 구현되지 않은 동작에 눌리는 버튼을 두지 않는다', async () => {
     vi.stubGlobal(
       'fetch',
       mockFetch((url) =>
@@ -163,16 +164,44 @@ describe('SenderNumberPage', () => {
       ),
     );
 
-    render(<SenderNumberPage />);
+    renderWithProviders(<SenderNumberPage />);
     await screen.findByRole('option', { name: /○○기관/ });
 
-    // 레거시는 JS 에 수정 핸들러가 있었으나 버튼이 마크업에 없었다. Sprint S1 은 조회만
-    // 제공하므로, 아직 구현되지 않은 동작의 버튼을 먼저 두지 않는다.
-    // The legacy had a 수정 handler in JS but no button in the markup. Sprint S1 covers the
-    // list only, so no button appears for an operation that does not yet exist.
-    expect(screen.queryByRole('button', { name: '등록' })).not.toBeInTheDocument();
+    // 레거시 배치를 맞추기 위해 등록·삭제 자리는 두되, 동작이 구현되기 전까지는
+    // <b>비활성</b>이어야 한다. 단정하는 대상은 "버튼의 부재" 가 아니라 "눌리는 버튼의
+    // 부재" 다 — 레거시는 수정 핸들러만 두고 버튼을 두지 않았고(D-S8), 그 반대인
+    // "버튼만 있고 동작이 없는" 상태도 같은 결함이다.
+    //
+    // The 등록/삭제 slots exist so the layout matches the legacy, but must stay <b>disabled</b>
+    // until the operations land. What is asserted is not the absence of a button but the absence
+    // of a *pressable* one: the legacy had a 수정 handler with no button (D-S8), and the reverse
+    // — a button with no operation — is the same defect.
+    expect(screen.getByRole('button', { name: '등록' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '삭제' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: '수정' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '삭제' })).not.toBeInTheDocument();
+  });
+
+  it('FR-SND-007 — 행 선택은 표시값이 아니라 ref 로 관리한다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      mockFetch((url) =>
+        url.includes('/institutions') ? institutionsResponse : senderNumbersResponse,
+      ),
+    );
+
+    renderWithProviders(<SenderNumberPage />);
+    await screen.findByRole('option', { name: /○○기관/ });
+    await userEvent.selectOptions(screen.getByLabelText('이용기관'), 'K0ABCD');
+
+    const rowCheckbox = await screen.findByLabelText('01012345678 선택');
+    expect(rowCheckbox).not.toBeChecked();
+
+    await userEvent.click(rowCheckbox);
+    expect(rowCheckbox).toBeChecked();
+
+    // 전체 선택이 함께 반영된다 — 행이 하나뿐이므로.
+    // Select-all reflects it too, there being a single row.
+    expect(screen.getByLabelText('전체 선택')).toBeChecked();
   });
 
   it('403 이면 권한 메시지를 보여준다', async () => {
@@ -191,7 +220,7 @@ describe('SenderNumberPage', () => {
       }),
     );
 
-    render(<SenderNumberPage />);
+    renderWithProviders(<SenderNumberPage />);
     await screen.findByRole('option', { name: /○○기관/ });
     await userEvent.selectOptions(screen.getByLabelText('이용기관'), 'K0ABCD');
 

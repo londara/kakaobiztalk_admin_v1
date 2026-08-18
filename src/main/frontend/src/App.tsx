@@ -1,152 +1,67 @@
 import { useState } from 'react';
-import { LoginPage } from './features/auth/LoginPage';
-import { OtpRegisterPage } from './features/auth/OtpRegisterPage';
-import { PasswordChangePage } from './features/auth/PasswordChangePage';
-import { InstitutionPage } from './features/biztalk/InstitutionPage';
-import { MessageHistoryPage } from './features/biztalk/MessageHistoryPage';
-import { SenderNumberPage } from './features/biztalk/SenderNumberPage';
-
-/**
- * 인증 화면 흐름. / Authentication screen flow.
- *
- * req: FR-LOGIN-001, FR-LOGIN-014/015, FR-OTP-001…006
- *
- * 라우터 라이브러리를 쓰지 않는 이유 / why no router library:
- *   인증 흐름은 4개 상태이며 URL 로 직접 진입해서는 안 되는 것들이다. 비밀번호 변경
- *   화면에 URL 로 진입하면 이메일 컨텍스트가 없고, OTP 등록 2단계는 서버 세션의 대기
- *   비밀키에 의존한다. 상태로 관리하면 그 잘못된 진입 자체가 불가능해진다.
- *
- *   The flow has four states, none of which should be reachable by URL: the password
- *   change screen has no email context when entered directly, and OTP enrolment's second
- *   step depends on a pending secret in the server session. Holding the flow in state
- *   makes those invalid entries impossible rather than merely discouraged.
- */
-
-type View =
-  | { name: 'login' }
-  | { name: 'otp-register'; email: string }
-  | { name: 'password-change'; email: string }
-  | { name: 'authenticated'; operator: boolean; displacedSession: boolean };
+import { QueryClientProvider } from '@tanstack/react-query';
+import { BrowserRouter } from 'react-router-dom';
+import { AppRoutes } from './app/AppRoutes';
+import { createQueryClient } from './app/queryClient';
+import { SessionGate } from './app/SessionGate';
 
 /**
  * 애플리케이션 루트. / The application root.
+ *
+ * req: CONST-TECH-L01, ADR-001, FR-LOGIN-018
+ *
+ * <h2>세 계층이 각각 무엇을 갖는가 / what each layer owns</h2>
+ * <ul>
+ *   <li><b>{@code BrowserRouter}</b> — 어떤 화면을 보여줄지. 주소가 화면을 정한다.</li>
+ *   <li><b>{@code QueryClientProvider}</b> — 서버가 가진 값. 조회 결과와 그 캐시.</li>
+ *   <li><b>{@code SessionGate}</b> — 서버가 알려준 사실(운영자 여부 등). 새로고침 직후에는
+ *       그 사실을 서버에 한 번 물어 복원한 뒤 하위 트리를 세운다.</li>
+ * </ul>
+ * <p>화면 상태(입력 중인 조건, 선택된 행)는 어느 쪽에도 넣지 않고 컴포넌트에 둔다. 넷을 섞기
+ * 시작하면 "지금 보이는 값의 주인이 누구인가" 를 추적할 수 없게 된다.</p>
+ * <ul>
+ *   <li><b>{@code BrowserRouter}</b>: which screen is shown — the address decides.</li>
+ *   <li><b>{@code QueryClientProvider}</b>: what the server owns, and its cache.</li>
+ *   <li><b>{@code SessionGate}</b>: what the server reported, such as the role — restored by
+ *       asking the server once before the subtree is mounted.</li>
+ * </ul>
+ * <p>Screen state — criteria being typed, the selected row — goes in none of them and stays in the
+ * component. Mixing all four is how it stops being possible to say who owns the value on screen.</p>
+ *
+ * <h2>{@code BrowserRouter} 를 쓰면 서버에 필요한 것 / what BrowserRouter needs from the server</h2>
+ * <p>주소가 실제 경로이므로 {@code /messages} 를 새로고침하면 <b>서버로</b> 그 요청이 간다.
+ * 개발 중에는 Vite 가 {@code index.html} 로 되돌려 주지만, 배포 환경에서는 SPA 경로를
+ * {@code index.html} 로 포워딩하는 규칙이 없으면 404 가 된다. 해시 라우터를 쓰면 그 설정이
+ * 필요 없지만 주소가 {@code /#/messages} 가 되고 접근 로그·북마크에 그대로 남는다 — 설정
+ * 한 줄을 아끼려고 주소를 망치지 않는다.</p>
+ * <p>Because the address is a real path, refreshing {@code /messages} sends that request to the
+ * server. Vite rewrites it to {@code index.html} in development, but a deployment without a
+ * forwarding rule for SPA paths answers 404. A hash router would avoid the configuration at the
+ * cost of {@code /#/messages} in every log and bookmark — not a trade worth one line of config.</p>
  */
 export default function App() {
-  const [view, setView] = useState<View>({ name: 'login' });
-
-  switch (view.name) {
-    case 'login':
-      return (
-        <LoginPage
-          onAuthenticated={(operator, displacedSession) =>
-            setView({ name: 'authenticated', operator, displacedSession })
-          }
-          onPasswordChangeRequired={(email) => setView({ name: 'password-change', email })}
-          onNeedOtpRegistration={(email) => setView({ name: 'otp-register', email })}
-        />
-      );
-
-    case 'otp-register':
-      return (
-        <OtpRegisterPage
-          initialEmail={view.email}
-          onBackToLogin={() => setView({ name: 'login' })}
-        />
-      );
-
-    case 'password-change':
-      return (
-        <PasswordChangePage
-          email={view.email}
-          // 변경 후에는 자동 로그인하지 않고 로그인 화면으로 돌린다. 새 비밀번호로
-          // 실제 로그인이 되는지 사용자가 즉시 확인하는 편이 낫고, 서버도 변경
-          // 응답으로 세션을 만들지 않는다.
-          // After a change the user returns to login rather than being signed in: it
-          // confirms the new password actually works, and the server does not create a
-          // session from the change response either.
-          onChanged={() => setView({ name: 'login' })}
-          onCancel={() => setView({ name: 'login' })}
-        />
-      );
-
-    case 'authenticated':
-      return (
-        <AuthenticatedShell
-          operator={view.operator}
-          displacedSession={view.displacedSession}
-        />
-      );
-  }
-}
-
-/** 로그인 후 화면 종류. / The pages reachable after login. */
-type Page = 'institution' | 'messages' | 'senders';
-
-/**
- * 로그인 후 셸 — 좌측 내비게이션 바 + 콘텐츠 영역.
- * Post-login shell: a left-hand navigation bar plus the content area.
- *
- * <p>라우터를 쓰지 않으므로 활성 화면을 자체 상태로 관리한다(App 의 인증 흐름과 동일한
- * 이유). 운영자 전용 화면(이용기관·발신번호 관리)은 {@code /api/admin/**} 을 호출하므로
- * 운영자에게만 메뉴를 노출한다 — 비운영자에게 보여주면 403 화면이 될 뿐이다.</p>
- * <p>No router, so the active page is held in state. The operator-only screens call
- * {@code /api/admin/**}, so their menu items appear only for operators; showing them to a
- * non-operator would just render a 403.</p>
- *
- * req: FR-LOGIN-018, FR-MSG-001, FR-SND-001, FR-TEN-004
- */
-function AuthenticatedShell({
-  operator,
-  displacedSession,
-}: {
-  operator: boolean;
-  displacedSession: boolean;
-}) {
-  // 운영자는 이용기관 관리로, 비운영자는 문자내역으로 진입한다.
-  // Operators land on institution management; others on the message history.
-  const [page, setPage] = useState<Page>(operator ? 'institution' : 'messages');
-
-  const items: { id: Page; label: string; operatorOnly: boolean }[] = [
-    { id: 'institution', label: '이용기관 관리', operatorOnly: true },
-    { id: 'messages', label: '문자내역', operatorOnly: false },
-    { id: 'senders', label: '발신번호 관리', operatorOnly: true },
-  ];
-  const visible = items.filter((it) => operator || !it.operatorOnly);
+  /*
+    QueryClient 는 컴포넌트 밖에서 만들어도 되지만, 상태로 한 번 만들면 이 트리의 수명과
+    캐시의 수명이 같아진다 — 모듈 수준 상수는 테스트나 HMR 에서 이전 응답을 다음 트리로
+    옮긴다.
+    The QueryClient could be a module constant, but holding it in state ties the cache's lifetime
+    to this tree's; a module-level instance carries responses across trees under tests and HMR.
+  */
+  const [queryClient] = useState(createQueryClient);
 
   return (
-    <div className="app-shell">
-      <main className="app-content">
-        {displacedSession && (
-          // req: FR-LOGIN-016 — 기존 세션 종료를 사용자에게 알린다.
-          // Displacement is surfaced: if the user did not initiate the other session,
-          // this is a compromise signal and must not pass silently.
-          <p role="alert" className="field-error visible session-banner">
-            다른 기기에서 로그인되어 있던 세션이 종료되었습니다. 본인이 로그인한 것이
-            아니라면 즉시 비밀번호를 변경하고 운영자에게 알리세요.
-          </p>
-        )}
-        {page === 'institution' && <InstitutionPage />}
-        {page === 'messages' && <MessageHistoryPage operator={operator} />}
-        {page === 'senders' && <SenderNumberPage />}
-      </main>
-
-      {/* 좌측 내비게이션 바. / Left-hand navigation bar. */}
-      <nav className="app-nav" aria-label="주 메뉴">
-        <ul>
-          {visible.map((it) => (
-            <li key={it.id}>
-              <button
-                type="button"
-                className={page === it.id ? 'nav-item active' : 'nav-item'}
-                aria-current={page === it.id ? 'page' : undefined}
-                onClick={() => setPage(it.id)}
-              >
-                {it.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </nav>
-    </div>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        {/*
+          세션 복원이 끝난 뒤에 경로가 판정된다. 순서가 반대면 새로고침마다 로그인 화면이
+          한 번 깜빡인다 — 이유는 {@link SessionGate} 에 적어 두었다.
+          Routes are decided after the session is restored; the other order flashes the login
+          screen on every refresh, for the reason recorded in {@link SessionGate}.
+        */}
+        <SessionGate>
+          <AppRoutes />
+        </SessionGate>
+      </BrowserRouter>
+    </QueryClientProvider>
   );
 }

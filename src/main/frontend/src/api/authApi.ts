@@ -36,6 +36,19 @@ export interface OtpBeginResult {
 }
 
 /**
+ * 세션 확인 결과. / The session probe result.
+ *
+ * <p>{@link LoginResult} 와 달리 로그인이라는 <b>사건</b>에 속한 값(비밀번호 변경 필요,
+ * 기존 세션 종료)은 없다. 서버가 그렇게 응답하기 때문이며, 이유는 서버 쪽
+ * {@code SessionResponse} 에 적혀 있다.</p>
+ * <p>Unlike {@link LoginResult} this carries nothing belonging to the <b>act</b> of logging in;
+ * the server answers that way, and its {@code SessionResponse} records why.</p>
+ */
+export interface SessionResult {
+  operator: boolean;
+}
+
+/**
  * API 호출 실패. / Raised when an API call fails.
  *
  * 서버가 제공한 코드를 보존하여 화면이 분기할 수 있게 한다.
@@ -96,6 +109,48 @@ export function login(email: string, password: string, otpCode: string): Promise
 /** 로그아웃한다. / Logs out. req: FR-LOGIN-023 */
 export function logout(): Promise<void> {
   return post<void>('/api/auth/logout', {});
+}
+
+/**
+ * 현재 세션이 살아 있는지 서버에 묻는다. / Asks the server whether the session is alive.
+ *
+ * req: FR-LOGIN-018, ADR-001
+ *
+ * <p>세션 쿠키는 {@code HttpOnly} 이므로 JS 가 읽을 수 없다(ADR-LOGIN-012). 새로고침하면
+ * 자바스크립트 상태는 사라지지만 쿠키와 서버 세션은 남는다 — 이 호출이 없으면 클라이언트는
+ * 그 사실을 알 방법이 없어 매번 로그인 화면으로 되돌아간다.</p>
+ * <p>The session cookie is {@code HttpOnly} and unreadable from JS. A refresh discards JavaScript
+ * state while the cookie and server session survive; without this call the client has no way to
+ * learn that and returns to the login screen every time.</p>
+ *
+ * <p>실패하면 <b>던지지 않고 null</b> 을 돌려준다. "세션이 없다" 는 오류가 아니라 정상적인
+ * 답이며(미인증 요청에는 403 이 온다), 그것을 예외로 만들면 화면마다 오류 처리를 붙여야 한다.</p>
+ * <p>Returns {@code null} instead of throwing: "no session" is a normal answer rather than a
+ * failure — an unauthenticated request answers 403 — and making it an exception would push error
+ * handling into every screen.</p>
+ *
+ * <p>판별이 불가능한 응답도 null 로 본다(fail closed). 세션이 있는지 확신할 수 없을 때
+ * 있다고 가정하면, 로그인된 것처럼 보이는 화면에서 모든 조회가 403 이 되는 상태가 만들어진다.</p>
+ * <p>An unreadable answer is also null — fail closed. Assuming a session when it cannot be
+ * confirmed produces a screen that looks signed in while every search returns 403.</p>
+ *
+ * @returns 세션 정보, 세션이 없으면 null / the session, or null when there is none
+ */
+export async function fetchSession(): Promise<SessionResult | null> {
+  const response = await fetch('/api/auth/session', {
+    method: 'GET',
+    credentials: 'same-origin',
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const payload = await response.json().catch(() => null);
+  if (payload === null || typeof (payload as SessionResult).operator !== 'boolean') {
+    return null;
+  }
+  return payload as SessionResult;
 }
 
 /**

@@ -1,17 +1,20 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  CriteriaError,
-  exportMessageHistory,
-  MessageHistoryPage as Page,
-  MessageHistoryRow,
-  searchMessageHistory,
-} from '../../api/messageHistoryApi';
+  createColumnHelper,
+  rowPaginationFeature,
+  tableFeatures,
+  useTable,
+  type PaginationState,
+} from '@tanstack/react-table';
+import { CriteriaError, type MessageHistoryQuery, type MessageHistoryRow } from '../../api/messageHistoryApi';
+import { DataTable, type GridColumnMeta } from '../../components/DataTable';
 import { MessageDetailPanel } from './MessageDetailPanel';
+import { useMessageExport, useMessageHistorySearch } from './queries';
 
 /**
  * 문자내역 조회 화면. / 문자내역 search screen.
  *
- * req: FR-MSG-002, FR-MSG-004, FR-MSG-005, FR-MSG-007, FR-MSG-014, NFR-USE-01
+ * req: FR-MSG-002, FR-MSG-004, FR-MSG-005, FR-MSG-007, FR-MSG-014, FR-MSG-017, NFR-USE-01
  * source: biztalk_admin_40_view.jsp (검색 폼), biztalk_admin_40.js (그리드 12컬럼)
  *
  * <h2>레거시 대비 변경점 / changes from the legacy</h2>
@@ -23,6 +26,16 @@ import { MessageDetailPanel } from './MessageDetailPanel';
  *       고객사 명단을 채워 보여줬다(TM-011)</li>
  *   <li><b>서버 페이징</b> — 레거시는 전량을 받아 클라이언트에서 페이징했다(D7)</li>
  * </ul>
+ *
+ * <h2>이 화면만 조회 조건을 URL 에 두지 않는 이유 / why this screen keeps criteria out of the URL</h2>
+ * <p>이용기관·발신번호 화면은 조건을 질의 문자열에 두어 공유·북마크가 가능하다. 여기서는
+ * 그렇게 하지 않는다 — 조건에 전화번호가 들어갈 수 있고, URL 은 브라우저 히스토리와 접근
+ * 로그, 그리고 화면 공유에 그대로 남는다. API 계층이 이 조회만 {@code POST} 를 쓰는 이유와
+ * 정확히 같은 이유다(NFR-SEC-PII).</p>
+ * <p>The institution and sender-number screens put their criteria in the query string so a result
+ * can be shared or bookmarked. This one does not: the criteria can contain phone numbers, and a
+ * URL persists in browser history, access logs and anything shared on screen — the same reason
+ * the API layer uses {@code POST} for this search alone.</p>
  */
 
 interface Props {
@@ -33,10 +46,47 @@ interface Props {
 /** 기본 조회 기간(일). 레거시는 당일이 기본이었다. / Default window; the legacy defaulted to today. */
 const DEFAULT_DAYS = 1;
 
+/**
+ * 서버 기본 페이지 크기. / The server's default page size.
+ *
+ * <p>요청에 {@code size} 를 싣지 않으므로 첫 응답 전까지만 쓰이는 씨앗값이다. 페이지 수는
+ * 서버가 준 {@code totalPages} 를 그대로 쓴다.</p>
+ * <p>No {@code size} is sent, so this only seeds the model before the first response; the page
+ * count itself comes from the server's {@code totalPages}.</p>
+ */
+const DEFAULT_PAGE_SIZE = 50;
+
+/**
+ * 안정적인 빈 배열. / A stable empty array.
+ *
+ * <p>매 렌더 새 배열을 넘기면 데이터가 바뀐 것으로 보여 테이블 모델이 계속 다시 계산된다.</p>
+ * <p>A fresh array each render looks like new data and rebuilds the table model every time.</p>
+ */
+const NO_ROWS: MessageHistoryRow[] = [];
+
+const features = tableFeatures({
+  rowPaginationFeature,
+  columnMeta: {} as GridColumnMeta,
+});
+
+const columnHelper = createColumnHelper<typeof features, MessageHistoryRow>();
+
 function todayIso(offsetDays = 0): string {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
   return `${d.toISOString().slice(0, 10)}T00:00`;
+}
+
+/**
+ * 두 조회 조건이 같은지. / Whether two criteria are the same search.
+ *
+ * <p>{@code buildQuery} 가 항상 같은 순서로 필드를 채우므로 직렬화 비교로 충분하다. 값이
+ * 없는 필드는 {@code undefined} 라 양쪽 모두에서 빠진다.</p>
+ * <p>{@code buildQuery} always fills the fields in the same order, so comparing the serialised
+ * form is enough; absent fields are {@code undefined} and drop out of both sides.</p>
+ */
+function sameQuery(a: MessageHistoryQuery, b: MessageHistoryQuery): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /**
@@ -54,21 +104,52 @@ export function MessageHistoryPage({ operator }: Props) {
   const [tableType, setTableType] = useState('');
   const [resultCode, setResultCode] = useState('');
 
-  const [result, setResult] = useState<Page | null>(null);
-  const [violations, setViolations] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  /*
+    확정된 조회 조건. 폼에 입력 중인 값과 구분한다 — 화면에 보이는 행은 <b>확정된</b> 조건의
+    답이며, 사용자가 폼을 계속 고치는 동안에도 그 사실은 바뀌지 않는다. null 은 "아직 조회하지
+    않았다" 는 뜻이고, 그동안 조회는 실행되지 않는다.
+    The committed criteria, kept apart from what is being typed: the rows on screen answer the
+    committed criteria and stay that answer while the user keeps editing the form. null means no
+    search has been run yet, and no request is issued while it holds.
+  */
+  const [criteria, setCriteria] = useState<MessageHistoryQuery | null>(null);
   const [selected, setSelected] = useState<MessageHistoryRow | null>(null);
 
+  const search = useMessageHistorySearch(criteria);
+  const exportCsv = useMessageExport();
+
+  /*
+    오류 상태에서는 캐시에 남은 직전 성공 응답을 읽지 않는다 — 실패 후에도 이전 행이 남아
+    있으면 조회에 성공한 것처럼 보인다.
+    The previous successful response is not read while the query is in error: rows surviving a
+    failure read as a successful search.
+  */
+  const result = search.isError ? undefined : search.data;
+  const loading = search.isFetching;
+  const exporting = exportCsv.isPending;
+
+  /*
+    조회 실패와 내보내기 실패는 한 자리에 표시한다. 두 실패가 겹칠 수 없기 때문이다 —
+    내보내기 버튼은 조회에 성공했을 때만 눌리고, 새 조회를 시작할 때 이전 내보내기 오류는
+    지운다.
+    Search and export failures share one slot because they cannot overlap: export is only
+    pressable after a successful search, and starting a new search clears any export failure.
+  */
+  const failure = search.error ?? exportCsv.error ?? null;
+  const violations = failure instanceof CriteriaError ? failure.violations : [];
+  const error =
+    failure && !(failure instanceof CriteriaError)
+      ? search.error
+        ? '조회 중 오류가 발생했습니다. 잠시 후 다시 시도하세요.'
+        : '내보내기에 실패했습니다. 잠시 후 다시 시도하세요.'
+      : null;
+
   /**
-   * 조회 조건을 만든다. 조회와 내보내기가 공유한다.
-   * Builds the criteria, shared by search and export.
+   * 폼에 입력된 값으로 조회 조건을 만든다. / Builds criteria from what is in the form.
    *
-   * 두 곳에서 각각 조립하면 화면에 보이는 결과와 내려받은 파일의 내용이 달라질 수 있다.
-   * Assembling it twice would let the screen and the downloaded file disagree.
+   * @param page 페이지 번호 / the zero-based page
    */
-  function buildQuery(page = 0) {
+  function buildQuery(page = 0): MessageHistoryQuery {
     return {
       from,
       to,
@@ -88,26 +169,82 @@ export function MessageHistoryPage({ operator }: Props) {
     };
   }
 
-  async function runSearch(page = 0) {
-    setViolations([]);
-    setError(null);
-    setLoading(true);
-    try {
-      const data = await searchMessageHistory(buildQuery(page));
-      setResult(data);
-    } catch (e) {
-      if (e instanceof CriteriaError) {
-        // 위반 목록 전체를 보여준다. 레거시는 alert 하나로 첫 번째만 알렸고, 그 판정조차
-        // 잘못되어 정상 범위를 거절했다(D8).
-        // Every violation is shown; the legacy showed one alert, and its check was itself wrong.
-        setViolations(e.violations);
-      } else {
-        setError('조회 중 오류가 발생했습니다. 잠시 후 다시 시도하세요.');
-      }
-      setResult(null);
-    } finally {
-      setLoading(false);
+  const pagination = useMemo<PaginationState>(
+    () => ({ pageIndex: criteria?.page ?? 0, pageSize: result?.size ?? DEFAULT_PAGE_SIZE }),
+    [criteria?.page, result?.size],
+  );
+
+  const columns = useMemo(
+    () =>
+      columnHelper.columns([
+        columnHelper.accessor('messageTypeLabel', { header: '유형' }),
+        columnHelper.accessor('tableType', { header: '테이블' }),
+        columnHelper.accessor('messageKey', {
+          header: '메시지키',
+          cell: (ctx) => (
+            /*
+              레거시는 <a onclick> 이었다. button 을 쓰면 키보드로 접근 가능하고 스크린리더가
+              조작 가능한 요소로 인식한다(WCAG 2.1.1).
+              The legacy used an anchor with onclick; a button is keyboard-reachable and
+              announced as actionable.
+            */
+            <button type="button" className="link-button" onClick={() => setSelected(ctx.row.original)}>
+              {ctx.getValue()}
+            </button>
+          ),
+        }),
+        columnHelper.accessor('institutionCode', { header: '이용기관' }),
+        columnHelper.accessor('statusLabel', { header: '상태' }),
+        columnHelper.accessor('resultCode', { header: '톡결과' }),
+        columnHelper.accessor('senderNumber', { header: '발송번호' }),
+        columnHelper.accessor('recipientNumber', { header: '수신번호' }),
+        columnHelper.accessor('requestDate', {
+          header: '요청일자',
+          // 표시는 8자리로 줄이지만 행이 들고 있는 값은 원본 14자리다 — 상세 조회가 그것을
+          // 필요로 한다(FR-MSG-014).
+          // Displayed as 8 digits while the row keeps the raw 14, which the detail lookup needs.
+          cell: (ctx) => ctx.getValue()?.slice(0, 8),
+        }),
+        columnHelper.accessor('requestTime', { header: '요청시간' }),
+        columnHelper.accessor('sentTime', { header: '발송시간' }),
+        columnHelper.accessor('reportTime', { header: '응답시간' }),
+      ]),
+    [],
+  );
+
+  const table = useTable({
+    features,
+    columns,
+    data: result?.rows ?? NO_ROWS,
+    getRowId: (row) => `${row.messageType}-${row.tableType}-${row.messageKey}-${row.requestDate}`,
+    manualPagination: true,
+    pageCount: result?.totalPages ?? 0,
+    state: { pagination },
+    onPaginationChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(pagination) : updater;
+      // 페이지 이동은 폼의 현재 값이 아니라 <b>확정된</b> 조건을 그대로 들고 간다. 폼을
+      // 고쳐 둔 채 '다음' 을 누르면 다른 조건의 2페이지가 나오는 것이 레거시의 혼란이었다.
+      // Paging carries the committed criteria, not what is currently in the form: pressing 다음
+      // after editing the form used to produce page two of a different search.
+      setCriteria((previous) => (previous ? { ...previous, page: next.pageIndex } : previous));
+    },
+  });
+
+  function runSearch(event: React.FormEvent) {
+    event.preventDefault();
+    // 이전 내보내기 실패 메시지를 지운다 — 새 조회의 결과와 나란히 남아 있으면 무엇이
+    // 실패한 것인지 알 수 없다.
+    // Clears a previous export failure: left beside a new result it becomes unclear what failed.
+    exportCsv.reset();
+
+    const next = buildQuery(0);
+    // 조건이 그대로면 캐시 키도 그대로다. 그때의 '조회' 는 "지금 다시 조회하라" 는 뜻이다.
+    // An unchanged criteria means an unchanged cache key; 조회 then means "run it again now".
+    if (criteria && sameQuery(next, criteria)) {
+      void search.refetch();
+      return;
     }
+    setCriteria(next);
   }
 
   /**
@@ -115,40 +252,29 @@ export function MessageHistoryPage({ operator }: Props) {
    *
    * req: FR-MSG-017
    *
-   * 상한(5,000건) 초과는 잘라내지 않고 거절되며, 위반 메시지에 실제 건수가 담겨 온다 —
-   * 사용자가 기간을 얼마나 좁혀야 하는지 알 수 있어야 한다.
-   * Exceeding the 5,000-row cap is refused rather than truncated, and the message carries the
-   * actual count so the user knows how much to narrow the window.
+   * <p>폼의 현재 값이 아니라 <b>확정된</b> 조건으로 내보낸다. 조회 후 폼만 고친 상태에서
+   * 내보내면 화면에 보이는 것과 파일의 내용이 달라지고, 파일을 받은 사람은 그 불일치를
+   * 발견할 수 없다.</p>
+   * <p>Exports the committed criteria, not the form's current values: editing the form after a
+   * search and then exporting would produce a file that disagrees with the screen, and whoever
+   * receives the file cannot detect the discrepancy.</p>
+   *
+   * <p>상한(5,000건) 초과는 잘라내지 않고 거절되며, 위반 메시지에 실제 건수가 담겨 온다.</p>
+   * <p>Exceeding the 5,000-row cap is refused rather than truncated, and the message carries the
+   * actual count so the user knows how much to narrow the window.</p>
    */
-  async function runExport() {
-    setViolations([]);
-    setError(null);
-    setExporting(true);
-    try {
-      await exportMessageHistory(buildQuery(0));
-    } catch (e) {
-      if (e instanceof CriteriaError) {
-        setViolations(e.violations);
-      } else {
-        setError('내보내기에 실패했습니다. 잠시 후 다시 시도하세요.');
-      }
-    } finally {
-      setExporting(false);
+  function runExport() {
+    if (!criteria) {
+      return;
     }
+    exportCsv.mutate({ ...criteria, page: 0 });
   }
 
   return (
     <main className="page-wrap">
       <h1>문자내역</h1>
 
-      <form
-        className="search-panel"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void runSearch(0);
-        }}
-        noValidate
-      >
+      <form className="search-panel" onSubmit={runSearch} noValidate>
         <fieldset>
           <legend>조회 조건</legend>
 
@@ -330,72 +456,25 @@ export function MessageHistoryPage({ operator }: Props) {
             <p className="empty-state">조회 결과가 없습니다.</p>
           ) : (
             <>
-              <div className="table-scroll">
-                <table>
-                  <caption className="sr-only">문자내역 조회 결과</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">유형</th>
-                      <th scope="col">테이블</th>
-                      <th scope="col">메시지키</th>
-                      <th scope="col">이용기관</th>
-                      <th scope="col">상태</th>
-                      <th scope="col">톡결과</th>
-                      <th scope="col">발송번호</th>
-                      <th scope="col">수신번호</th>
-                      <th scope="col">요청일자</th>
-                      <th scope="col">요청시간</th>
-                      <th scope="col">발송시간</th>
-                      <th scope="col">응답시간</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.rows.map((row) => (
-                      <tr key={`${row.messageType}-${row.tableType}-${row.messageKey}-${row.requestDate}`}>
-                        <td>{row.messageTypeLabel}</td>
-                        <td>{row.tableType}</td>
-                        <td>
-                          {/*
-                            레거시는 <a onclick> 이었다. button 을 쓰면 키보드로 접근 가능하고
-                            스크린리더가 조작 가능한 요소로 인식한다(WCAG 2.1.1).
-                            The legacy used an anchor with onclick; a button is keyboard-reachable
-                            and announced as actionable.
-                          */}
-                          <button
-                            type="button"
-                            className="link-button"
-                            onClick={() => setSelected(row)}
-                          >
-                            {row.messageKey}
-                          </button>
-                        </td>
-                        <td>{row.institutionCode}</td>
-                        <td>{row.statusLabel}</td>
-                        <td>{row.resultCode}</td>
-                        <td>{row.senderNumber}</td>
-                        <td>{row.recipientNumber}</td>
-                        <td>{row.requestDate?.slice(0, 8)}</td>
-                        <td>{row.requestTime}</td>
-                        <td>{row.sentTime}</td>
-                        <td>{row.reportTime}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable
+                table={table}
+                caption="문자내역 조회 결과"
+                captionClassName="sr-only"
+                wrapperClassName="table-scroll"
+              />
 
               <nav className="paging" aria-label="페이지 이동">
                 <button
                   type="button"
-                  disabled={result.page === 0 || loading}
-                  onClick={() => void runSearch(result.page - 1)}
+                  disabled={!table.getCanPreviousPage() || loading}
+                  onClick={() => table.previousPage()}
                 >
                   이전
                 </button>
                 <button
                   type="button"
-                  disabled={result.page + 1 >= result.totalPages || loading}
-                  onClick={() => void runSearch(result.page + 1)}
+                  disabled={!table.getCanNextPage() || loading}
+                  onClick={() => table.nextPage()}
                 >
                   다음
                 </button>
@@ -405,9 +484,7 @@ export function MessageHistoryPage({ operator }: Props) {
         </section>
       )}
 
-      {selected && (
-        <MessageDetailPanel row={selected} onClose={() => setSelected(null)} />
-      )}
+      {selected && <MessageDetailPanel row={selected} onClose={() => setSelected(null)} />}
     </main>
   );
 }
