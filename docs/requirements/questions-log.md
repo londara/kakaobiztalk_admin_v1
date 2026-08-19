@@ -19,6 +19,7 @@
 **Candidates.** A: server-enforced from session · B: + operator dropdown · C: keep client-supplied
 **PM response.** **A — server-enforced from session.**
 **Effect.** FR-TEN-001…004, NFR-SEC-TENANT. Client-supplied tenant identifiers are ignored, not merely validated.
+> **Refined 2026-08-18 (CONFLICT-R01, Part 5).** As written this ruling is too broad: it was raised about external self-service and cannot govern internal operator screens, of which 이용기관 보고서 (screen 20) is the first encountered. It governs **tenant principals**. An operator role may request 전체 or any institution; tenant users are narrowed from the session exactly as ruled here. No requirement written under AMB-02 changes — 문자내역 is a tenant-facing screen and is unaffected. See FR-AZ-R03/R04.
 
 ### AMB-03 — Paging and range limits *(superseded)*
 **Question.** Pagination is commented out and no maximum period exists; the query unions 8 tables and decrypts every row before filtering.
@@ -334,3 +335,136 @@ The admin consoles declare `BIZTALK_DB`; `KAKAOTALK` declares `BIZ_DB` for the s
 > **Method note.** Every one of these came from reading `KAKAOTALK` and `AOA_ADMIN` — applications outside this repository that were never listed as inputs to the slice. The requirements analysis had correctly identified *that* a coexistence question existed (CONFLICT-S02); it could not have answered it, because the answer was not in the artifacts under analysis.
 >
 > Worth generalising for the remaining slices: **when a table is written by this system and read by another, the other system's queries are part of the specification.** The institution slice learned the same lesson at design time (AMB-I10, ADR-INST-016) and it has now recurred with a sharper edge — here the external reader's query did not merely need accommodating, it *selected between two designs*, and the one that reads more naturally on paper was the wrong one.
+
+---
+
+# Part 5 — 이용기관 보고서 (Institution Usage Report), 2026-08-18
+
+> **Slice**: legacy screen 20 and its Excel export. Specification: [REQUIREMENTS-SPEC-REPORT.md](REQUIREMENTS-SPEC-REPORT.md).
+> Twenty-seven defects — twenty-five in the slice, two upstream in `BATCH_BIZTALK_DAILY`. Four questions put to the PM, one of them a conflict with a standing G1 ruling. All four answered 2026-08-18.
+
+## 19. Resolved
+
+### CONFLICT-R01 — a cross-institution report vs server-derived tenancy
+**Conflict.** AMB-02 was ruled at G1 as "institution scope is server-enforced from the session; a client-supplied `IS_CD` is ignored, not merely validated." Screen 20 exists to compare institutions and its selector defaults to 전체. Under AMB-02 as written the screen cannot exist at all. Raised under harness §3 (충돌 식별 → PM 결재 의무) before any requirement was written.
+**Candidates.** A: operator role sees 전체 and any institution, tenant users narrowed from session · B: apply AMB-02 unchanged, drop 전체, build a separate operator report · C: keep legacy behaviour, waive AMB-02 here
+**PM response.** **A — operator role only.**
+**Effect.** FR-AZ-R03, FR-AZ-R04. AMB-02 is **refined, not superseded**: it governs *tenant* principals, which was always its intent — it was raised about external self-service, and screen 20 is an internal operator tool. The dropdown is filtered by role, and 전체 is a permission rather than a default.
+
+### AMB-R01 — two databases, and a report that only reads both in production
+**Question.** The report reads `BIZTALK_DB` (API 발송) and `BIZTALK_BULK_DB` (대량발송). The legacy queries the bulk source **only when `TSTCL_DV=REAL`**, then concatenates the two row sets under a 구분 column and writes them to separate Excel sheets. Should the new system merge them, and what happens to the environment flag?
+**Candidates.** A: merge with a 발송구분 filter, flag removed · B: keep rows separate, remove only the flag · C: exclude bulk entirely
+**PM response.** **A — merge, with an API / 대량 / 전체 filter defaulting to the summed total.**
+**Effect.** FR-RPTS-001…005. The `TSTCL_DV` branch is removed rather than repaired, which is the point: it appears in **four** places (both actions, the export view, and the batch) and each one silently changes what the system does. FR-RPTS-004 is therefore written as a property — *no configuration flag varies the read path* — instead of as four fixes.
+**Consequence not anticipated when the question was asked.** Merging plus server-side pagination plus a total order cannot all hold across two physical databases. That is CONFLICT-R02, below.
+
+### AMB-R02 — a fourth counter that nothing displays
+**Question.** `KKB_APITR_SMTN` stores four counters per channel — 전체 / 성공 / 실패 / **처리중**. The grid shows three, the Excel summary sheet shows two. `*_PCSNG_CNT` is declared on both service contracts, returned by both queries, and rendered nowhere. So 전체 ≠ 성공 + 실패 on any row with messages in flight, and a reader who adds the columns up finds the report wrong.
+**Candidates.** A: add 처리중 columns and assert the identity · B: keep the display, add an explanatory note · C: add a success-rate metric instead
+**PM response.** **A — add 처리중.**
+**Effect.** FR-RPT-009, FR-RPT-010, FR-RPTX-007. FR-RPT-010 goes further than the ruling and makes the identity an **asserted** rule with a standing reconciliation check, so a row that fails it is reported as a data-quality error rather than displayed as fact. That is deliberate: §7 shows the aggregate can be wrong in ways nothing currently detects, and the arithmetic identity is the cheapest detector available.
+
+### AMB-R03 — no cap on the query period
+**Question.** The only period check is `Number(startDt) > Number(endDt)` in the browser. The contract declares `START_DT`/`END_DT` with neither length nor type and the action validates nothing, so a direct call scans both tables end to end. The 문자내역 slice was capped at 31 days (AMB-06), but this is a daily-aggregate report with monthly and yearly comparison needs.
+**Candidates.** A: 366 days · B: 92 days · C: 31 days, consistent with AMB-06
+**PM response.** **A — 366 days.**
+**Effect.** FR-RPT-002, NFR-PERF-R02. The cap is larger than 문자내역's because the row grain is different — one row per 일자 × 기관 rather than one per message — so a year here is smaller than a month there. **Server-side pagination stops being optional**: at the cap, 전체 over 366 days is on the order of 366 × the institution count, which is exactly the unbounded fetch D-R8 already permits.
+
+## 20. Conflicts raised
+
+### CONFLICT-R02 — cross-source merge vs server-side pagination *(open, blocks Skill 3)*
+**Conflict.** Three requirements cannot all hold if `BIZTALK_DB` and `BIZTALK_BULK_DB` are separate physical databases: FR-RPTS-003 (전체 sums both sources into one row), FR-RPT-005 (pagination is server-side), FR-RPT-006 (ordering is total and deterministic across the merged set). Neither database can produce a merged, ordered, paginated result alone.
+**Candidates.** A: fetch both fully and merge in the application — reinstates the unbounded fetch D-R8 exists to remove · B: federated query (FDW / linked server) — pushes the merge into the database, adds an infrastructure dependency · C: consolidated read store fed by the batch — clean, but needs DDL and collides with CONST-DATA-R02
+**Working assumption.** A, with the cap and pagination applied per source before merging — correct whenever a single institution is selected, degrading only for 전체 over a wide range.
+**Status.** **Gated on AMB-R04.** Checked for reality before escalation, per the CONFLICT-I02 precedent: the two IDOs declare different `<target>` values, which proves two configured *datasources*, not two physical *databases*. If they resolve to one instance the conflict dissolves into an ordinary `UNION ALL` + `GROUP BY`. This is the same unknown, in the same shape, as the `BIZ_DB` vs `BIZTALK_DB` question carried out of the 발신번호 slice — and it should be settled by the same check rather than twice.
+
+## 21. Open
+
+| ID | Question | Candidates | Working assumption | Owner | Needed by |
+|----|----------|-----------|--------------------|-------|-----------|
+| ~~AMB-R04~~ | ~~One physical database or two?~~ **RESOLVED at design — assumed two (inference, SEC-002 blocks the authoritative file); CONFLICT-R02 dissolved regardless, §24** | A: one instance, merge in SQL · B: two instances, merge in the application | A — same working assumption as the `BIZ_DB` question, and settled by the same check | Architect | Skill 3 |
+| ~~AMB-R05~~ | ~~Async export threshold~~ **RESOLVED at design — cap enforced, async deferred (ADR-RPT-023); value set by load test L-R03/L-R04, §24** | A: 50,000 rows · B: derived from the measured 60 s target (NFR-PERF-R03) | B — set from measurement rather than guessed | PM | Skill 3 |
+| AMB-R06 | May tenant users see 처리중 counts, or operators only? In-flight figures expose queue state and therefore backlog | A: visible to both · B: operators only | A — the tenant's own in-flight count is their own data | PM | Skill 3 |
+| ~~AMB-R07~~ | ~~Where is the batch watermark recorded?~~ **RESOLVED at design — derived as max(TRDD) per source; batch run history rejected as untrustworthy per D-R27 (ADR-RPT-022), §24** | A: batch writes a run-status row (needs DDL — see CONST-DATA-R02) · B: derive from `max(TRDD)` per source | B until AMB-R04 and the DDL question settle; B cannot distinguish "aggregated, genuinely zero" from "not aggregated" | Architect | Skill 3 |
+| AMB-R08 | Must the merged 전체 view retain a per-source breakdown for billing reconciliation (BR-012 수수료)? | A: 발송구분 filter is sufficient · B: breakdown always retained in the export | A | Domain owner | Skill 3 |
+| OI-R01 | Ownership and repair of D-R26 / D-R27 in `BATCH_BIZTALK_DAILY`, and whether the T-4 lag is deliberate | A: batch slice takes both · B: T-4 confirmed as intended, only D-R27 repaired | A | PM | Before cutover |
+
+Carried and still open: **OI-02** (audit retention term) blocks NFR-OPS-AUDIT-R01.
+
+## 22. Corrections to earlier analysis
+
+| Item | Correction |
+|------|-----------|
+| AMB-02 (Part 1) | Recorded as "institution scope is server-enforced from the session" without qualification. **Too broad as written** — it was raised about external self-service and cannot govern internal operator screens, of which screen 20 is the first encountered. Refined by CONFLICT-R01 to apply to tenant principals. No requirement written under it changes; the 문자내역 slice is a tenant-facing screen and is unaffected |
+| BR-011 (Skill 01) | Recorded as "search results on list screens are exportable to Excel … screens 20/30". Accurate, but it does not convey that on screen 20 the export is a **second, separately-implemented data path** with its own contract, its own parameter handling and its own defects (D-R3, D-R4, D-R10). Export is not a rendering of the list; it is a parallel service that must carry every rule the list carries |
+
+## 23. Method note
+
+Twenty-seven defects, and a fifth distinct signature.
+
+- 문자내역 defects sat in **gaps between layers**.
+- 로그인 defects were **deliberately disabled controls**.
+- 이용기관관리 defects were **controls that exist only in the browser**.
+- 발신번호 defects were **layers that were each changed correctly and are now wrong together**.
+- 이용기관 보고서 defects are **behaviour that differs between environments** — so the system that was tested is not the system that shipped.
+
+`JexConst.getProperty("TSTCL_DV")` is consulted in four places in this slice: both action JSPs, the export view, and the daily batch. Each one decides whether bulk data exists. The consequences compound rather than repeat:
+
+- Off production the response carries `REC` (a record list); on production it carries `REC2` (a string built by `Arrays.toString` and parsed with `JSON.parse`). **Two different contracts under one service id** (D-R5, D-R6).
+- Off production rows are ordered by SQL `ORDER BY TRDD` ascending; on production by a Java comparator descending. **Two different orderings** (D-R7).
+- Off production the export view iterates `REC2`/`REC3` that the action never created, because the view's guard is `if(true)` while the action's is the flag. **The export is broken everywhere except production** (D-R4).
+
+The practical consequence is stark and worth stating plainly: **no test environment can exercise the production code path of this screen.** Whatever verification preceded any release, it did not verify what shipped. This is why the AMB-R01 ruling removes the flag rather than correcting its four call sites, and why FR-RPTS-004 is phrased as a property of the system — *no configuration flag varies the read path* — which a code review can check once instead of four times.
+
+**A new standing check for the remaining screens.** The 발신번호 slice produced "for every value that leaves the server and comes back, ask whether it came back in the same form it left." This slice adds: **for every branch on an environment or configuration property, ask what the other branch does — and whether anyone has ever run it.** A flag consulted in one place is a feature toggle; a flag consulted in four is a second implementation nobody maintains.
+
+**The silent-success class is now confirmed in four consecutive slices.** D-I1 (institution disabled, still active), D-S1 (number deleted, still live), and now D-R27: the bulk aggregation deletes a day, fails to reinsert it, catches its own exception, logs it, and **reports success**. The report then renders the missing day as zero, which is indistinguishable from a genuinely quiet day. Three different mechanisms, one shape: *the system reports that an operation succeeded when its effect is absent.* It is no longer reasonable to treat these as separate findings — the pattern should be assumed present in every remaining slice until a specific check disproves it.
+
+**Two findings came from outside the slice's declared inputs.** `BATCH_BIZTALK_DAILY` was not listed as an artifact of screen 20 — it is a batch, and screen 20 is a report. But it is the *only* writer of the only table the report reads, and reading it explained something no amount of screen analysis could: why the production screenshot shows "조회된 내용이 없습니다" for the default date range. The batch's default run aggregates one day, four days back (D-R26), so the screen's own defaults — today to today — target a window that by construction contains nothing. The screen is not broken; it is honest about data that does not exist yet, and it fails to say so.
+
+This continues the pattern the 발신번호 slice recorded at design time: **when a table is written by one system and read by another, the other system is part of the specification.** There it was a downstream reader that selected between two designs. Here it is an upstream writer that bounds what the report can truthfully promise — which is why FR-RPT-013 exists at all, and why it is a Must rather than a nicety.
+
+**One observation on severity.** This is the first slice with **no PII**, and it would be easy to read that as lower risk. The opposite is true. D-R1 and D-R2 combine into an unauthenticated, single-request dump of every customer's message volume by day and channel — enough to infer each institution's customer base, campaign calendar and growth rate. No slice so far has produced a disclosure of comparable commercial value, and none has made it this easy to obtain. **Absence of personal data is not absence of confidentiality**, and RISK-R04 asks for the access logs to be reviewed on the assumption that it may already have been taken.
+
+## 24. Design-time resolutions (Skill 3, 2026-08-18)
+
+One conflict dissolved, one open item answered without reading protected configuration, and two PM rulings that set scope. The first is the significant one: it removed work rather than adding it.
+
+### CONFLICT-R02 — dissolved, not resolved
+**Original conflict.** Merging both sources (FR-RPTS-003), server-side pagination (FR-RPT-005) and a total deterministic order (FR-RPT-006) appeared mutually unsatisfiable across two physical databases. Skill 2 escalated it as blocking Skill 3, with three candidate shapes and a working assumption of the weakest — fetch both sources fully and merge in the application, which is the unbounded fetch D-R8 exists to remove.
+**What design found.** A fourth shape none of the three considered. Both sources carry the same table, the same primary key and the same sort key, so two identically ordered streams can be **merge-joined with keyset pagination**: each source seeks independently in SQL using its own index, and the application holds at most two page-buffers. No DDL, no federated link, no new infrastructure.
+**Candidates put to design.** A: fetch both fully · B: postgres_fdw / dblink · C: consolidated read store fed by the batch · D: keyset-paginated streaming merge
+**Resolution.** **D.** [ADR-RPT-021](../design/adr/ADR-RPT-021-cross-source-aggregation.md).
+**Why it dissolves rather than resolves.** **The design is correct under both answers to AMB-R04.** Two databases → the merge ships as designed. One database → identical semantics collapse to `UNION ALL … GROUP BY` behind the same interface, same sort key, same page contract, and only the mapper changes. No requirement, test or API shape is contingent on the answer, so the conflict has no remaining decision content and does not reach G2 as a condition.
+**A side effect worth recording.** FR-RPT-006 is promoted from a display property to a **correctness precondition** — the merge is only right if both streams arrive in the same order. In the legacy, ordering was cosmetic and differed by environment (D-R7). It is now load-bearing, and the property suite tests it as such.
+
+### AMB-R04 — answered by inference, because the authoritative answer is protected
+**Question.** Are `BIZTALK_DB` and `BIZTALK_BULK_DB` one physical database or two?
+**Why it was not simply looked up.** The datasource definitions live in `jex.iris_admin.xml`, which is declared under `JEX.config.file` in `jex.prop`. **SEC-002 applies and the file was not read.**
+**What source alone shows.** Four IDOs target the bulk datasource against one table; sixty target `BIZTALK_DB`. None of the four references `FT_FTIS_INFO`. Decisively, the bulk aggregate query is character-for-character identical to the non-bulk one **except** that it replaces the correlated 기관명 subquery with `'' AS IS_NM` — and then Java patches the names back in from a `BIZTALK_DB` query. Nobody writes that if the master table is reachable from the bulk datasource.
+**Resolution.** **Working assumption flips from A (one instance) to B (two).** Confirmed empirically by task R1-01, which asks the DBA rather than reading protected configuration.
+**Effect.** None on design, by construction (above). R1-01 decides whether the merge iterator is built or deleted — simplicity, not viability. This is the material difference from RISK-S01 in the 발신번호 slice, where the equivalent unknown was a hard gate that could have forced ADR-SND-017 to be re-derived.
+
+### OI-R01 — the batch stays out of slice
+**Question.** D-R26 (data at best T-4; a single day cannot be re-aggregated) and D-R27 (bulk failures swallowed while the batch reports success) belong to `BATCH_BIZTALK_DAILY`. FR-RPT-013 also needs a completion watermark the batch records nowhere. Does the report slice take the batch?
+**Candidates.** A: report-side only, degrade honestly · B: take the batch, add a run-status table (DDL) and fix both defects · C: watermark only, defer the fixes
+**PM response.** **A — report-side only.**
+**Effect.** [ADR-RPT-022](../design/adr/ADR-RPT-022-aggregation-freshness.md). Watermark derived as `max(TRDD)` per source; days above it are 미집계 rather than 0; a wholesale source gap is flagged heuristically (FR-RPTS-005). **The blind spot is documented rather than papered over**: `max(TRDD)` cannot detect an *interior* day that D-R27 deleted and failed to reinsert, because it sits below the watermark and is indistinguishable from a quiet day.
+**One rejected option is worth recording.** Sourcing the watermark from the batch's own run history was considered and rejected **because D-R27 means that history lies** — it records success for runs whose bulk aggregation failed. An unreliable narrator is worse than an admitted gap, and this is the first time in the programme that an existing record was rejected as a data source specifically because a known defect makes it untrustworthy.
+
+### AMB-R05 / FR-RPTX-010 — enforce the cap, defer async
+**Question.** FR-RPTX-010 (Should) wants oversized exports generated asynchronously with notification. The programme has no job store, no queue and no notification channel.
+**Candidates.** A: streamed synchronous export with a hard row ceiling, async deferred · B: build async infrastructure now · C: synchronous with no ceiling, relying on the 366-day cap alone
+**PM response.** **A.**
+**Effect.** [ADR-RPT-023](../design/adr/ADR-RPT-023-export-generation.md). SXSSF streaming, bounded window, hard ceiling; oversize requests refused with an actionable message naming a range that fits — **never a truncated file**, since a silently short workbook is the export form of the silent-success failure this programme has now met four times. **AMB-R05's value is measured, not decided**: the ceiling is the largest export holding NFR-PERF-R03 with a flat heap, fixed by load tests L-R03/L-R04. RISK-R07 asks for those tests early in R2 so a low result leaves room to reopen the async decision.
+**FR-RPTX-010 stays in the specification at `Should`, unbuilt, with the ADR named as the reason** — not quietly downgraded.
+
+### New finding — the export could not have reported its own failure
+Not an open question, but it changed the delivery mechanism and is worth recording. D-R16 was written up in Skill 2 as "export failures are invisible — the download posts to a hidden iframe." Design found that this is **not fixable by adding error handling**: a form posted to an invisible iframe gives the browser no handle on the response, so a server error is structurally unreachable by the page. FR-RPTX-011 therefore forced the delivery mechanism to change to `fetch` + blob, which was not anticipated in the requirement.
+
+Worth generalising: **a requirement that says "surface the error" is a requirement about the transport, not about the handler**, whenever the existing transport discards the response.
+
+### Method note
+Two of the four resolutions above came from re-reading what the slice already had rather than from new investigation — CONFLICT-R02 dissolved by noticing that two sorted streams with a shared key admit a merge-join, and the watermark's rejected option identified by noticing that a defect already recorded in Skill 2 disqualifies a data source Skill 3 wanted to use.
+
+That is now the third slice where escalating a conflict and then re-examining its premise produced a materially better answer than the escalation's own candidates (CONFLICT-I02, CONFLICT-S01 narrowed, now CONFLICT-R02 dissolved). The institution slice's note said **"a conflict between two constraints deserves one pass to check whether it is real before it is escalated."** This slice refines it: the premise here was *true* — there really are two databases — but the conclusion did not follow from it. **Check the inference, not only the premise.**

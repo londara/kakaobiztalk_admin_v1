@@ -121,4 +121,35 @@ public record AuditEvent(
     /** 발신번호 상세 열람 / sender-number detail view. */
     // req: FR-SND-011, ADR-SND-019
     public static final String ACTION_SENDER_NUMBER_VIEW = "biztalk.sender-number.view";
+
+    /**
+     * 이용기관 보고서 조회 / institution usage report query.
+     *
+     * <p>이 화면에는 개인정보가 없다. 그럼에도 감사가 필수인 이유는 노출되는 것이
+     * <b>고객사별 발송량</b>이기 때문이다 — 캠페인 시기, 고객 규모, 성장률을 추론할 수 있는
+     * 상업적으로 민감한 자료다. 레거시에는 이 기록이 전혀 없었고, 조회 서비스는 인증조차
+     * 요구하지 않았다(D-R1, D-R17).</p>
+     * <p>This screen holds no personal data. Auditing is still mandatory because what it exposes
+     * is <b>each customer's send volume</b> — enough to infer campaign timing, customer base and
+     * growth. The legacy recorded none of it, and its query service required no session at all
+     * (D-R1, D-R17).</p>
+     *
+     * <p>기록에는 행위자·범위·기간·건수만 남기고 <b>수치 자체는 남기지 않는다</b>(T-R15).</p>
+     * <p>Actor, scope, period and counts only — <b>never the figures themselves</b> (T-R15).</p>
+     *
+     * // req: FR-AZ-R05, NFR-OPS-AUDIT-R01
+     */
+    public static final String ACTION_REPORT_QUERY = "biztalk.report.query";
+
+    /**
+     * 이용기관 보고서 내보내기 / institution usage report export.
+     *
+     * <p>실제로 쓴 행 수를 함께 기록한다 — 누군가 보고서를 열었다는 사실과, 고객사 발송량
+     * 9만 행을 시스템 밖으로 가져갔다는 사실은 다른 사건이다(FR-RPTX-012).</p>
+     * <p>Recorded with the row count actually written: someone opening the report and someone
+     * taking 90,000 rows of customer volume off the system are different events (FR-RPTX-012).</p>
+     *
+     * // req: FR-RPTX-012, NFR-OPS-AUDIT-R01
+     */
+    public static final String ACTION_REPORT_EXPORT = "biztalk.report.export";
 }

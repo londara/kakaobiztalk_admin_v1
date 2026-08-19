@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  ============================================================================
+  대량 발송 일간 집계 조회 / bulk-send daily aggregate queries [BIZTALK_BULK_DB]
+  ============================================================================
+  원본 / origin: IDO.BULK_KKB_APITR_SMTN_L001
+
+  ============================================================================
+  이 파일이 API 쪽과 거의 같은 것이 요점이다 / the near-duplication is the point
+  ============================================================================
+  병합은 두 스트림의 **형태와 정렬이 같을 때만** 성립한다(ADR-RPT-021). 그래서 이 파일은
+  ApiAggregateMapper.xml 과 같은 컬럼 별칭, 같은 ORDER BY, 같은 이어보기 술어를 쓴다.
+  한쪽만 바뀌면 합계가 조용히 틀린다 — 오류가 아니라 그럴듯한 틀린 숫자가 나온다.
+  The merge only works when both streams share a shape and an order (ADR-RPT-021), so this file
+  uses the same column aliases, the same ORDER BY and the same seek predicate as its API
+  counterpart. Changing one alone makes the sums silently wrong — plausible numbers, no error.
+
+  변경 시 반드시 두 파일을 함께 고칠 것. SourceMerger 의 순서 검사가 마지막 방어선이다.
+  Always change both files together; SourceMerger's order check is the last line of defence.
+
+  ============================================================================
+  API 쪽과 다른 유일한 점 / the one genuine difference
+  ============================================================================
+  이 데이터베이스에는 **기관 마스터(FT_FTIS_INFO)가 없다.** 레거시도 이 사실 때문에
+  `'' AS IS_NM` 을 반환하고 Java 가 HashMap 으로 이름을 덧칠했다 — 그리고 그 조회가 실패하면
+  조용히 빈칸이 됐다(D-R12). 여기서는 NULL 을 반환하고, 서비스가 API 쪽에서 이름을 채운다.
+  채우지 못하면 화면이 **기관코드와 미해결 표시**를 그린다. 빈칸으로 두지 않는다.
+  This database holds **no institution master (FT_FTIS_INFO)**. That is why the legacy returned
+  `'' AS IS_NM` and patched names in from a Java HashMap — and why a failed lookup became a blank
+  cell (D-R12). NULL is returned here and the service fills names from the API side; where it
+  cannot, the screen draws the **code plus an unresolved marker** rather than a blank.
+
+  적용한 수정은 API 쪽과 동일: D-R7, D-R8, D-R11, D-R14, D-R24.
+  The same corrections apply as on the API side: D-R7, D-R8, D-R11, D-R14, D-R24.
+  req: FR-RPTS-001, FR-RPTS-004, FR-RPT-012, ADR-RPT-021
+-->
+<mapper namespace="com.webcash.iris.biztalk.infra.db.bulk.BulkAggregateMapper">
+
+  <resultMap id="channelCounters" type="com.webcash.iris.biztalk.domain.ChannelCounters">
+    <constructor>
+      <arg column="TOTAL"    javaType="long"/>
+      <arg column="SUCCESS"  javaType="long"/>
+      <arg column="FAILED"   javaType="long"/>
+      <arg column="INFLIGHT" javaType="long"/>
+    </constructor>
+  </resultMap>
+
+  <resultMap id="aggregateRow" type="com.webcash.iris.biztalk.domain.AggregateRow">
+    <constructor>
+      <arg column="TRDD"  javaType="java.lang.String"/>
+      <arg column="IS_CD" javaType="java.lang.String"/>
+      <arg column="IS_NM" javaType="java.lang.String"/>
+      <arg resultMap="channelCounters" columnPrefix="AT_"
+           javaType="com.webcash.iris.biztalk.domain.ChannelCounters"/>
+      <arg resultMap="channelCounters" columnPrefix="FTTXT_"
+           javaType="com.webcash.iris.biztalk.domain.ChannelCounters"/>
+      <arg resultMap="channelCounters" columnPrefix="FTIMG_"
+           javaType="com.webcash.iris.biztalk.domain.ChannelCounters"/>
+      <arg resultMap="channelCounters" columnPrefix="FTIMGWI_"
+           javaType="com.webcash.iris.biztalk.domain.ChannelCounters"/>
+      <arg resultMap="channelCounters" columnPrefix="SMS_"
+           javaType="com.webcash.iris.biztalk.domain.ChannelCounters"/>
+      <arg resultMap="channelCounters" columnPrefix="LMS_"
+           javaType="com.webcash.iris.biztalk.domain.ChannelCounters"/>
+      <arg resultMap="channelCounters" columnPrefix="MMS_"
+           javaType="com.webcash.iris.biztalk.domain.ChannelCounters"/>
+    </constructor>
+  </resultMap>
+
+  <resultMap id="aggregateKey" type="com.webcash.iris.biztalk.domain.AggregateKey">
+    <constructor>
+      <arg column="TRDD"  javaType="java.lang.String"/>
+      <arg column="IS_CD" javaType="java.lang.String"/>
+    </constructor>
+  </resultMap>
+
+  <sql id="scopeAndPeriod">
+      TRDD BETWEEN #{criteria.period.fromYyyymmdd} AND #{criteria.period.toYyyymmdd}
+    <if test="!criteria.scope.allInstitutions">
+      AND IS_CD = #{criteria.scope.institutionCode}
+    </if>
+  </sql>
+
+  <!-- req: FR-RPT-005, FR-RPT-006, FR-RPT-009, FR-RPT-011, FR-RPTS-001 -->
+  <select id="findPage" resultMap="aggregateRow">
+    SELECT A.TRDD                                     AS TRDD,
+           A.IS_CD                                    AS IS_CD,
+           NULL                                       AS IS_NM,   -- no institution master here
+           COALESCE(A.AT_CNT,        0)               AS AT_TOTAL,
+           COALESCE(A.AT_SCS_CNT,    0)               AS AT_SUCCESS,
+           COALESCE(A.AT_FAIL_CNT,   0)               AS AT_FAILED,
+           COALESCE(A.AT_PCSNG_CNT,  0)               AS AT_INFLIGHT,      -- FIX D-R14
+           COALESCE(A.FTTXT_CNT,     0)               AS FTTXT_TOTAL,
+           COALESCE(A.FTTXT_SCS_CNT, 0)               AS FTTXT_SUCCESS,
+           COALESCE(A.FTTXT_FAIL_CNT,0)               AS FTTXT_FAILED,
+           COALESCE(A.FTTXT_PCSNG_CNT,0)              AS FTTXT_INFLIGHT,   -- FIX D-R14
+           COALESCE(A.FTIMG_CNT,     0) - COALESCE(A.FTIMGWI_CNT,     0) AS FTIMG_TOTAL,
+           COALESCE(A.FTIMG_SCS_CNT, 0) - COALESCE(A.FTIMGWI_SCS_CNT, 0) AS FTIMG_SUCCESS,
+           COALESCE(A.FTIMG_FAIL_CNT,0) - COALESCE(A.FTIMGWI_FAIL_CNT,0) AS FTIMG_FAILED,
+           COALESCE(A.FTIMG_PCSNG_CNT,0)- COALESCE(A.FTIMGWI_PCSNG_CNT,0) AS FTIMG_INFLIGHT,
+           COALESCE(A.FTIMGWI_CNT,     0)             AS FTIMGWI_TOTAL,
+           COALESCE(A.FTIMGWI_SCS_CNT, 0)             AS FTIMGWI_SUCCESS,
+           COALESCE(A.FTIMGWI_FAIL_CNT,0)             AS FTIMGWI_FAILED,
+           COALESCE(A.FTIMGWI_PCSNG_CNT,0)            AS FTIMGWI_INFLIGHT,
+           COALESCE(A.SMS_CNT,       0)               AS SMS_TOTAL,
+           COALESCE(A.SMS_SCS_CNT,   0)               AS SMS_SUCCESS,
+           COALESCE(A.SMS_FAIL_CNT,  0)               AS SMS_FAILED,
+           COALESCE(A.SMS_PCSNG_CNT, 0)               AS SMS_INFLIGHT,
+           COALESCE(A.LMS_CNT,       0)               AS LMS_TOTAL,
+           COALESCE(A.LMS_SCS_CNT,   0)               AS LMS_SUCCESS,
+           COALESCE(A.LMS_FAIL_CNT,  0)               AS LMS_FAILED,
+           COALESCE(A.LMS_PCSNG_CNT, 0)               AS LMS_INFLIGHT,
+           COALESCE(A.MMS_CNT,       0)               AS MMS_TOTAL,
+           COALESCE(A.MMS_SCS_CNT,   0)               AS MMS_SUCCESS,
+           COALESCE(A.MMS_FAIL_CNT,  0)               AS MMS_FAILED,
+           COALESCE(A.MMS_PCSNG_CNT, 0)               AS MMS_INFLIGHT
+      FROM KKB_APITR_SMTN A
+     WHERE <include refid="scopeAndPeriod"/>
+    <if test="criteria.seek != null">
+      AND ( A.TRDD &lt; #{criteria.seek.tradeDate}
+            OR ( A.TRDD = #{criteria.seek.tradeDate}
+                 AND A.IS_CD &gt; #{criteria.seek.institutionCode} ) )
+    </if>
+     ORDER BY A.TRDD DESC, A.IS_CD ASC   -- must match the API mapper exactly
+     LIMIT #{criteria.fetchSize}
+  </select>
+
+  <!-- req: FR-RPT-005, ADR-RPT-021 -->
+  <select id="findKeys" resultMap="aggregateKey">
+    SELECT A.TRDD AS TRDD, A.IS_CD AS IS_CD
+      FROM KKB_APITR_SMTN A
+     WHERE <include refid="scopeAndPeriod"/>
+     ORDER BY A.TRDD DESC, A.IS_CD ASC
+     LIMIT #{limit}
+  </select>
+
+  <!-- req: FR-RPT-013, ADR-RPT-022 -->
+  <select id="findMaxTradeDate" resultType="java.lang.String">
+    SELECT max(TRDD) FROM KKB_APITR_SMTN
+  </select>
+
+</mapper>

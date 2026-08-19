@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  ============================================================================
+  API 발송 일간 집계 조회 / API-send daily aggregate queries        [BIZTALK_DB]
+  ============================================================================
+  원본 / origin: IDO.KKB_APITR_SMTN_L001
+
+  이식 원칙은 앞선 슬라이스와 같다: SQL 을 near-verbatim 으로 옮기고, 변경한 줄에는
+  `FIX D-Rn:` SQL 주석을 남긴다.
+  Same porting principle as the earlier slices: carry the SQL across near-verbatim and mark
+  every altered line with a `FIX D-Rn:` comment.
+
+  ============================================================================
+  적용한 수정 / corrections applied
+  ============================================================================
+  D-R8   LIMIT / OFFSET 이 없어 전체 결과가 매 요청 전송되었다. 이어보기(keyset) 페이징을
+         도입한다. offset 이 아닌 이유는 ADR-RPT-021 참조 — 두 데이터베이스에 걸친 결과는
+         offset 으로 자를 수 없다.
+         No LIMIT/OFFSET: the whole result shipped on every request. Keyset paging is used
+         instead of offset because a result spanning two databases cannot be cut by offset.
+
+  D-R7   ORDER BY 가 TRDD 하나뿐이어서 같은 날짜 안의 순서가 정의되지 않았고, 운영에서는
+         Java 비교자가 내림차순으로 다시 정렬해 환경마다 순서가 달랐다.
+         ORDER BY named only TRDD, leaving the order within a date undefined, and production
+         re-sorted descending in Java — so the order differed by environment.
+
+  D-R11  COALESCE 가 한 군데도 없었다. 컬럼 하나가 NULL 이면 뺄셈과 합계 전체가 NULL 이
+         되어 셀이 0 이 아니라 빈칸으로 보였다.
+         No COALESCE anywhere: one NULL column nulled the whole subtraction and the row total,
+         so the cell rendered blank rather than zero.
+
+  D-R13  기관명을 행마다 상관 서브쿼리로 조회했다. 조인으로 바꾼다.
+         The institution name came from a per-row correlated subquery; replaced with a join.
+
+  D-R14  처리중(*_PCSNG_CNT) 은 조회되었으나 화면과 엑셀 어디에도 표시되지 않았다.
+         이제 네 건수를 모두 반환한다.
+         The in-flight counters were queried and displayed nowhere; all four are returned now.
+
+  D-R24  RGDT 와 FT_CNT 는 반환되었으나 사용되지 않았다. 반환하지 않는다.
+         RGDT and FT_CNT were returned and never used; they are not selected.
+
+  ============================================================================
+  이어보기 술어의 형태 / the shape of the seek predicate
+  ============================================================================
+  정렬이 (TRDD DESC, IS_CD ASC) 로 **방향이 섞여 있으므로** 행 값 비교
+  `(TRDD, IS_CD) < (:trdd, :isCd)` 를 쓸 수 없다. 그 문법은 모든 컬럼이 같은 방향일 때만
+  옳다. 명시적 OR 로 전개한다.
+  Because the sort mixes directions — (TRDD DESC, IS_CD ASC) — the row-value form
+  `(TRDD, IS_CD) < (:trdd, :isCd)` is wrong here; it only holds when every column sorts the
+  same way. It is expanded into an explicit OR instead.
+  req: FR-RPT-005, FR-RPT-006, ADR-RPT-021
+-->
+<mapper namespace="com.webcash.iris.biztalk.infra.db.ApiAggregateMapper">
+
+  <!--
+    채널 하나의 네 건수. columnPrefix 로 채널마다 재사용한다.
+    One channel's four counters, reused per channel through columnPrefix.
+    req: FR-RPT-009, FR-RPT-010
+  -->
+  <resultMap id="channelCounters" type="com.webcash.iris.biztalk.domain.ChannelCounters">
+    <constructor>
+      <arg column="TOTAL"    javaType="long"/>
+      <arg column="SUCCESS"  javaType="long"/>
+      <arg column="FAILED"   javaType="long"/>
+      <arg column="INFLIGHT" javaType="long"/>
+    </constructor>
+  </resultMap>
+
+  <resultMap id="aggregateRow" type="com.webcash.iris.biztalk.domain.AggregateRow">
+    <constructor>
+      <arg column="TRDD"  javaType="java.lang.String"/>
+      <arg column="IS_CD" javaType="java.lang.String"/>
+      <arg column="IS_NM" javaType="java.lang.String"/>
+      <arg resultMap="channelCounters" columnPrefix="AT_"
+           javaType="com.webcash.iris.biztalk.domain.ChannelCounters"/>
+      <arg resultMap="channelCounters" columnPrefix="FTTXT_"
+           javaType="com.webcash.iris.biztalk.domain.ChannelCounters"/>
+      <arg resultMap="channelCounters" columnPrefix="FTIMG_"
+           javaType="com.webcash.iris.biztalk.domain.ChannelCounters"/>
+      <arg resultMap="channelCounters" columnPrefix="FTIMGWI_"
+           javaType="com.webcash.iris.biztalk.domain.ChannelCounters"/>
+      <arg resultMap="channelCounters" columnPrefix="SMS_"
+           javaType="com.webcash.iris.biztalk.domain.ChannelCounters"/>
+      <arg resultMap="channelCounters" columnPrefix="LMS_"
+           javaType="com.webcash.iris.biztalk.domain.ChannelCounters"/>
+      <arg resultMap="channelCounters" columnPrefix="MMS_"
+           javaType="com.webcash.iris.biztalk.domain.ChannelCounters"/>
+    </constructor>
+  </resultMap>
+
+  <resultMap id="aggregateKey" type="com.webcash.iris.biztalk.domain.AggregateKey">
+    <constructor>
+      <arg column="TRDD"  javaType="java.lang.String"/>
+      <arg column="IS_CD" javaType="java.lang.String"/>
+    </constructor>
+  </resultMap>
+
+  <!--
+    조회 범위. 운영자의 전체 조회일 때만 기관 조건이 없다. 그 판단은 세션에서 이미
+    끝났고(ReportScope), 여기서는 결과만 쓴다 — 요청 값이 이 지점에 도달하지 않는다.
+    The scope predicate. Only an operator's 전체 query omits it; that decision was already made
+    from the session (ReportScope) and only its result reaches here — the request value does not.
+    req: FR-AZ-R03
+  -->
+  <sql id="scopeAndPeriod">
+      TRDD BETWEEN #{criteria.period.fromYyyymmdd} AND #{criteria.period.toYyyymmdd}
+    <if test="!criteria.scope.allInstitutions">
+      AND IS_CD = #{criteria.scope.institutionCode}
+    </if>
+  </sql>
+
+  <!--
+    req: FR-RPT-005, FR-RPT-006, FR-RPT-009, FR-RPT-011, FR-RPT-012, FR-RPT-016
+  -->
+  <select id="findPage" resultMap="aggregateRow">
+    SELECT A.TRDD                                     AS TRDD,
+           A.IS_CD                                    AS IS_CD,
+           I.ISNM                                     AS IS_NM,   -- FIX D-R13: join, not a per-row subquery
+           COALESCE(A.AT_CNT,        0)               AS AT_TOTAL,
+           COALESCE(A.AT_SCS_CNT,    0)               AS AT_SUCCESS,
+           COALESCE(A.AT_FAIL_CNT,   0)               AS AT_FAILED,
+           COALESCE(A.AT_PCSNG_CNT,  0)               AS AT_INFLIGHT,      -- FIX D-R14: was never displayed
+           COALESCE(A.FTTXT_CNT,     0)               AS FTTXT_TOTAL,
+           COALESCE(A.FTTXT_SCS_CNT, 0)               AS FTTXT_SUCCESS,
+           COALESCE(A.FTTXT_FAIL_CNT,0)               AS FTTXT_FAILED,
+           COALESCE(A.FTTXT_PCSNG_CNT,0)              AS FTTXT_INFLIGHT,   -- FIX D-R14
+           -- 친구톡 일반 이미지 = 전체 이미지 − 와이드 이미지 (CONST-BIZ-R01)
+           -- Normal image = all images − wide images. FIX D-R11: each side coalesced before the
+           -- subtraction; the legacy nulled the whole expression when either side was NULL.
+           COALESCE(A.FTIMG_CNT,     0) - COALESCE(A.FTIMGWI_CNT,     0) AS FTIMG_TOTAL,
+           COALESCE(A.FTIMG_SCS_CNT, 0) - COALESCE(A.FTIMGWI_SCS_CNT, 0) AS FTIMG_SUCCESS,
+           COALESCE(A.FTIMG_FAIL_CNT,0) - COALESCE(A.FTIMGWI_FAIL_CNT,0) AS FTIMG_FAILED,
+           COALESCE(A.FTIMG_PCSNG_CNT,0)- COALESCE(A.FTIMGWI_PCSNG_CNT,0) AS FTIMG_INFLIGHT,
+           COALESCE(A.FTIMGWI_CNT,     0)             AS FTIMGWI_TOTAL,
+           COALESCE(A.FTIMGWI_SCS_CNT, 0)             AS FTIMGWI_SUCCESS,
+           COALESCE(A.FTIMGWI_FAIL_CNT,0)             AS FTIMGWI_FAILED,
+           COALESCE(A.FTIMGWI_PCSNG_CNT,0)            AS FTIMGWI_INFLIGHT,
+           COALESCE(A.SMS_CNT,       0)               AS SMS_TOTAL,
+           COALESCE(A.SMS_SCS_CNT,   0)               AS SMS_SUCCESS,
+           COALESCE(A.SMS_FAIL_CNT,  0)               AS SMS_FAILED,
+           COALESCE(A.SMS_PCSNG_CNT, 0)               AS SMS_INFLIGHT,
+           COALESCE(A.LMS_CNT,       0)               AS LMS_TOTAL,
+           COALESCE(A.LMS_SCS_CNT,   0)               AS LMS_SUCCESS,
+           COALESCE(A.LMS_FAIL_CNT,  0)               AS LMS_FAILED,
+           COALESCE(A.LMS_PCSNG_CNT, 0)               AS LMS_INFLIGHT,
+           COALESCE(A.MMS_CNT,       0)               AS MMS_TOTAL,
+           COALESCE(A.MMS_SCS_CNT,   0)               AS MMS_SUCCESS,
+           COALESCE(A.MMS_FAIL_CNT,  0)               AS MMS_FAILED,
+           COALESCE(A.MMS_PCSNG_CNT, 0)               AS MMS_INFLIGHT
+      FROM KKB_APITR_SMTN A
+      LEFT JOIN FT_FTIS_INFO I ON I.FINTECH_ISCD = A.IS_CD   -- FIX D-R13
+     WHERE <include refid="scopeAndPeriod"/>
+    <if test="criteria.seek != null">
+      <!--
+        FIX D-R8: 이어보기 술어. 정렬 방향이 섞여 있어 행 값 비교를 쓸 수 없다.
+        The seek predicate; row-value comparison is unusable because the sort mixes directions.
+      -->
+      AND ( A.TRDD &lt; #{criteria.seek.tradeDate}
+            OR ( A.TRDD = #{criteria.seek.tradeDate}
+                 AND A.IS_CD &gt; #{criteria.seek.institutionCode} ) )
+    </if>
+     ORDER BY A.TRDD DESC, A.IS_CD ASC   -- FIX D-R7: total order, identical in every environment
+     LIMIT #{criteria.fetchSize}          -- FIX D-R8
+  </select>
+
+  <!--
+    전체 건수 산정을 위한 키만 조회한다. 두 컬럼뿐이므로 366일 상한에서도 가볍다.
+    Keys only, for the total count. Two columns, so this stays light even at the 366-day cap.
+    req: FR-RPT-005, ADR-RPT-021
+  -->
+  <select id="findKeys" resultMap="aggregateKey">
+    SELECT A.TRDD AS TRDD, A.IS_CD AS IS_CD
+      FROM KKB_APITR_SMTN A
+     WHERE <include refid="scopeAndPeriod"/>
+     ORDER BY A.TRDD DESC, A.IS_CD ASC
+     LIMIT #{limit}
+  </select>
+
+  <!--
+    집계 기준일. 배치가 실행 이력을 남기지 않으므로 이것이 우리가 가진 전부다.
+    내부의 빠진 날짜는 이 값으로 알 수 없다 — ADR-RPT-022 의 명시된 한계.
+    The watermark. The batch records no run history, so this is all we have; it cannot reveal an
+    interior missing day — the stated limitation in ADR-RPT-022.
+    req: FR-RPT-013, ADR-RPT-022
+  -->
+  <select id="findMaxTradeDate" resultType="java.lang.String">
+    SELECT max(TRDD) FROM KKB_APITR_SMTN
+  </select>
+
+  <!--
+    기관명 해결. 대량 집계 데이터베이스에는 기관 마스터가 없으므로(AMB-R04) 대량에만 있는
+    행의 이름은 여기서 채운다. 페이지 크기만큼만 조회하므로 상한이 있다.
+    Institution names. The bulk database has no institution master (AMB-R04), so names for
+    bulk-only rows are filled from here. Bounded by the page size.
+    req: FR-RPT-012
+  -->
+  <select id="findInstitutionNames" resultType="com.webcash.iris.biztalk.domain.InstitutionName">
+    SELECT FINTECH_ISCD AS code, ISNM AS name
+      FROM FT_FTIS_INFO
+     WHERE FINTECH_ISCD IN
+    <foreach item="code" collection="codes" open="(" separator="," close=")">
+      #{code}
+    </foreach>
+  </select>
+
+</mapper>
