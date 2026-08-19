@@ -51,20 +51,27 @@ function page(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** 두 엔드포인트를 구분해 응답한다. / Answers the two endpoints separately. */
+/** 세 엔드포인트를 구분해 응답한다. / Answers the three endpoints separately. */
 function stubFetch(reportBody: unknown, ok = true) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.includes('/watermark')) {
-      return new Response(JSON.stringify(WATERMARK), {
-        status: 200,
+    const json = (body: unknown, status: number) =>
+      new Response(JSON.stringify(body), {
+        status,
         headers: { 'Content-Type': 'application/json' },
       });
+
+    if (url.includes('/watermark')) {
+      return json(WATERMARK, 200);
     }
-    return new Response(JSON.stringify(reportBody), {
-      status: ok ? 200 : 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    // 이용기관 선택 목록. 보고서 응답을 그대로 돌려주면 code/name 이 없는 항목이 되어
+    // 드롭다운이 조용히 비어 보이므로 별도로 답한다.
+    // The institution picker: returning the report body here would yield options with no
+    // code/name and a silently blank dropdown, so it is answered separately.
+    if (url.includes('/institutions/search')) {
+      return json({ rows: [{ code: 'K0001', name: '○○기관' }], totalCount: 1, page: 0, size: 200 }, 200);
+    }
+    return json(reportBody, ok ? 200 : 400);
   });
 }
 
@@ -89,8 +96,12 @@ describe('ReportPage', () => {
     it('집계 기준일을 묻지 않아도 보여준다', async () => {
       renderWithProviders(<ReportPage />);
 
+      // 껍데기는 즉시 렌더링되고 값은 뒤따라 온다(레거시와 같은 구조). findBy* 는 첫
+      // 렌더에서 곧바로 해소되므로, 값이 도착한 상태를 기다려야 한다.
+      // The shell renders at once and the values follow, as in the legacy. findBy* resolves on
+      // that first render, so the settled state has to be waited for explicitly.
       const banner = await screen.findByTestId('report-watermark');
-      expect(banner).toHaveTextContent('2026-08-14');
+      await waitFor(() => expect(banner).toHaveTextContent('2026-08-14'));
       expect(banner).toHaveTextContent('집계되지 않았습니다');
     });
 
@@ -98,11 +109,12 @@ describe('ReportPage', () => {
       renderWithProviders(<ReportPage />);
 
       const to = (await screen.findByLabelText('종료일자')) as HTMLInputElement;
-      const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const today = new Date().toISOString().slice(0, 10);
 
       // 기본 종료일자가 오늘이면 화면은 열자마자 미집계 구간을 조회한다 — D-R25 의 원인.
       // A default end date of today queries an un-aggregated window on open — D-R25's cause.
       expect(to.value).not.toBe(today);
+      expect(to.value < today).toBe(true);
     });
   });
 
@@ -117,7 +129,37 @@ describe('ReportPage', () => {
       renderWithProviders(<ReportPage />);
 
       await screen.findByTestId('report-row');
-      expect(screen.getAllByText('처리중')).toHaveLength(COLUMNS.length);
+      // 레거시 그리드와 같은 평면 머리글이므로 채널명이 앞에 붙는다.
+      // The legacy's flat header prefixes each counter with its channel name.
+      for (const column of COLUMNS) {
+        expect(
+          screen.getByRole('columnheader', { name: `${column.label}처리중` }),
+        ).toBeInTheDocument();
+      }
+    });
+
+    it('레거시 그리드의 고정 3열을 그대로 쓴다', async () => {
+      renderWithProviders(<ReportPage />);
+
+      await screen.findByTestId('report-row');
+      for (const label of ['구분', '기관명', '일자']) {
+        expect(screen.getByRole('columnheader', { name: label })).toBeInTheDocument();
+      }
+    });
+
+    /**
+     * 조회 전에도 어떤 열이 있는지 보여야 한다 — 레거시도 빈 상태에서 머리글을 갖춘
+     * 그리드를 보여 주고 본문에만 안내를 넣었다.
+     * The columns must be visible before a query; the legacy showed a full-header grid and put
+     * the message in the body.
+     */
+    it('결과가 없어도 그리드 머리글은 남는다', async () => {
+      vi.stubGlobal('fetch', stubFetch(page({ rows: [], totalCount: 0 })));
+
+      renderWithProviders(<ReportPage />);
+
+      await screen.findByTestId('report-empty');
+      expect(screen.getByRole('columnheader', { name: '구분' })).toBeInTheDocument();
     });
 
     it('한 행에서 전체 = 성공 + 실패 + 처리중 이 눈으로 확인된다', async () => {
@@ -213,7 +255,8 @@ describe('ReportPage', () => {
 
       renderWithProviders(<ReportPage />);
 
-      expect(await screen.findByTestId('report-empty')).toHaveTextContent('조회된 내용이 없습니다');
+      const empty = await screen.findByTestId('report-empty');
+      await waitFor(() => expect(empty).toHaveTextContent('조회된 내용이 없습니다'));
       expect(screen.queryByTestId('report-error')).not.toBeInTheDocument();
     });
 
@@ -232,17 +275,45 @@ describe('ReportPage', () => {
     });
   });
 
-  describe('발송구분 / source filter', () => {
-    it('전체·API발송·대량발송을 고를 수 있고 기본은 전체다', async () => {
+  describe('조회 조건 / the criteria', () => {
+    /**
+     * 레거시와 같이 조회 조건은 두 가지뿐이다. 발송구분은 노출하지 않는다.
+     * The criteria are the legacy's two; no source picker is shown.
+     */
+    it('이용기관과 요청일자 둘만 조회 조건으로 둔다', async () => {
       renderWithProviders(<ReportPage />);
 
-      const select = (await screen.findByLabelText('발송구분')) as HTMLSelectElement;
-      expect(select.value).toBe('ALL');
-      expect([...select.options].map((o) => o.textContent)).toEqual([
-        '전체',
-        'API발송',
-        '대량발송',
-      ]);
+      expect(await screen.findByLabelText('이용기관')).toBeInTheDocument();
+      expect(screen.getByLabelText('요청일자')).toBeInTheDocument();
+      expect(screen.getByLabelText('종료일자')).toBeInTheDocument();
+      expect(screen.queryByLabelText('발송구분')).not.toBeInTheDocument();
+    });
+
+    it('이용기관은 전체를 포함한 선택 목록이다', async () => {
+      renderWithProviders(<ReportPage />);
+
+      const select = (await screen.findByLabelText('이용기관')) as HTMLSelectElement;
+      expect(select.value).toBe('');
+      await waitFor(() =>
+        expect([...select.options].map((option) => option.textContent)).toEqual([
+          '전체',
+          '○○기관',
+        ]),
+      );
+    });
+
+    /**
+     * 발송구분을 노출하지 않아도 합산은 그대로다 — 어느 출처에서 온 행인지는 그리드
+     * 첫 열 `구분` 이 보여준다(FR-RPTS-003).
+     * Dropping the picker does not drop the merge; the grid's `구분` column still shows which
+     * source a row came from (FR-RPTS-003).
+     */
+    it('합산 결과의 구분은 그리드에 그대로 남는다', async () => {
+      renderWithProviders(<ReportPage />);
+
+      const row = await screen.findByTestId('report-row');
+      expect(row).toHaveTextContent('전체');
+      expect(screen.getByRole('columnheader', { name: '구분' })).toBeInTheDocument();
     });
   });
 
@@ -259,7 +330,8 @@ describe('ReportPage', () => {
     it('전체 건수를 표시한다', async () => {
       renderWithProviders(<ReportPage />);
 
-      expect(await screen.findByTestId('report-total')).toHaveTextContent('총 1건');
+      const total = await screen.findByTestId('report-total');
+      await waitFor(() => expect(total).toHaveTextContent('총 1건'));
     });
 
     /** 상한을 넘으면 정확한 값을 아는 척하지 않는다(ADR-RPT-021). */

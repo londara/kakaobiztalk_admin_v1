@@ -18,7 +18,11 @@ import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.RecoverableDataAccessException;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -149,6 +153,14 @@ public class ReportService {
             try {
                 apiRows = apiMapper.findPage(criteria);
             } catch (RuntimeException e) {
+                // 인프라 장애만 부분 결과로 낮춘다. 우리 코드의 결함은 여기서 삼키면
+                // "데이터소스가 죽었다" 로 잘못 보고되고, 화면은 200 과 함께 불완전 안내를
+                // 띄운다 — 보고서가 고장 났는데 데이터베이스를 의심하게 만드는 오진이다.
+                // Only infrastructure faults degrade. Swallowing a defect in our own code here
+                // would misreport it as "the datasource is down" and still return 200 with an
+                // incomplete notice — sending the operator to look at a healthy database while
+                // the report is broken.
+                rethrowUnlessSourceUnavailable(e, "API");
                 availability = availability.withApiFailure(shortReason(e));
                 LOG.warn("API aggregate unavailable for report query; result marked incomplete", e);
             }
@@ -162,6 +174,7 @@ public class ReportService {
                 try {
                     bulkRows = bulkMapper.get().findPage(criteria);
                 } catch (RuntimeException e) {
+                    rethrowUnlessSourceUnavailable(e, "BULK");
                     availability = availability.withBulkFailure(shortReason(e));
                     LOG.warn("Bulk aggregate unavailable for report query; result marked incomplete", e);
                 }
@@ -229,6 +242,7 @@ public class ReportService {
             // 기준일을 못 읽는다고 화면 전체를 실패시키지 않는다. 모른다고 말하는 편이 낫다.
             // A watermark we cannot read must not fail the whole screen; saying it is unknown is
             // better than refusing to open the report.
+            rethrowUnlessSourceUnavailable(e, label + "-watermark");
             LOG.warn("Could not read the {} watermark; reporting it as unknown", label, e);
             return null;
         }
@@ -261,6 +275,7 @@ public class ReportService {
             }
             return (long) keys.size();
         } catch (RuntimeException e) {
+            rethrowUnlessSourceUnavailable(e, "key-probe");
             LOG.warn("Could not compute the report total; returning an unknown count", e);
             return null;
         }
@@ -299,6 +314,7 @@ public class ReportService {
             // 이름을 못 채워도 숫자는 옳다. 미해결 표시로 화면에 나간다.
             // Failing to resolve names does not make the figures wrong; the rows go out marked
             // unresolved instead.
+            rethrowUnlessSourceUnavailable(e, "institution-names");
             LOG.warn("Could not resolve institution names; affected rows show the code only", e);
             return rows;
         }
@@ -381,6 +397,48 @@ public class ReportService {
             consumed += row.source() == SendSource.ALL ? 2 : 1;
         }
         return consumed < apiRows.size() + bulkRows.size();
+    }
+
+    /**
+     * 출처 장애가 아닌 예외는 그대로 던진다. / Rethrows anything that is not a source outage.
+     *
+     * <h2>왜 필요한가 / why this exists</h2>
+     * <p>{@code catch (RuntimeException)} 하나로 모든 실패를 "출처를 읽지 못했다" 로 처리하면,
+     * <b>우리 코드의 결함이 인프라 장애로 위장된다.</b> 실제로 그런 일이 있었다 — 매퍼의
+     * {@code javaType="long"} 이 MyBatis 에서 {@code java.lang.Long} 로 해석되어(원시형 별칭은
+     * {@code _long} 이다) 레코드 생성자를 찾지 못했고, 질의는 데이터를 정상적으로 가져왔는데도
+     * 화면에는 "API발송 집계를 읽지 못했습니다" 가 떴다. 운영자는 멀쩡한 데이터베이스를
+     * 들여다보게 되고, 응답은 200 이라 감시에도 걸리지 않는다.</p>
+     * <p>A single {@code catch (RuntimeException)} turning every failure into "the source could not
+     * be read" <b>disguises our own defects as infrastructure faults.</b> That happened: the
+     * mapper's {@code javaType="long"} resolves to {@code java.lang.Long} in MyBatis — the
+     * primitive alias is {@code _long} — so the record constructor was never found, and although
+     * the query returned data perfectly the screen reported the API source as unreadable. The
+     * operator is sent to inspect a healthy database, and the 200 response keeps it off the
+     * monitors.</p>
+     *
+     * <p>이것은 이 슬라이스가 네 번 연속으로 기록한 <b>조용한 성공</b> 결함을 우리 손으로
+     * 다시 만든 사례다. 그래서 판정 기준을 좁힌다 — 연결 실패·타임아웃 등 <b>일시적/자원
+     * 계열</b>만 부분 결과로 낮추고, 나머지는 500 으로 드러낸다.</p>
+     * <p>This was the <b>silent-success</b> defect this slice has recorded four times, rebuilt by
+     * our own hand. The test is therefore narrowed: only connection failures, timeouts and other
+     * transient or resource-class faults degrade; everything else surfaces as a 500.</p>
+     *
+     * @param e     발생한 예외 / the exception
+     * @param label 출처 이름 (로그용) / the source name, for logging
+     */
+    // req: FR-RPTS-005, NFR-OPS-R01
+    private static void rethrowUnlessSourceUnavailable(RuntimeException e, String label) {
+        boolean unavailable = e instanceof TransientDataAccessException
+                || e instanceof RecoverableDataAccessException
+                || e instanceof DataAccessResourceFailureException
+                || e instanceof CannotCreateTransactionException;
+
+        if (!unavailable) {
+            LOG.error("{} aggregate query failed for a reason that is not a source outage; "
+                    + "surfacing it rather than reporting the source as unavailable", label);
+            throw e;
+        }
     }
 
     private static String shortReason(RuntimeException e) {

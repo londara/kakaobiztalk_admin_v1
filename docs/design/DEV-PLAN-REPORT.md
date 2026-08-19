@@ -47,7 +47,9 @@ No candidate scored within 10% of another, so **no stack tie-break decision is r
 
 ## 3. Architecture
 
-See [architecture-overview-REPORT.md](architecture-overview-REPORT.md). Package layout follows the established `api` / `domain` / `infra.db` split under `com.webcash.iris.biztalk`, plus one `infra.excel` package. Cross-cutting concerns are consumed from `common.tenant` and `common.audit` unmodified.
+See [architecture-overview-REPORT.md](architecture-overview-REPORT.md). Package layout follows the established `api` / `domain` / `infra.db` split under `com.webcash.iris.biztalk`, plus one `infra.excel` package.
+
+> **Update 2026-08-19.** `infra.excel.StreamingWorkbookWriter` was built by the 톡전송 내역 slice (its Sprint T2), not here — this slice's Sprint R2 has not run. Sprint R2 therefore **consumes** it, and Apache POI is already in the POM. See [ADR-RPT-023](adr/ADR-RPT-023-export-generation.md) addendum. Cross-cutting concerns are consumed from `common.tenant` and `common.audit` unmodified.
 
 The only structural addition is a **second read-only datasource** with its own `SqlSessionFactory`. Because this slice writes nothing to either aggregate (CONST-DATA-R01), the two datasources need no XA coordination and [ADR-002](adr/ADR-002-transaction-boundary.md)'s boundaries are untouched.
 

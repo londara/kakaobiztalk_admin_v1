@@ -8,8 +8,10 @@ import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * 처리되지 않은 예외의 최종 처리자. / Last-resort handler for unhandled exceptions.
@@ -94,6 +96,53 @@ public class GlobalExceptionHandler {
         log.warn("BAD_REQUEST rejected an invalid argument: {}", e.getMessage());
         return ResponseEntity.badRequest()
                 .body(body("BAD_REQUEST", "요청 값을 확인하세요."));
+    }
+
+    /**
+     * 요청 바인딩 실패를 400 으로 변환한다. / Converts a request-binding failure to a 400.
+     *
+     * <h2>이 핸들러가 없어서 생긴 결함 / the defect its absence caused</h2>
+     * <p>필수 {@code @RequestParam} 을 빼고 호출하면 Spring 이
+     * {@link MissingServletRequestParameterException} 을 던진다. 그것이
+     * {@link #handleUnexpected(Exception)} 까지 흘러가 <b>500 과 "요청을 처리할 수 없습니다"</b>
+     * 가 되었다 — 클라이언트 오류가 서버 오류로 보고되고, 로그에는 {@code UNHANDLED} 로 남아
+     * 운영에 잡음을 만들며, 호출자는 어느 파라미터가 빠졌는지 알 수 없다.</p>
+     * <p>Omitting a required {@code @RequestParam} makes Spring throw
+     * {@link MissingServletRequestParameterException}, which fell through to
+     * {@link #handleUnexpected(Exception)} and became <b>a 500 with "요청을 처리할 수 없습니다"</b> —
+     * a client error reported as a server error, logged as {@code UNHANDLED} so it pages operations,
+     * and giving the caller no way to know which parameter was missing.</p>
+     *
+     * <p><b>이 슬라이스만의 문제가 아니었다.</b> 필수 파라미터를 가진 모든 엔드포인트가
+     * 해당되며, {@code ReportController#query} 의 {@code from}/{@code to} 도 같다. 톡전송 내역의
+     * 부정 경로 시험(T1-16)이 처음 이것을 드러냈다 — 결함 CR-T01.</p>
+     * <p><b>This was never specific to this slice.</b> Every endpoint with a required parameter was
+     * affected, including {@code ReportController#query}'s {@code from} and {@code to}. The 톡전송 내역
+     * negative-path suite (T1-16) was the first thing to surface it — defect CR-T01.</p>
+     *
+     * <p>빠진 파라미터의 <b>이름</b>은 응답에 담는다. 이름은 API 계약의 일부이므로 비밀이
+     * 아니며, 담지 않으면 호출자가 추측으로 고칠 수밖에 없다. 값은 담지 않는다.</p>
+     * <p>The missing parameter's <b>name</b> is included: names are part of the published contract and
+     * are not secrets, and withholding one leaves the caller guessing. Values are not included.</p>
+     *
+     * @param e 예외 / the exception
+     * @return HTTP 400 응답 / a 400 response
+     */
+    // req: FR-TLK-014, NFR-USE-D02, CR-T01
+    @ExceptionHandler({MissingServletRequestParameterException.class,
+            MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<Map<String, String>> handleBindingFailure(Exception e) {
+        String parameter = (e instanceof MissingServletRequestParameterException missing)
+                ? missing.getParameterName()
+                : ((MethodArgumentTypeMismatchException) e).getName();
+
+        log.warn("BAD_REQUEST request binding failed for parameter '{}': {}",
+                parameter, e.getMessage());
+
+        return ResponseEntity.badRequest()
+                .body(body("BAD_REQUEST",
+                        "필수 요청 값이 없거나 형식이 올바르지 않습니다: " + parameter
+                                + " / A required request value is missing or malformed: " + parameter));
     }
 
     /**

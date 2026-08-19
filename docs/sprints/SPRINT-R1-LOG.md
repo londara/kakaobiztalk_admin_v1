@@ -21,6 +21,7 @@
 | R1-09 read auditing | `ACTION_REPORT_QUERY` with actor, scope, period, counts — and never the figures |
 | R1-10 `ReportService` + API | One response shape, environment-independent, structured records |
 | R1-11 React screen | Grid with all four counters per channel, watermark banner, seek paging, partial-result notices. 15 tests |
+| R1-11a Sidebar entry | 이용기관 보고서 added to `AppLayout` as **operator-only**, placed after 발신번호 관리 to match the legacy menu order. Two existing nav tests extended: an operator now sees four items, and a tenant principal is asserted **not** to see this one (FR-AZ-R04) |
 
 ## 2. Carried to R2
 
@@ -70,6 +71,28 @@ Rewritten to build the whole key space, shuffle, and truncate — and to **throw
 ### 4.3 The empty error message
 
 `reportApi.ts` initially threw `AuthApiError(message, status)`. That constructor takes an *object* (`{ message, code, violations }`), so passing a string left `message` undefined and the screen rendered an **empty error box** — visually identical to "nothing happened", which is precisely the experience D-R16 produced in the legacy. Replaced with a dedicated `ReportApiError`, and the frontend test now asserts the message text rather than the element's presence.
+
+### 4.3a Two defects found by running it — and the second one matters more
+
+Running the screen against the real database surfaced two defects that no unit test in this sprint could have caught.
+
+**`javaType="long"` is not a primitive in MyBatis.** The counter `resultMap` declared `javaType="long"`, which MyBatis's `TypeAliasRegistry` resolves to **`java.lang.Long`** — the primitive alias is `_long`. `ChannelCounters` is a record over primitive `long`, so MyBatis looked for a `(Long, Long, Long, Long)` constructor, found none, and threw. Both mappers now use `_long`.
+
+**The more serious defect was mine, in the error handling.** The query had already run and returned correct data (`487, 132, 355, 0` appear in the stack trace). A *result-mapping* failure — a defect in our code — was caught by `catch (RuntimeException)` and reported as **"API발송 집계를 읽지 못했습니다"**, with **HTTP 200** and an incomplete-result notice.
+
+That is this programme's own **silent-success** failure mode, rebuilt by my hand in the slice that documents it four times over. Its consequences are exactly the ones the pattern always has:
+
+- the operator is sent to investigate a database that is perfectly healthy;
+- the 200 keeps it off every monitor that watches for 5xx;
+- and the user is told the figures are *incomplete* when they are in fact *absent*.
+
+`rethrowUnlessSourceUnavailable` now narrows the test: only `TransientDataAccessException`, `RecoverableDataAccessException`, `DataAccessResourceFailureException` and `CannotCreateTransactionException` degrade to a partial result. Everything else propagates and surfaces as a 500. The same guard was applied to the three other swallow points — the key probe, the watermark and the name resolution — because each had the identical shape.
+
+An existing test caught the change immediately: `degradesWhenBulkThrows` threw a bare `IllegalStateException` and now correctly propagates. It was rewritten to use a genuine connection failure, which is what it should have asserted from the start.
+
+**Verification added.** `AggregateMapperXmlTest` (23 assertions) pins the alias, the shared `ORDER BY`, the channel prefixes, the expanded seek predicate and the D-R8/D-R11/D-R24 corrections. It is a tier-4 substitute for the integration test RISK-R01 makes impossible, and it says so. Writing it produced a small lesson of its own: the first run failed because the mappers *quote the wrong row-value form in a comment explaining why it is wrong*, so the assertions now strip XML comments before checking.
+
+**What this says about the sprint's verification.** Both defects live exactly where TEST-PLAN §2 said coverage was weakest — the boundary between the mapper and the database, which no tier reachable in this environment exercises. RISK-R01 rated that as acceptable because the merge itself is testable at tier 2. That judgement still holds for the merge, but it under-weighted the *mapping* layer, where a defect is invisible until the application runs. R1-13's synthetic volume, already carried to R2, is the cheapest thing that would have caught both.
 
 ### 4.4 Package layout deviated from the architecture document
 

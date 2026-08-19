@@ -124,3 +124,28 @@
 - **설명**: S2 creates a table and an index. CONFLICT-S01 (DDL vs CONST-DATA-01) is still awaiting explicit G1 sign-off. Building the write path before that decision risks rework of the delete mechanism and the constraint.
 - **대응 계획**: S1 contains no DDL and no schema dependency, so the first two weeks are unaffected. G1 is needed **before S2-02**, not before the sprint starts. Design has already narrowed what G1 must approve: additive DDL only, no alteration of `KKB_DPNO_LDGR`'s meaning to existing readers, no legacy application changed.
 - **담당자**: PM · **모니터링**: end of Sprint S1
+
+---
+
+## Addendum — RISK-S13 re-examined, 2026-08-19 (톡전송 내역 retrospective action A9)
+
+**The premise is half right, and the conclusion drawn from it was wrong.**
+
+RISK-S13 states: *Docker is not permitted, so Testcontainers cannot be used — permanently, not pending installation.* **That is correct and remains correct.** The declared `org.testcontainers:postgresql` dependency is indeed dead weight.
+
+What does not follow is the title's conclusion — *no DB-backed verification path confirmed.* `io.zonky.test:embedded-postgres` (Apache-2.0) starts a real PostgreSQL **binary as a process**; it has no Docker dependency at all. It was tried for the first time during the 톡전송 내역 sprint and works in this environment. The inference passed unexamined from here into RISK-R01 and then RISK-T13 — three slices, one untested clause.
+
+**What changes for this slice, and what does not.**
+
+This risk's sharpest claim stands: **D-S1 is an interaction between a DB function and application code, and `ENCRYPT`/`decrypt`/`masking` are site-defined.** Their real definitions are not available, so their real behaviour still cannot be executed here. That was always the harder half of the problem and it is untouched.
+
+But a distinction the risk did not draw turns out to matter. Defects in this family split in two:
+
+- **Defects in the cryptography or the masking output** — what `masking()` actually returns, whether `ENCRYPT` is deterministic. Still unverifiable without the real functions. FR-SNDC-004's uniqueness constraint is in this group.
+- **Defects in the SQL shape around those functions** — column naming, aliasing, projection, mapping. These are verifiable with **stub functions of the same names** defined in the embedded instance, because the defect is in the SQL, not in the function body.
+
+The 톡전송 내역 slice demonstrated the second category: D-T18 is two unaliased `decrypt()` calls colliding on one output column name, so PostgreSQL names both columns `decrypt` and MyBatis cannot map either. A one-line stub `decrypt()` reproduces that exactly — the collision is a naming property of the SQL and does not depend on what the function computes. That defect was declared verified-by-placement-only and is now executably verified.
+
+**Worth re-checking here**: whether any of D-S1's mechanism, or the archive-on-delete suite (FR-SNDD-001…003), is a SQL-shape property rather than a cryptographic one. If so it is testable now, with the stub clearly labelled as a stand-in for the SQL's shape and not for the function's behaviour.
+
+**Owner**: `architect` + `qa-engineer` · **Raised by**: SPRINT-T1-RETRO action A9

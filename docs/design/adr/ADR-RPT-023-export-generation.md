@@ -60,3 +60,19 @@ Two sheets, not the legacy's four: **총합** and **일자별 상세**, both car
 **The download is the one place data leaves the trust boundary as a file.** Once saved, the workbook carries per-institution volumes with no further control — no expiry, no watermark, no DLP. This is threat T-R11 and it is an accepted residual: the mitigation available to us is the audit record of who took what, not control of the file afterwards.
 
 **Costs accepted.** SXSSF's sliding window means arbitrary backward cell access is unavailable, so column auto-sizing cannot inspect every row; column widths are set from a bounded sample plus fixed minimums. The legacy called `autoSizeColumn` per sheet, which is part of why it held everything in memory. Cosmetic width differences against the legacy output are expected and are not parity failures — TEST-PLAN §11 records this as a known, accepted divergence.
+
+---
+
+## Addendum — the writer now exists, built elsewhere (2026-08-19)
+
+**`infra.excel.StreamingWorkbookWriter` is implemented, in the 톡전송 내역 slice's Sprint T2, not here.**
+
+This ADR chose SXSSF streaming programme-wide and scheduled the writer for this slice's Sprint R2, which has not run. The 톡전송 내역 slice planned to reuse it ([ADR-TLK-027](ADR-TLK-027-sibling-reuse-boundary.md) §2 asserted, wrongly, that it already existed and that this slice "already ships xlsx"), discovered on contact that neither was true, and built it. The correction is recorded in [ADR-TLK-027 §5](ADR-TLK-027-sibling-reuse-boundary.md).
+
+**The dependency direction is therefore reversed from what this ADR assumed.** Sprint R2 consumes the writer rather than producing it.
+
+**What it provides**, all of which this ADR specified: `SXSSFWorkbook` with a 100-row sliding window, compressed temp files disposed in a `finally`, header cells written exactly once (this ADR's D-R21 and the talk slice's D-T34 are the same defect), and rows accepted as an `Iterable` so a caller cannot materialise the whole result first — which is the property that makes the streaming meaningful.
+
+**What Sprint R2 still owns.** Two sheets of different shapes (총합 and 일자별 상세), which is the reason this ADR rejected CSV. The writer takes one sheet per call, so the report calls it twice or the writer gains a multi-sheet entry point — a small extension, and a decision for R2 rather than a gap. Apache POI 5.2.5 is now in the POM with its Apache-2.0 licence recorded inline, so R2 adds no dependency.
+
+**One incidental finding worth carrying.** POI 5.2.5 calls `UnsynchronizedByteArrayOutputStream.builder()`, added in commons-io 2.15, while `spring-boot-starter-parent` manages an older version — it **compiles** and fails at runtime with `NoSuchMethodError`. Only an integration test finds that class of fault; `TalkExportParityTest`'s workbook assertions caught it on their first run. `commons-io` is pinned to 2.16.1 in the POM as a result.

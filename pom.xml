@@ -108,6 +108,57 @@
       <artifactId>postgresql</artifactId>
       <scope>test</scope>
     </dependency>
+    <!--
+      Docker 금지(RISK-T13)로 Testcontainers 를 쓸 수 없다. embedded-postgres 는 실제 PostgreSQL
+      바이너리를 프로세스로 띄우므로 Docker 없이 lpad 같은 실제 SQL 동작을 검증할 수 있다.
+      라이선스는 Apache-2.0 이므로 CODE-004 상 문제가 없다.
+      Docker is prohibited (RISK-T13) so Testcontainers is unusable. embedded-postgres launches a real
+      PostgreSQL binary as a process, so genuine SQL behaviour such as lpad can be verified without
+      Docker. Licensed Apache-2.0, so CODE-004 raises nothing.
+    -->
+    <dependency>
+      <groupId>io.zonky.test</groupId>
+      <artifactId>embedded-postgres</artifactId>
+      <version>2.0.7</version>
+      <scope>test</scope>
+    </dependency>
+    <!--
+      ADR-RPT-023 이 프로그램 차원에서 SXSSF 스트리밍 내보내기를 선택했으나, 그 작성기는
+      이용기관 보고서 스프린트 R2 에 계획되고 아직 구현되지 않았다. 따라서 톡전송 내역
+      슬라이스가 그것을 재사용하지 않고 만든다 — ADR-TLK-027 §5 에 정정을 남겼다.
+
+      라이선스(CODE-004): Apache POI 는 Apache-2.0 이며 copyleft 의무가 없다. 레거시 스택에도
+      이미 POI 3.9 가 있었으므로 새로운 라이선스 노출이 아니다 — 다만 3.9 는 지원이 끊긴
+      버전이고 여기서는 5.x 를 쓴다.
+
+      ADR-RPT-023 chose SXSSF streaming exports programme-wide, but that writer was planned for the
+      이용기관 보고서 slice's Sprint R2 and has not been built. The 톡전송 내역 slice therefore builds
+      it rather than reusing it — correction recorded in ADR-TLK-027 §5.
+
+      Licensing (CODE-004): Apache POI is Apache-2.0 with no copyleft obligation. The legacy stack
+      already carried POI 3.9, so this is not new licence exposure — though 3.9 is unsupported and
+      5.x is used here.
+    -->
+    <dependency>
+      <groupId>org.apache.poi</groupId>
+      <artifactId>poi-ooxml</artifactId>
+      <version>5.2.5</version>
+    </dependency>
+    <!--
+      POI 5.2.5 는 commons-io 2.15 에서 추가된 UnsynchronizedByteArrayOutputStream.builder() 를
+      호출하는데, spring-boot-starter-parent 가 관리하는 버전은 그보다 낮아 실행 중
+      NoSuchMethodError 가 난다. 컴파일은 통과하므로 통합 시험만이 이것을 드러낸다 — 실제로
+      TalkExportParityTest 의 워크북 시험이 첫 실행에서 잡았다.
+      POI 5.2.5 calls UnsynchronizedByteArrayOutputStream.builder(), added in commons-io 2.15, while the
+      version managed by spring-boot-starter-parent is older, so it fails at runtime with
+      NoSuchMethodError. Compilation succeeds, so only an integration test finds it — TalkExportParityTest's
+      workbook tests caught it on their first run.
+    -->
+    <dependency>
+      <groupId>commons-io</groupId>
+      <artifactId>commons-io</artifactId>
+      <version>2.16.1</version>
+    </dependency>
   </dependencies>
 
   <build>

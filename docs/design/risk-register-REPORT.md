@@ -118,3 +118,23 @@
 - **설명**: FR-AZ-R05 audits every query **and** every export, including denials. A report screen is queried far more often than a maintenance screen, so this slice generates more audit volume than the three before it. OI-02 (retention term) remains open across the whole programme and now has a larger consumer.
 - **대응 계획**: Record the projected event rate from the R2 load tests and supply it to the OI-02 decision, so the retention term is chosen against a real number. Audit content stays minimal — actor, scope, range, counts — and never the figures themselves (T-R15).
 - **담당자**: architect + PM · **모니터링**: Sprint R2 exit; OI-02 remains open
+
+---
+
+## Addendum — RISK-R01 re-examined, 2026-08-19 (톡전송 내역 retrospective action A9)
+
+**RISK-R01's own 대응 계획 step (3) was the answer, and it was never executed.**
+
+That step reads: *fall back to `io.zonky.test:embedded-postgres` (Apache-2.0) in process.* During the 톡전송 내역 sprint that fallback was tried for the first time. It works: a real PostgreSQL binary starts as a process, no Docker involved, on this machine, in about twenty minutes of setup — one dependency line. `LpadTruncationTest` and `TalkHistoryMapperIntegrationTest` are green against it.
+
+So RISK-R01 was not an unexamined inference. It was a **correctly-specified mitigation that nobody carried out**, while the risk it mitigated continued to be cited as a constraint. The SPRINT-R1 log recorded R1-01 as "carried, non-blocking" and the R1 retrospective then found two defects at the mapper↔DB boundary, noting that boundary was untested by construction. Step (3) would have caught them.
+
+**What this means for this slice, concretely.** The 이용기관 보고서 mapper↔DB boundary is testable now, and cheaply:
+
+- `ApiAggregateMapper` and `BulkAggregateMapper` can run against two **schemas** on one embedded instance — which is exactly what this risk's step (2) anticipated. ADR-RPT-021's keyset merge depends only on `ORDER BY`, `LIMIT` and row-value comparison, all of which any PostgreSQL reproduces faithfully. This risk already said so.
+- The `javaType="_long"` alias defect that `AggregateMapperXmlTest` guards by reading XML would be caught by execution instead.
+- FR-RPTS-005's per-source degradation remains substitute-verified by `DataSource` fault injection, as this risk correctly states. That part does not change.
+
+**Not actioned here.** Writing those tests is the 이용기관 보고서 slice's work, not this one's. This addendum exists so the next person to open this register does not re-cite a constraint whose remedy is already written in it.
+
+**Owner**: `architect` + `qa-engineer` · **Raised by**: SPRINT-T1-RETRO action A9

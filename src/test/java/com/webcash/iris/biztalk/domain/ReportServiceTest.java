@@ -301,13 +301,67 @@ class ReportServiceTest {
             given(apiMapper.findPage(any())).willReturn(List.of(row("20260701", "K0001", "기관A", 1)));
             given(apiMapper.findKeys(any(), anyInt()))
                     .willReturn(List.of(new AggregateKey("20260701", "K0001")));
+            // 진짜 인프라 장애여야 부분 결과로 낮춰진다. 임의의 RuntimeException 은 이제
+            // 그대로 던져진다 — 코드 결함을 장애로 위장하지 않기 위해서다.
+            // Only a genuine infrastructure fault degrades; an arbitrary RuntimeException now
+            // propagates, so that a code defect is never disguised as an outage.
             given(bulkMapper.findPage(any()))
-                    .willThrow(new IllegalStateException("bulk datasource unreachable"));
+                    .willThrow(new org.springframework.dao.DataAccessResourceFailureException(
+                            "bulk datasource unreachable"));
 
             ReportPage page = query(withBulk());
 
             assertThat(page.rows()).hasSize(1);
             assertThat(page.availability().bulkRead()).isFalse();
+            assertThat(page.availability().isIncomplete(SendSource.ALL)).isTrue();
+        }
+
+        /**
+         * 2026-08-19 회귀. 매퍼의 {@code javaType="long"} 이 MyBatis 에서
+         * {@code java.lang.Long} 로 해석되어(원시형 별칭은 {@code _long}) 레코드 생성자를
+         * 찾지 못했다. 질의는 데이터를 정상적으로 가져왔는데도 화면에는 "API발송 집계를 읽지
+         * 못했습니다" 가 떴고, 응답은 200 이라 감시에도 걸리지 않았다.
+         * Regression, 2026-08-19: the mapper's {@code javaType="long"} resolved to
+         * {@code java.lang.Long} (the primitive alias is {@code _long}), so the record
+         * constructor was never found. The query returned data perfectly, yet the screen
+         * reported the API source as unreadable — with a 200 that kept it off the monitors.
+         *
+         * <p>우리 코드의 결함을 인프라 장애로 위장하는 것은 이 슬라이스가 네 번 기록한
+         * <b>조용한 성공</b> 결함을 우리 손으로 다시 만드는 일이다.</p>
+         * <p>Disguising our own defect as an infrastructure fault rebuilds the
+         * <b>silent-success</b> failure this slice has recorded four times.</p>
+         */
+        // req: FR-RPTS-005, NFR-OPS-R01
+        @Test
+        @DisplayName("코드 결함은 출처 장애로 위장되지 않고 그대로 드러난다")
+        void aCodeDefectIsNotDisguisedAsASourceOutage() {
+            bindOperator();
+            // 결과 매핑 실패는 MyBatisSystemException(=UncategorizedDataAccessException) 이며
+            // 인프라 장애가 아니다. / A result-mapping failure is uncategorized, not an outage.
+            given(apiMapper.findPage(any()))
+                    .willThrow(new org.springframework.dao.InvalidDataAccessApiUsageException(
+                            "Error instantiating class ChannelCounters with invalid types"));
+
+            assertThatThrownBy(() -> query(withBulk()))
+                    .isInstanceOf(org.springframework.dao.InvalidDataAccessApiUsageException.class);
+        }
+
+        // req: FR-RPTS-005, NFR-OPS-R01
+        @Test
+        @DisplayName("연결 실패는 부분 결과로 낮춘다 — 이쪽은 진짜 장애다")
+        void aConnectionFailureStillDegrades() {
+            bindOperator();
+            given(apiMapper.findPage(any()))
+                    .willThrow(new org.springframework.dao.DataAccessResourceFailureException(
+                            "could not get JDBC connection"));
+            given(bulkMapper.findPage(any())).willReturn(List.of());
+            given(bulkMapper.findKeys(any(), anyInt())).willReturn(List.of());
+            given(apiMapper.findKeys(any(), anyInt()))
+                    .willThrow(new org.springframework.dao.DataAccessResourceFailureException("down"));
+
+            ReportPage page = query(withBulk());
+
+            assertThat(page.availability().apiRead()).isFalse();
             assertThat(page.availability().isIncomplete(SendSource.ALL)).isTrue();
         }
 

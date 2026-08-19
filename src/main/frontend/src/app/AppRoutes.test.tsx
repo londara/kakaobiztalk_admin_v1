@@ -186,10 +186,13 @@ describe('AppRoutes', () => {
 
     expect(screen.getByRole('link', { name: '문자내역' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: '이용기관 관리' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: '발신번호 관리' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '이용기관 정보 관리' })).not.toBeInTheDocument();
+    // 이용기관 보고서는 기관 간 비교 화면이므로 이용기관 주체에게는 보이지 않는다.
+    // The usage report is a cross-institution screen, so a tenant principal never sees it.
+    expect(screen.queryByRole('link', { name: '이용기관 보고서' })).not.toBeInTheDocument();
   });
 
-  it('운영자에게는 세 메뉴가 모두 보인다 / an operator sees all three menu items', async () => {
+  it('운영자에게는 운영자 메뉴가 모두 보인다 / an operator sees every menu item', async () => {
     const user = userEvent.setup();
     loginResponse = { passwordChangeRequired: false, operator: true, displacedSession: false };
     stubFetch();
@@ -198,7 +201,7 @@ describe('AppRoutes', () => {
     await signIn(user);
     await screen.findByRole('heading', { name: '서비스 관리' });
 
-    for (const label of ['이용기관 관리', '문자내역', '발신번호 관리']) {
+    for (const label of ['이용기관 관리', '이용기관 정보 관리', '이용기관 보고서', '문자내역']) {
       expect(screen.getByRole('link', { name: label })).toBeInTheDocument();
     }
   });

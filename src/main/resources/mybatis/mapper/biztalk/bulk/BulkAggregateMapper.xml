@@ -41,10 +41,10 @@
 
   <resultMap id="channelCounters" type="com.webcash.iris.biztalk.domain.ChannelCounters">
     <constructor>
-      <arg column="TOTAL"    javaType="long"/>
-      <arg column="SUCCESS"  javaType="long"/>
-      <arg column="FAILED"   javaType="long"/>
-      <arg column="INFLIGHT" javaType="long"/>
+      <arg column="TOTAL"    javaType="_long"/>
+      <arg column="SUCCESS"  javaType="_long"/>
+      <arg column="FAILED"   javaType="_long"/>
+      <arg column="INFLIGHT" javaType="_long"/>
     </constructor>
   </resultMap>
 

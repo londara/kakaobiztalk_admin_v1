@@ -50,6 +50,31 @@ public final class PeriodPolicy {
      */
     // req: FR-RPT-002, FR-RPT-003, FR-RPT-004
     public static ReportPeriod validate(String rawFrom, String rawTo) {
+        return validate(rawFrom, rawTo, MAX_SPAN_DAYS);
+    }
+
+    /**
+     * 상한을 지정하여 요청 일자 두 개를 검증하고 정규화한다.
+     * Validates and normalises the requested date pair against an explicit cap.
+     *
+     * <h2>상한이 인자인 이유 / why the cap is a parameter</h2>
+     * <p>상한은 <b>행의 단위</b>에 따라 다르다. 이용기관 보고서는 일자 × 기관이 1행이므로
+     * 366일이고(AMB-R03), 문자내역과 톡전송 내역은 메시지·거래 1건이 1행이므로 31일이다
+     * (AMB-06, AMB-T02). 다른 것은 그 숫자 하나뿐이며, 형식·순서·달력 검증은 같다 —
+     * 그래서 클래스를 복제하지 않고 상한만 넘긴다(ADR-TLK-027).</p>
+     * <p>The cap depends on <b>row grain</b>: the institution report is one 일자 × 기관 per row, so
+     * 366 days (AMB-R03); 문자내역 and 톡전송 내역 are one message or transaction per row, so 31
+     * (AMB-06, AMB-T02). Only that number differs — format, ordering and calendar validity are
+     * identical — so the cap is passed rather than the class duplicated (ADR-TLK-027).</p>
+     *
+     * @param rawFrom     시작일자 {@code YYYYMMDD} / the start date
+     * @param rawTo       종료일자 {@code YYYYMMDD} / the end date
+     * @param maxSpanDays 양 끝을 포함한 허용 최대 일수 / the inclusive maximum span in days
+     * @return 검증된 기간 / the validated period
+     * @throws InvalidPeriodException 형식·순서·기간 위반 / on a malformed, inverted or over-long period
+     */
+    // req: FR-RPT-002, FR-RPT-003, FR-RPT-004, FR-TLK-007, ADR-TLK-027
+    public static ReportPeriod validate(String rawFrom, String rawTo, int maxSpanDays) {
         LocalDate from = parse(rawFrom, "시작일자");
         LocalDate to = parse(rawTo, "종료일자");
 
@@ -61,10 +86,10 @@ public final class PeriodPolicy {
         // 양 끝을 포함하므로 +1. 366 일 조회는 허용, 367 일은 거부한다.
         // Inclusive of both ends, hence +1: 366 days is allowed, 367 refused.
         long span = ChronoUnit.DAYS.between(from, to) + 1;
-        if (span > MAX_SPAN_DAYS) {
+        if (span > maxSpanDays) {
             throw new InvalidPeriodException(
-                    "조회 기간은 최대 " + MAX_SPAN_DAYS + "일입니다 (요청: " + span + "일). / "
-                            + "The query period is capped at " + MAX_SPAN_DAYS
+                    "조회 기간은 최대 " + maxSpanDays + "일입니다 (요청: " + span + "일). / "
+                            + "The query period is capped at " + maxSpanDays
                             + " days; " + span + " were requested.");
         }
 
