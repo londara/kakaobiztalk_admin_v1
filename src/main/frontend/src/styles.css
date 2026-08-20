@@ -20,6 +20,7 @@
   --primary-hover: #14498f;
   --danger: #b3261e;      /* 대비 6.1:1 */
   --focus: #0b6bcb;
+  --ok: #1a7f37;          /* 대비 4.8:1 on --panel — 성공 판정 텍스트 / verdict text */
 }
 
 * {
@@ -1022,4 +1023,265 @@ table.lg-grid tbody td.lg-cell-ellipsis > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   템플릿 검증 판정 / template validation verdict
+
+   레거시 biztalk_admin_61_view.jsp 의 .result-vd / .success-vd / .failure-vd 에
+   대응한다. 레거시는 이 스타일을 화면 안에 인라인으로 300줄 가까이 들고 있었고,
+   그것이 D-A22 다 — 화면마다 자기 CSS 를 갖는 구조는 디자인 시스템을 무의미하게
+   만든다. 시각적 결과는 레거시를 따르되 정의는 여기 한 곳에 둔다.
+
+   Mirrors the legacy view's .result-vd / .success-vd / .failure-vd. The legacy carried
+   these as ~300 lines of inline CSS inside the screen, which is D-A22: a page holding its
+   own stylesheet makes a design system pointless. The visual result follows the legacy;
+   the definition lives here, once.
+
+   색상만으로 성패를 구분하지 않는다 — 좌측 테두리와 접두 문구가 함께 신호한다
+   (WCAG 1.4.1, .field-error.visible 와 같은 규율).
+   Colour is not the only cue: a left border and a leading word carry the same signal
+   (WCAG 1.4.1, the same discipline as .field-error.visible).
+   --------------------------------------------------------------------------- */
+.lg-verdict {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  font-weight: 700;
+  background: #f7f8f9;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--muted);
+}
+
+.lg-verdict.ok {
+  color: var(--ok);
+  background: #eef7f0;
+  border-left-color: var(--ok);
+}
+
+.lg-verdict.fail {
+  color: var(--danger);
+  background: #fdeceb;
+  border-left-color: var(--danger);
+}
+
+.lg-verdict ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-weight: 400;
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------------------
+   템플릿 · 내용 나란히 비교 / template and content side by side
+
+   레거시 .container-vd + .textarea-container-vd + .textarea-vd 에 대응한다.
+   레거시가 두 입력을 나란히 둔 것은 옳았다 — 사람이 두 문자열을 비교하려면 동시에
+   보여야 한다. 그 배치는 유지하고, 좁은 화면에서는 세로로 쌓는다(레거시도 768px
+   미디어 쿼리로 같은 일을 했다).
+
+   Mirrors the legacy .container-vd / .textarea-container-vd / .textarea-vd. Placing the two
+   inputs side by side was right — comparing two strings by eye needs both visible at once.
+   The arrangement is kept, stacking on narrow screens as the legacy's 768px query did.
+   --------------------------------------------------------------------------- */
+.lg-compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .lg-compare {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.lg-compare > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lg-compare textarea {
+  width: 100%;
+  min-height: 140px;
+  padding: 10px;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  border: 1px solid var(--border);
+  resize: vertical;
+}
+
+.lg-compare textarea:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/*
+  격자 안의 textarea. / A textarea inside the field grid.
+
+  `.lg-form-grid` 는 라벨·입력 쌍 3벌을 위한 6열 격자다. 여러 줄 입력은 한 벌의 폭으로는
+  좁으므로 `.lg-form-wide` 와 함께 써서 남은 열을 모두 차지하게 한다. 이 규칙이 없으면
+  textarea 가 격자 폭을 무시하고 넘쳐 배치가 무너진다.
+
+  `.lg-form-grid` is a six-column grid for three label-and-field pairs. A multi-line input is too
+  narrow at one pair's width, so it pairs with `.lg-form-wide` to take the remaining columns.
+  Without this rule the textarea ignores the grid width and overflows.
+*/
+.lg-form-grid textarea {
+  width: 100%;
+  padding: 7px 9px;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  resize: vertical;
+}
+
+.lg-form-grid textarea:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/*
+  격자 전체를 가로지르는 소제목·안내. / A subheading or note spanning the whole grid.
+*/
+.lg-form-grid .lg-span {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+}
+
+/* ---------------------------------------------------------------------------
+   레거시 61 화면의 form-group / the legacy screen 61 form-group
+
+   레거시는 라벨을 블록으로 두고 입력을 100% 폭으로 아래에 놓았다(.form-group).
+   `.lg-form-grid` 의 2열 격자와는 다른 배치이며, 화면 61 은 이쪽이다 — 입력마다 폭이
+   넉넉해야 payload 값이 한눈에 들어온다.
+
+   The legacy put the label on its own line with a full-width control beneath it (.form-group).
+   That is a different arrangement from `.lg-form-grid`'s paired columns, and screen 61 uses this
+   one: each value needs the full width to be read at a glance.
+   --------------------------------------------------------------------------- */
+.lg-stack {
+  margin-bottom: 15px;
+}
+
+.lg-stack > label {
+  display: block;
+  margin: 0 0 5px;
+  font-weight: 700;
+  font-size: 0.9375rem;
+}
+
+.lg-stack input[type='text'],
+.lg-stack select,
+.lg-stack textarea {
+  width: 100%;
+  padding: 8px;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-sizing: border-box;
+}
+
+.lg-stack textarea {
+  resize: vertical;
+}
+
+.lg-stack input[type='text']:focus,
+.lg-stack select:focus,
+.lg-stack textarea:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/*
+  필수 표시. / The required marker.
+
+  레거시는 <span class="required">*</span> 를 라벨 뒤에 두었다. 색만으로 신호하지 않도록
+  `aria-hidden` 대신 접근 가능한 이름을 라벨 텍스트에 남기고, 별표는 시각 보조로만 쓴다
+  (WCAG 1.4.1).
+  The legacy appended a red asterisk. Colour is not the only cue: the accessible name carries the
+  requirement and the asterisk is a visual aid.
+*/
+.lg-required {
+  margin-left: 4px;
+  color: var(--danger);
+  font-weight: 700;
+}
+
+/*
+  레거시 하단 동작 버튼 3색. / The legacy's three coloured action buttons.
+
+  레거시 색(#4CAF50 / #f44336 / #2196F3)은 흰 글씨와의 대비가 각각 2.8:1, 3.4:1, 3.1:1 로
+  WCAG 1.4.3 (4.5:1) 에 미달한다. 같은 계열에서 대비를 만족하는 값으로 바꾼다 — 색상 인상은
+  유지하되 읽을 수 없는 버튼을 옮겨오지는 않는다.
+  The legacy colours fail WCAG 1.4.3 against white text (2.8:1, 3.4:1, 3.1:1). These are the same
+  hues at compliant contrast: the visual impression carries over, the unreadable contrast does not.
+*/
+.lg-btn-ok {
+  color: #ffffff;
+  background: #2e7d32;   /* 5.0:1 */
+  border-color: #2e7d32;
+}
+
+.lg-btn-ok:hover {
+  background: #1b5e20;
+}
+
+.lg-btn-warn {
+  color: #ffffff;
+  background: #c62828;   /* 5.9:1 */
+  border-color: #c62828;
+}
+
+.lg-btn-warn:hover {
+  background: #a01f1f;
+}
+
+.lg-btn-info {
+  color: #ffffff;
+  background: #1565c0;   /* 5.6:1 */
+  border-color: #1565c0;
+}
+
+.lg-btn-info:hover {
+  background: #0d47a1;
+}
+
+/* 레거시 msg-data-item — 반복되는 메시지 데이터 카드 / the repeated message-data card */
+.lg-item-card {
+  position: relative;
+  margin-bottom: 20px;
+  padding: 15px;
+  background: #f9f9f9;
+  border: 1px solid var(--border);
+}
+
+.lg-item-card > h3 {
+  margin: 0 0 10px;
+  font-size: 0.9375rem;
+}
+
+/*
+ * 수신번호 반복 행 / repeatable recipient row.
+ * source: biztalk_admin_61_view.jsp .button-row — display:flex; gap:10px; align-items:center
+ * 레거시 비율(입력 flex:2 / 버튼 flex:0.5)을 유지하되 버튼 색은 .lg-btn-warn 이 갖는다
+ * (레거시 #ff4444 는 흰 글자와의 대비가 WCAG AA 미달이었다).
+ * The legacy proportions are kept; the button colour comes from .lg-btn-warn, because the
+ * legacy #ff4444 on white text falls short of WCAG AA.
+ */
+.lg-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.lg-row input,
+.lg-row select {
+  flex: 2;
+}
+.lg-row button {
+  flex: 0.5;
 }

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jex>
+    <id>ADV_KKO_AT_SEND2</id>
+    <name><![CDATA[BIZTALK(알림톡전송)]]></name>
+    <version>20210319084536</version>
+    <pkg></pkg>
+    <target>COOCON_ALERT</target>
+    <ext>
+        <_IMO_APPEND_URL>/advising/kakao/at_send</_IMO_APPEND_URL>
+    </ext>
+    <tmUseYn><![CDATA[N]]></tmUseYn>
+    <strTm><![CDATA[000000]]></strTm>
+    <endTm><![CDATA[240000]]></endTm>
+    <holStrTm><![CDATA[]]></holStrTm>
+    <holEndTm><![CDATA[]]></holEndTm>
+    <satStrTm><![CDATA[]]></satStrTm>
+    <satEndTm><![CDATA[]]></satEndTm>
+    <sunStrTm><![CDATA[]]></sunStrTm>
+    <sunEndTm><![CDATA[]]></sunEndTm>
+    <svcTmMsgCd></svcTmMsgCd>
+    <rule>
+        <in>
+            <item padding=" " name="요청메세지" id="RSMS" fullChar="N"  />
+        </in>
+        <out>
+            <item padding=" " name="응답메세지" id="CSTM_RSMS" fullChar="N"  />
+        </out>
+        <subRule>
+        </subRule>
+    </rule>
+    <hash>qe6lFXvH7zW8n9keMR6Qtw==</hash>
+</jex>

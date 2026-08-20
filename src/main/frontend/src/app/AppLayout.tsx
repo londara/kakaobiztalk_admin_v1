@@ -36,6 +36,18 @@ const NAV_ITEMS: readonly NavItem[] = [
   { to: '/institutions', label: '이용기관 관리', operatorOnly: true },
   { to: '/messages', label: '문자내역', operatorOnly: false },
   { to: '/senders', label: '발신번호 관리', operatorOnly: true },
+  // req: FR-AZ-A03 — 발송 능력을 가진 화면이므로 운영자 전용이다.
+  //
+  // 레거시 화면 61 은 login=Y 하나만 걸려 있었고, 그것으로 충분했던 이유는 actUseYn=N 이라
+  // 아무것도 보낼 수 없었기 때문이다. 발송이 붙는 순간 그 보호는 사라지므로, 메뉴 노출도
+  // 인가를 따른다 — 다만 메뉴를 숨기는 것은 편의이지 방어가 아니다. 실제 방어는 서버의
+  // @PreAuthorize(D-A37 이후 실제로 동작한다)와 /api/admin/** URL 규칙이다.
+  //
+  // Legacy screen 61 carried login=Y alone, adequate only because actUseYn=N made it inert. That
+  // protection disappears the moment it can send, so menu visibility follows authorization too —
+  // though hiding a menu is a convenience, not a control. The real barriers are the server's
+  // @PreAuthorize (which actually executes since D-A37) and the /api/admin/** URL rule.
+  { to: '/alimtalk', label: '템플릿 샘플 검증', operatorOnly: true },
 ];
 
 /**

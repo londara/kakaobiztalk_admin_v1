@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jex>
+    <id>ADV_KKO_AT_SEND_M</id>
+    <name><![CDATA[ADV_KKO_AT_SEND_M]]></name>
+    <version>20241008174211</version>
+    <pkg></pkg>
+    <target>KAKAOBIZTALK</target>
+    <ext>
+    </ext>
+    <tmUseYn><![CDATA[N]]></tmUseYn>
+    <strTm><![CDATA[000000]]></strTm>
+    <endTm><![CDATA[240000]]></endTm>
+    <holStrTm><![CDATA[]]></holStrTm>
+    <holEndTm><![CDATA[]]></holEndTm>
+    <satStrTm><![CDATA[]]></satStrTm>
+    <satEndTm><![CDATA[]]></satEndTm>
+    <sunStrTm><![CDATA[]]></sunStrTm>
+    <sunEndTm><![CDATA[]]></sunEndTm>
+    <svcTmMsgCd></svcTmMsgCd>
+    <rule>
+        <in>
+            <item padding=" " length="6" name="이용기관코드" id="is_cd" fullChar="N"  />
+            <item padding=" " length="10" name="거래고유번호" id="tran_id" fullChar="N"  />
+            <item resource="msg_data" name="msg_data" id="msg_data" fullChar="N" type="RECORD"  />
+        </in>
+        <out>
+            <item padding=" " length="10" name="거래고유번호" id="tran_id" fullChar="N"  />
+            <item padding=" " length="10" name="응답코드" id="rsp_code" fullChar="N"  />
+            <item padding=" " length="400" name="응답메시지" id="rsp_message" fullChar="N"  />
+        </out>
+        <subRule>
+            <rule_Sub_0 id="receiver_number"  type="RECORD">
+                <item padding=" " length="20000" name="수신폰번호" id="receiver_number" fullChar="N"  />
+            </rule_Sub_0>
+            <rule_Sub_1 id="msg_data"  type="RECORD">
+                <item padding=" " length="6" fullChar="N" name="순번" id="order"  />
+                <item padding=" " length="20000" name="수신폰번호" id="receiver_number" fullChar="N"  />
+                <item padding=" " length="24" name="콜백송신자번호" id="sender_number" fullChar="N"  />
+                <item padding=" " length="14" name="발송일시" id="reqdate" fullChar="N"  />
+                <item padding=" " length="4000" name="발송메시지" id="msg" fullChar="N"  />
+                <item padding=" " length="100" name="프로파일키" id="sender_key" fullChar="N"  />
+                <item padding=" " length="30" name="템플릿코드" id="template_code" fullChar="N"  />
+                <item padding=" " length="200" name="강조표기제목" id="template_title" fullChar="N"  />
+                <item resource="failback_data" name="failback_data" id="failback_data" fullChar="N" type="GROUP"  />
+                <item resource="button" name="button" id="button" fullChar="N" type="RECORD"  />
+            </rule_Sub_1>
+            <rule_Sub_2 id="button"  type="RECORD">
+                <item padding=" " length="28" name="버튼제목" id="name" fullChar="N"  />
+                <item padding=" " length="2" name="버튼타입" id="type" fullChar="N"  />
+                <item padding=" " length="240" name="pc web url" id="url_pc" fullChar="N"  />
+                <item padding=" " length="240" name="mobile web url" id="url_mobile" fullChar="N"  />
+                <item padding=" " length="240" name="android application custom scheme" id="scheme_android" fullChar="N"  />
+                <item padding=" " length="240" name="ios application custom scheme" id="scheme_ios" fullChar="N"  />
+            </rule_Sub_2>
+            <rule_Sub_3 id="failback_data"  type="GROUP">
+                <item padding=" " length="2" name="버튼타입" id="type" fullChar="N"  />
+                <item padding=" " length="50" name="제목" id="subject" fullChar="N"  />
+                <item padding=" " length="4000" name="발송메시지" id="msg" fullChar="N"  />
+                <item padding=" " length="256" name="이미지ID" id="img_id" fullChar="N"  />
+            </rule_Sub_3>
+            <rule_Sub_4 id="BUTTON"  type="GROUP">
+                <item padding=" " length="28" name="버튼제목" id="name" fullChar="N"  />
+                <item padding=" " length="2" name="버튼타입" id="type" fullChar="N"  />
+                <item padding=" " length="240" name="pc web url" id="url_pc" fullChar="N"  />
+                <item padding=" " length="240" name="mobile web url" id="url_mobile" fullChar="N"  />
+                <item padding=" " length="240" name="ios application custom scheme" id="scheme_ios" fullChar="N"  />
+                <item padding=" " length="240" name="android application custom scheme" id="scheme_android" fullChar="N"  />
+            </rule_Sub_4>
+        </subRule>
+    </rule>
+    <hash>rlS2oHs/5G0TFOSymraIQg==</hash>
+</jex>

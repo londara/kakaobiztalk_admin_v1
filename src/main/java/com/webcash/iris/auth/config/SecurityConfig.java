@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
@@ -44,6 +45,30 @@ import org.springframework.web.filter.OncePerRequestFilter;
  */
 @Configuration
 @EnableWebSecurity
+// D-A37 (Sprint A1 발견) — 이 한 줄이 없으면 여섯 컨트롤러의 @PreAuthorize 가 전부 무력하다.
+// Spring Boot 3 에서 메서드 보안은 기본으로 꺼져 있고 @EnableMethodSecurity 로만 켜진다.
+// 이 저장소 어디에도 그 애노테이션이 없었으므로, 설계 문서들이 "심층 방어"라고 적어 온
+// 컨트롤러 수준 인가는 <b>존재하지 않았다</b> — 실제 방어선은 SecurityConfig 의
+// /api/admin/** URL 규칙 하나뿐이었다. 문이 열려 있던 것은 아니지만(여섯 컨트롤러 모두 그
+// URL 규칙 아래에 있다), 있다고 적힌 두 번째 층이 없었다. D-S2 와 같은 결함 유형이다 —
+// 있어 보이지만 아무것도 지키지 않는 검사.
+// D-A37, found in Sprint A1: without this line every @PreAuthorize on six controllers is inert.
+// Method security is off by default in Spring Boot 3 and only @EnableMethodSecurity turns it on.
+// The annotation appeared nowhere in this repository, so the controller-level authorization that the
+// design documents call "defence in depth" <b>did not exist</b> — the only real barrier was the
+// /api/admin/** URL rule. Not an open door (all six sit under that rule), but the second layer that
+// was documented was absent. The same defect class as D-S2: a check that looks like a control and
+// guards nothing.
+//
+// 활성화가 안전한 이유: @PreAuthorize 를 단 여섯 컨트롤러가 모두 이미
+// /api/admin/** → hasRole("OPERATOR") 뒤에 있고 표현식도 동일하다. 지금 통과하는 호출자는
+// 같은 역할 검사를 이미 통과한 사람이므로, 켜도 새로 거절되는 요청이 없다.
+// Why enabling is safe: all six annotated controllers already sit behind
+// /api/admin/** → hasRole("OPERATOR") with an identical expression, so no caller who is permitted
+// today can be newly rejected.
+//
+// req: NFR-SEC-AUTHZ-A01, FR-AZ-A01, FR-AZ-A03
+@EnableMethodSecurity
 public class SecurityConfig {
 
     private final boolean requireHttps;

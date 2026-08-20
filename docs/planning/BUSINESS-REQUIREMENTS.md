@@ -3,7 +3,7 @@
 > **Version**: 1.0
 > **Date**: 2026-08-14
 > **Predecessor**: [PROJECT-PROPOSAL.md](PROJECT-PROPOSAL.md)
-> **Status**: DRAFT
+> **Status**: **APPROVED** — PM, 2026-08-19
 > **Confidence legend**: `[확인]` confirmed by PM · `[추출]` extracted from legacy source, domain-owner sign-off required · `[보류]` open
 
 ---
@@ -126,3 +126,4 @@ This document states business-level requirements for rebuilding the **login** an
 | Date | Approver | Comment | Status |
 |------|----------|---------|--------|
 | 2026-08-14 | PM | Awaiting first review | PENDING |
+| 2026-08-19 | PM | 승인 — Skill 1 산출물 확정. G1(요구사항 게이트)은 별건으로 남아 있다 / Approved; the Skill 1 outputs are settled. G1 remains separate | **APPROVED** |

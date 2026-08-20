@@ -4,7 +4,7 @@
 > **Date**: 2026-08-14
 > **Author**: PM (daralonsingle@gmail.com)
 > **Approver**: PM (single-approver model — see §12)
-> **Status**: DRAFT — awaiting PM first review
+> **Status**: **APPROVED** — PM, 2026-08-19
 > **Source skill**: `01-plan-project` · **Next skill**: `02-define-requirements`
 
 ---

@@ -22,3 +22,12 @@ node_modules/
 src/main/frontend/node_modules/
 src/main/frontend/dist/
 target
+# req: ADR-007, CONST-SEC-L02, SEC-A02 — 자격증명 파일은 커밋하지 않는다.
+# The credentials file must never be committed.
+#
+# application-local.yml 은 여기 넣지 않는다 — 이미 추적 중인 `local` 프로파일 문서이므로
+# .gitignore 가 적용되지 않고, 규칙을 두면 보호되고 있다는 착각만 준다.
+# application-local.yml is NOT listed: it is already tracked (the `local` profile document), so
+# .gitignore would not apply and the rule would only create a false sense of protection.
+src/main/resources/application-secrets.yml
+src/main/resources/application-secrets-*.yml

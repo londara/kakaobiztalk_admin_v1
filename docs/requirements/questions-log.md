@@ -290,7 +290,7 @@ D-S1 is the clearest case and the most serious finding in the slice. Read-maskin
 Three practical consequences:
 
 1. **A per-file review would not have found it.** Nothing is wrong in `biztalk_admin_10_l001_act.jsp`, or in `KKB_DPNO_LDGR_D001`, or in `biztalk_admin_10.js`. The defect exists only in the path between them, and only after a specific date. Defects of this class are found by tracing a value end-to-end, which is now a standing check for the remaining screens: **for every value that leaves the server and comes back, ask whether it came back in the same form it left.**
-2. **The ledger cannot be trusted to reflect operator intent.** Numbers believed deleted are probably live and still valid for sending. §6.4 of the spec raises the reconciliation — this is the second slice in a row to produce one (D-I1 was the first), and both have the same shape: an operator withdrew something, the system said yes, and nothing happened.
+2. **The ledger cannot be trusted to reflect operator intent.** Numbers believed deleted are probably live and still valid for sending. §6.5 of the spec raises the reconciliation — this is the second slice in a row to produce one (D-I1 was the first), and both have the same shape: an operator withdrew something, the system said yes, and nothing happened.
 3. **Silent success is the property to design against, not the specific bug.** NFR-OPS-D02 and FR-SNDD-002 are written to make any zero-effect write an explicit failure, because the masking/decrypt mismatch is one way to reach that state and there is no reason to think it is the only one.
 
 Two other observations:
@@ -334,3 +334,111 @@ The admin consoles declare `BIZTALK_DB`; `KAKAOTALK` declares `BIZ_DB` for the s
 > **Method note.** Every one of these came from reading `KAKAOTALK` and `AOA_ADMIN` — applications outside this repository that were never listed as inputs to the slice. The requirements analysis had correctly identified *that* a coexistence question existed (CONFLICT-S02); it could not have answered it, because the answer was not in the artifacts under analysis.
 >
 > Worth generalising for the remaining slices: **when a table is written by this system and read by another, the other system's queries are part of the specification.** The institution slice learned the same lesson at design time (AMB-I10, ADR-INST-016) and it has now recurred with a sharper edge — here the external reader's query did not merely need accommodating, it *selected between two designs*, and the one that reads more naturally on paper was the wrong one.
+
+---
+
+# Part 5 — 카카오 알림톡 템플릿 / 발송 (AlimTalk Compose · Send · Template Validation), 2026-08-18
+
+**Slice**: legacy screen 61, plus screen 50's send path (pulled in by AMB-A00)
+**Spec**: [REQUIREMENTS-SPEC-ALIMTALK.md](REQUIREMENTS-SPEC-ALIMTALK.md)
+**Defects**: D-A1…D-A35 (23 in screen 61, 12 in screen 50)
+
+## 19. Resolved
+
+### AMB-A00 — migration scope for a screen registered as a "sample"
+**Question.** `WSVC.biztalk_admin_61` is named `BIZTALK(템플릿 샘플)`, declares `actUseYn=N`, and has no action class in any layer. The screen composes a JSON payload into a read-only textarea for the operator to copy by hand. Is it migrated as a developer utility, upgraded into a real send screen, promoted to full template management, or dropped?
+**Candidates.** A: utility parity · B: utility + real send · C: full template management · D: drop
+**PM response.** **B** — keep the composer, wire 발송 to the real send API with server-side validation, `tran_id` dedupe and audit logging.
+**Effect.** FR-ATS-001…014, FR-AZ-A01…A05, FR-ATH-001…003. Also **widened the slice**: see CONFLICT-A01.
+
+### AMB-A00b — the template validator reports valid content as invalid
+**Question.** `validateTemplateStrict()` advances to the *first occurrence* of the next literal character after each `#{...}`. When the substituted value contains that character the scan stops inside the value and the following comparison fails — template `#{name}님 안녕` with content `김님철수님 안녕` is reported as a mismatch (D-A6). Port as-is for parity, correct it, or replace with Kakao's published rules?
+**Candidates.** A: correct it · B: byte-for-byte parity · C: Kakao official rules
+**PM response.** **A — correct it.** The behavioural break is accepted.
+**Effect.** FR-ATV-004…006. **Recorded for QA:** inputs the legacy rejected now pass. TC-A004-02 and TC-A004-03 assert the fix; they are not parity regressions and must not be reverted as such.
+
+### AMB-A01 — duplicate-send protection with an operator-supplied tran_id
+**Question.** AMB-A02b declined server-generated `tran_id`, but AMB-A00 makes the screen able to send. How is a double-send prevented?
+**Candidates.** A: server dedupe on `(is_cd, tran_id)` · B: UI guard only · C: none
+**PM response.** **A — server dedupe**, returning the original outcome rather than sending again.
+**Effect.** FR-ATS-009. Window open as AMB-A08. Note that `KKB_ADMIN_SEND_HIS` is keyed `(IS_CD, SERIALNUM)` where `SERIALNUM` *is* the `tran_id` (CONST-DATA-A04), so uniqueness was already a data-integrity requirement before idempotency was raised — the legacy simply violated it (D-A25).
+
+### AMB-A02 — which limit set governs
+**Question.** No length or count limit exists anywhere in screen 61. Should Kakao's published business limits be adopted?
+**Candidates.** A: Kakao spec values tagged `[ASSUMED-KAKAO-SPEC]` · B: PM supplies values · C: advisory warnings · D: none
+**PM response.** **A — Kakao spec values.**
+**Effect.** FR-ATC-005, CONST-DATA-A02. **Partially superseded by analysis** — the question was asked on the belief that no limits existed in the code. The IMO contract declares its own, and they disagree with Kakao's in both directions. See CONFLICT-A02.
+
+### AMB-A03 — batch size cap
+**Question.** `msg_data` has no maximum; screen 50 chunks at 1000 per vendor call as an invisible implementation detail.
+**Candidates.** A: configurable cap, value supplied later · B: no cap
+**PM response.** **A.**
+**Effect.** FR-ATS-014, NFR-SCALE-A01. Value open as AMB-A03 in §21.
+
+### AMB-A05a — 이미지형 is selectable but unfillable
+**Question.** `msg_type=AI` auto-syncs with `emphasis_type=image`, yet no image field exists anywhere in the screen, so the option can only produce a payload with no image (D-A8).
+**Candidates.** A: implement properly · B: remove from the UI · C: keep, reject server-side
+**PM response.** **A — implement properly.**
+**Effect.** FR-ATC-008. **Cannot be completed from these artifacts** — neither IMO contract declares any image field. Field set open as AMB-A05, which is the only open item blocking a requirement.
+
+### AMB-A02b — PII handling for recipient numbers
+**Question.** Recipient phone numbers are handled in plaintext in the browser and copied to the clipboard. Skill §7 makes NFR-SEC-PII / NFR-OPS-AUDIT mandatory once PII is in scope.
+**Candidates (multi-select).** A: mask on display + audit the send · B: also audit clipboard/export egress · C: server-generated `tran_id` with idempotency · D: none
+**PM response.** **A only.** B and C explicitly declined.
+**Effect.** NFR-SEC-PII-A01, FR-AZ-A04. The two declines are recorded as accepted risks, not deferrals: RESIDUAL-A01 (unaudited clipboard egress) and RESIDUAL-A02 (operator-supplied `tran_id`).
+
+## 20. Conflicts raised
+
+### CONFLICT-A01 — a second writer on one vendor contract
+**Origin.** AMB-A00 was answered on the stated premise that screen 61 sends nothing. That premise was correct about screen 61 and incomplete about the system: `biztalk_admin_50_s001_act.jsp` **already sends** against the same `IMO.ADV_KKO_AT_SEND`, carrying twelve defects of its own (D-A24…D-A35) including a hardcoded vendor credential and a `tran_id` that collides by construction.
+**The conflict.** Wiring screen 61 to send creates two independent writers on one vendor contract. FR-ATS-008/009 would then hold only for traffic through the new path, while screen 50 kept minting colliding `tran_id`s into the same `KKB_ADMIN_SEND_HIS` primary key.
+**Recommendation.** The new path **replaces** screen 50's, which is retired at cutover.
+**Status.** **Needs explicit PM sign-off at G1** — it widens the slice from one screen to two. Structurally identical to RISK-S05 in the 발신번호 slice, where `AOA_ADMIN` stayed a second writer after ship; the difference is that this second writer is inside our own scope and can still be closed.
+
+### CONFLICT-A02 — Kakao's published limits vs the contract's declared lengths
+**Origin.** AMB-A02 assumed Kakao's limits were missing from the code. They are not missing; a different set is declared, and the two disagree **in both directions**: `msg` 4000 vs Kakao's ~1000 characters; `template_title` 200 vs ~50; `button.name` 28 vs ~14; `failback_data.subject` 50.
+**Why it is a real question.** Per CONST-BIZ-A02 the portal is not a direct Kakao client — it reaches Kakao through `COOCON_ALERT` at `/advising/kakao/at_send`, and that vendor's own validation appears in none of the analyzed artifacts. So "adopt Kakao's limits" is not a lookup; it is a choice about which of three validators to mirror.
+**Resolution adopted for this draft.** Enforce the **lower** of contract and Kakao per field; tag every Kakao-derived bound `[ASSUMED-KAKAO-SPEC]`; treat the contract lengths as inviolable (CONST-DATA-A02).
+**Status.** **G1 must confirm**, since it partially supersedes AMB-A02 as answered.
+
+### RESIDUAL-A01 — accepted: clipboard egress is not audited
+PM declined option B of AMB-A02b. Copy remains a path by which an operator can extract recipient numbers with no record. Compensating controls: NFR-SEC-PII-A01 (masking beyond the entry field), FR-AZ-A01/A03 (authorized operators only). **Narrower than under the legacy design**, where copy-paste was the *only* way to send anything at all.
+
+### RESIDUAL-A02 — accepted: tran_id remains operator-supplied
+PM declined option C of AMB-A02b, resolving idempotency by dedupe instead. Because CONST-DATA-A04 makes `tran_id` a primary-key component, an operator can still trigger a *rejection* by reusing a value — dedupe converts a data-integrity failure into a usability one, which is the right trade. But FR-ATS-008's uniqueness requirement now depends on a client-side scheme the operator can override. Revisit if operators report spurious duplicate rejections.
+
+## 21. Open
+
+| ID | Item | Candidates | Working assumption | Owner | Needed by |
+|----|------|-----------|--------------------|-------|-----------|
+| AMB-A03 | The batch-size cap **value** (FR-ATS-014) | A: 1000, the existing chunk boundary · B: higher, with async despatch · C: an ops-supplied figure | A | Domain owner / Ops | Skill 3 |
+| AMB-A04 | Reservation for batch sends. `ADV_KKO_AT_SEND_M` declares `reqdate` per `msg_data` item, so the contract already supports it; PM selected neither "add it" nor "keep single-only" | A: enable for batch · B: single-only | **A** — the single/batch asymmetry is a screen omission (D-A14), not a design decision | PM | Skill 3 |
+| AMB-A05 | The image-type field set (FR-ATC-008), and equally `kko_header` / `highlight` / `items` / `summary` (D-A2). Neither IMO contract declares any of them | A: obtain the vendor's current spec and extend the contract · B: drop 이미지형 and the item-list form until the spec is available | A, with **B as the fallback** — a scope reduction G1 should be aware of | Architect + vendor | **Skill 3 — blocks FR-ATC-003 and FR-ATC-008** |
+| AMB-A06 | The canonical `receiver_number` representation (FR-ATC-006), and how the bound request is marshalled into `ADV_KKO_AT_SEND2`'s single `RSMS` field | A: JSON array, matching screen 50's ≤1000 branch · B: delimited string, matching the declared length of 20000 | A, with the marshalling confirmed against a live `RSMS` capture before Sprint 1 closes | Architect | Skill 3 |
+| AMB-A07 | How templates enter `KKB_MSG_TMPL`. No screen in this repository writes it, yet FR-ATT-001/004 make it authoritative for sending | A: an external or vendor process owns it, portal reads only · B: template management is a later slice | A | Domain owner | Skill 3 |
+| AMB-A08 | The `tran_id` dedupe retention window (FR-ATS-009) | A: 24 h · B: match `KKB_ADMIN_SEND_HIS` retention | B — one window, so dedupe cannot outlive its evidence | PM | Skill 3 |
+| AMB-A09 | Whether landline recipients are in scope. `isPhoneNumber` is mobile-only and discards the rest silently (D-A28); AlimTalk is mobile-only but the SMS/LMS fallback is not | A: mobile-only, rejected explicitly rather than silently · B: accept landlines for fallback-only sends | A | Domain owner | Skill 3 |
+
+Carried and still open: **OI-02** (audit retention term) blocks NFR-OPS-AUDIT-A02 and CONST-LEGAL-02.
+
+## 22. Corrections to earlier analysis
+
+- **"Screen 61 sends nothing" was true of the screen and misleading about the feature.** It was the premise on which AMB-A00 was put to PM, and it held — `actUseYn=N`, no action class, no AJAX call. But the *feature* has a send path, in screen 50, and the question would have been better framed as "which of the two send paths survives". The answer PM gave is unaffected; the scope implication was not surfaced until CONFLICT-A01. **The framing error was asking about a screen when the unit of decision was a capability.**
+- **"No limits exist in the legacy" was wrong.** Stated while raising AMB-A02, on the basis of screen 61 and screen 50 alone. The limits were in the interface contract the whole time — twelve of them, per field. CONFLICT-A02 exists because the ruling was sought before the contract had been read.
+- **The reservation asymmetry was misdiagnosed as a possible design decision.** It was put to PM as a choice between enabling batch reservation and deliberately keeping it single-only. The contract settles it: `ADV_KKO_AT_SEND_M` declares `reqdate` on every `msg_data` item, so batch reservation was always available and screen 61 simply never collected it (D-A14). PM selected neither option, and the working assumption in AMB-A04 now rests on the contract rather than on a preference.
+
+## 23. Method note
+
+Screen 61 has three client-side files and no server side, so a conventional four-layer read (view → client → action → query) terminates after two layers with almost nothing to say. Everything of consequence in this slice came from reading **what consumes the screen's output**:
+
+- `IMO.ADV_KKO_AT_SEND` gave the authoritative field names, exposing `failback` vs **`failback_data`** (D-A1) and five fields the contract cannot accept (D-A2).
+- `IMO.ADV_KKO_AT_SEND_M` gave the mandatory **`order`** the composer never emits (D-A3) — and, incidentally, the `reqdate` that settled AMB-A04.
+- Both gave the twelve field lengths that make FR-ATC-005 specifiable at all (D-A7) and that produced CONFLICT-A02.
+- `IDO.KKB_MSG_TMPL_L002` revealed that **`TEMPLATE_MSG` — the template body — is already stored**, keyed by exactly the two values the composer collects. This moved template validation from a manual copy-and-paste tab to an automatic server-side check at send time (FR-ATV-001), which is the one place it can prevent a vendor rejection.
+- `biztalk_admin_50_s001_act.jsp` supplied twelve further defects and CONFLICT-A01.
+
+> **The generalisation this slice adds.** The 발신번호 slice concluded that *when a table is written by this system and read by another, the other system's queries are part of the specification.* The sharper form here: **when a screen's only output is a payload for another system, that system's contract is the screen's specification — and a composer nothing validates has no correctness criterion at all.**
+>
+> That is not an abstraction. `ADV_KKO_AT_SEND_M` is **called by no code in this repository**, and screen 61's output is **consumed by no code at all**. Neither the missing `order` nor the misnamed `failback_data` had any path by which it could ever fail visibly, which is precisely why both survived into a file stamped `20250428`. The three Critical contract defects in this slice were not hard to find; they were impossible to find *from inside the screen*, and nothing outside the screen was looking.
+>
+> **Practical consequence for the remaining slices:** for any screen whose output crosses a system boundary, read the boundary contract *before* putting scope or limit questions to the PM. Both corrections in §22 trace to having asked first and read second.

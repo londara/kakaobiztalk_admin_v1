@@ -9,10 +9,58 @@
 spring:
   application:
     name: iris-portal
+
+  config:
+    # 로컬 오버라이드를 있으면 읽고 없으면 넘어간다 / read a local override if present, skip if not.
+    #
+    # req: ADR-007, CONST-SEC-L02, SEC-A02
+    #
+    # 이것이 있는 이유 / why this is here:
+    #   아래 자격증명에는 기본값이 없으므로(SEC-A02) 값을 어디선가 받아야 한다. IDE 의
+    #   `Run main` 링크는 환경변수 파일이나 실행 구성을 읽지 않고 그냥 main() 을 띄운다.
+    #   `optional:` 임포트는 그 경로에서도 동작한다 — Spring 이 스스로 파일을 찾기 때문이다.
+    #   실행 구성도, 프로파일 플래그도, 환경변수도 필요하지 않다.
+    #
+    #   The credentials below have no defaults (SEC-A02), so the values must come from somewhere.
+    #   The IDE's `Run main` link reads no env file and no launch configuration — it simply starts
+    #   main(). An `optional:` import works on that path too, because Spring locates the file itself:
+    #   no launch config, no profile flag, no environment variables.
+    #
+    # `optional:` 이 핵심이다. 파일이 없으면 조용히 넘어가므로 운영 배포는 영향을 받지 않는다.
+    #   `optional:` is what makes it safe: absent means skipped, so production is unaffected.
+    #
+    # ⚠ 이 파일이 `application-local.yml` 이 <b>아닌</b> 이유: 그 파일은 이미 커밋되어 있는
+    #   `local` <b>프로파일</b> 문서이고 `require-https: false`·`cookie.secure: false`·DEBUG
+    #   로깅 같은 동작 전환을 담고 있다. 그것을 무조건 임포트하면 운영에서 HTTPS 강제가 꺼진다.
+    #   프로파일로 활성화될 때만 적용되어야 하므로 건드리지 않는다.
+    #
+    #   Deliberately <b>not</b> `application-local.yml`: that file is a committed `local` <b>profile</b>
+    #   document carrying behaviour switches — `require-https: false`, `cookie.secure: false`, DEBUG
+    #   logging. Importing it unconditionally would disable HTTPS enforcement in production. It must
+    #   apply only when its profile is active, so it is left alone.
+    #
+    # `application-secrets.yml` 은 커밋되지 않으며(.gitignore) 자격증명만 담는다.
+    # `application-secrets.yml` is git-ignored and holds credentials only.
+    import: optional:classpath:application-secrets.yml
   datasource:
-    url: jdbc:postgresql://136.85.16.4:5432/kakaobiztalkdev
-    username: biztalk_user
-    password: biztalk123
+    # req: ADR-007, CONST-SEC-L02, SEC-A02 — 기본값 없음 / no defaults, deliberately.
+    #
+    # 2026-08-19 정정: 이 세 줄에는 접속 주소와 자격증명이 그대로 박혀 있었다 —
+    # 이 파일 머리말이 하지 말라고 적어 둔 바로 그것이다. 기본값을 두지 않으므로 환경변수가
+    # 없으면 <b>기동에 실패한다</b>. 그것이 의도다: 조용히 어떤 DB 에 붙는 것보다 붙지 않는
+    # 편이 안전하다. 로컬 실행 방법은 `application-local.yml.example` 참조.
+    #
+    # Corrected 2026-08-19: these three lines carried the address and credentials in clear — exactly
+    # what this file's own header forbids. With no defaults the application <b>fails to start</b>
+    # without the environment variables, which is the intent: not connecting is safer than silently
+    # connecting to some database. See `application-local.yml.example` to run locally.
+    #
+    # ⚠ 이 값들은 이미 git 이력에 있다. 이 수정은 <b>회전을 대신하지 않는다</b> — 유출된
+    #   자격증명은 반드시 교체해야 한다.
+    #   These values are already in git history. This change is <b>not a substitute for rotation</b>.
+    url: ${IRIS_DB_URL}
+    username: ${IRIS_DB_USERNAME}
+    password: ${IRIS_DB_PASSWORD}
     hikari:
       # req: RISK-L11 / TM-L013 — bounded pool so one tenant cannot starve others
       maximum-pool-size: ${IRIS_DB_POOL_MAX:10}
@@ -65,6 +113,72 @@ mybatis:
 iris:
   instance-name: ${IRIS_INSTANCE_NAME:local}
 
+  alimtalk:
+    # req: FR-ATS-008, ADR-ATK-026 — tran_id 환경 구분자 / transaction-id environment discriminator.
+    #
+    # tran_id 는 계약상 10자다: 구분자(1) + yyMMdd(6) + base-36 순번(3).
+    # 구분자가 존재하는 이유는 단순하다 — 스테이징 발송이 <b>운영 형식의</b> tran_id 로 실제
+    # 벤더에 도달하는 것은 나중에 돌아보면 명백한 사고다.
+    #
+    # tran_id is ten characters by contract: discriminator(1) + yyMMdd(6) + base-36 sequence(3).
+    # The discriminator exists because a staging send reaching the real vendor with a
+    # production-shaped tran_id is the kind of mistake that is obvious in hindsight.
+    #
+    # ⚠ 'A'(운영)로 두면 <b>기동에 실패한다</b>. Sprint A1 의 순번 공급원은 메모리 카운터이며
+    #   인스턴스마다 0 부터 다시 세므로 두 인스턴스가 같은 (is_cd, tran_id) 를 발급한다 —
+    #   레거시 결함 D-A25 그 자체다. DB 시퀀스(A2-02, ADR-ATK-026)를 구현한 뒤에 'A' 로 올린다.
+    #   Setting 'A' (production) FAILS STARTUP by design: the Sprint A1 sequence source is an
+    #   in-memory counter that restarts at zero per instance, so two instances would issue the same
+    #   (is_cd, tran_id) — legacy defect D-A25 itself. Implement the database sequence (A2-02) first.
+    environment: ${IRIS_ATK_ENVIRONMENT:T}
+
+    # -----------------------------------------------------------------------
+    # 발송 경로 / the dispatch path.
+    # req: FR-ATS-004, FR-ATS-005, ADR-ATK-023, ADR-ATK-025, RISK-A07, RISK-A13
+    #
+    # ⚠ 기본값이 false 인 것은 편의가 아니라 안전이다. true 이면 애플리케이션은
+    #   <b>기동하는 것만으로</b> 실제 벤더에 실제 메시지를 보내기 시작한다. 개발자가 로컬에서
+    #   앱을 띄웠을 때 그런 일이 일어나서는 안 된다 — 되돌릴 수 없고, 수신자는 실제 사람이다.
+    #
+    #   The false default is safety, not convenience: with true, the application begins sending real
+    #   messages to the real vendor merely by starting. That must not happen because a developer ran
+    #   the app locally — it is irreversible and the recipients are real people.
+    #
+    # 켜기 전에 세 가지가 갖춰져야 한다 / three things must be in place first:
+    #   1. A2-02 DDL 적용 (KKB_ATK_SEND_OUTBOX). 코드가 확인할 수 없다 —
+    #      없으면 첫 주기에 실패한다. G1 결재 전에는 적용하지 않는다.
+    #   2. vendor.base-url 설정.
+    #   3. 벤더 OAuth 클라이언트 자격증명 (AMB-A10) — 아직 미해결.
+    # -----------------------------------------------------------------------
+    dispatch:
+      enabled: ${IRIS_ATK_DISPATCH_ENABLED:false}
+      interval-ms: ${IRIS_ATK_DISPATCH_INTERVAL_MS:30000}
+      batch-size: ${IRIS_ATK_DISPATCH_BATCH_SIZE:50}
+      max-attempts: ${IRIS_ATK_DISPATCH_MAX_ATTEMPTS:5}
+
+      # 클레임 유지 시간(초). 벤더 read 타임아웃(60초)보다 <b>길어야 한다</b> — 짧으면 응답을
+      # 기다리는 행을 다른 인스턴스가 다시 집어 중복 발송한다. OutboxDispatcher 가 90초
+      # 미만이면 생성을 거부한다.
+      # The claim hold in seconds. It MUST exceed the vendor read timeout of 60 s: shorter, and another
+      # instance re-claims a row whose response is outstanding and sends it twice. OutboxDispatcher
+      # refuses anything under 90 s.
+      claim-seconds: ${IRIS_ATK_DISPATCH_CLAIM_SECONDS:120}
+
+      # ⚠ 'UNKNOWN'(전달 여부 불명) 행을 재시도할지. 이것을 켜는 것은 <b>벤더가
+      #   (is_cd, tran_id) 로 중복을 거른다</b>는 주장이며, 그 전제는 아직 확인되지 않았다
+      #   (spike A1-03, RISK-A07). 확인 전에 켜면 재시도가 곧 중복 발송이다.
+      #   Whether to retry rows whose delivery is UNKNOWN. Enabling it asserts that the vendor
+      #   de-duplicates on (is_cd, tran_id) — unverified (spike A1-03, RISK-A07). Enabled before that
+      #   is confirmed, a retry IS a duplicate send.
+      retry-unknown: ${IRIS_ATK_DISPATCH_RETRY_UNKNOWN:false}
+
+    vendor:
+      # 기본값 없음 — 발송이 켜졌는데 주소가 없으면 기동에 실패하는 편이 낫다.
+      # 레거시는 이 값을 DB 채널 테이블(FINChannel)에서 읽었다 (AMB-A10).
+      # No default: if dispatch is on and the address is missing, failing to start is better.
+      # The legacy read this from the FINChannel database table (AMB-A10).
+      base-url: ${IRIS_ATK_VENDOR_BASE_URL:}
+
   auth:
     # req: FR-LOGIN-012, FR-LOGIN-014 — legacy thresholds, both 90 days
     dormancy-days: 90
@@ -105,7 +219,20 @@ iris:
       # Base64 of exactly 32 bytes. NO DEFAULT: the application must fail to start rather
       # than encrypt credential material under a key that is published in source.
       # Generate with: openssl rand -base64 32
-      secret-key: ${IRIS_OTP_SECRET_KEY:E0lV/9B+V4JTWEk31kwKH46Jwfg9UqzfadjRLu43e4U=}
+      #
+      # 2026-08-19 정정: 바로 위 세 줄이 "NO DEFAULT" 라고 적고 있는데도 기본값이 들어 있었다.
+      # 주석과 코드가 정면으로 어긋난 경우이며, 커밋된 키로 자격증명을 암호화하는 것은
+      # 암호화하지 않는 것과 실질적으로 같다 — 키가 소스와 함께 배포되므로.
+      #
+      # Corrected 2026-08-19: the three lines above say "NO DEFAULT" and a default was present anyway —
+      # comment and code in direct contradiction. Encrypting credential material under a committed key
+      # is materially the same as not encrypting it, since the key ships with the source.
+      #
+      # ⚠ 제거된 기본값은 git 이력에 남아 있다. 그 키로 암호화된 OTP 비밀은 모두
+      #   <b>재암호화</b>해야 하며, 키는 새로 생성해야 한다.
+      #   The removed default remains in git history. Every OTP secret encrypted under it must be
+      #   <b>re-encrypted</b> under a newly generated key.
+      secret-key: ${IRIS_OTP_SECRET_KEY}
 
     # req: ADR-LOGIN-011 — legacy SHA-256 verification.
     #

@@ -3,6 +3,8 @@ package com.webcash.iris.auth.api;
 import com.webcash.iris.auth.domain.AuthFailureReason;
 import com.webcash.iris.auth.domain.AuthenticationException;
 import java.util.Map;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -28,10 +30,28 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * such as {@code WCI00018} and {@code ADM_00003} to the client, which let a caller tell
  * from the response alone which check had failed.</p>
  *
+ * <h2>우선순위를 명시하는 이유 / why the order is explicit</h2>
+ * <p>{@code GlobalExceptionHandler} 는 {@code @Order(LOWEST_PRECEDENCE)} 로 잡아두는 처리자다.
+ * 이 클래스에 순위가 없으면 Spring 은 순위 없는 advice 도 사실상 최하위로 취급하므로 둘이 같은
+ * 순위가 되고, 그때 승자는 <b>빈 이름 정렬</b>로 결정된다 — 즉 우연이다. 그 우연이 전역
+ * 처리자 쪽으로 떨어지면 인증 실패가 401·409 대신 <b>500</b> 으로 나간다.</p>
+ * <p>{@code GlobalExceptionHandler} is the catch-all at {@code @Order(LOWEST_PRECEDENCE)}. With no order
+ * here, Spring treats an unordered advice as effectively lowest too, so the two tie and the winner is
+ * decided by <b>bean-name ordering</b> — by accident. When that accident falls to the catch-all,
+ * authentication failures surface as <b>500</b> instead of 401 or 409.</p>
+ *
+ * <p>환경마다 다르게 나타나는 종류의 결함이라 로컬에서는 재현되지 않는다.
+ * {@code ExceptionHandlerOrderTest} 가 이 순위를 직접 검증한다 — 그 테스트는 Maven 이 없어
+ * <b>한 번도 실행되지 않았고</b>, 실행되자 곧바로 이 누락을 잡아냈다.</p>
+ * <p>The kind of defect that differs between environments and does not reproduce locally.
+ * {@code ExceptionHandlerOrderTest} asserts the order directly — and that test had <b>never run</b>,
+ * for want of Maven; the first run caught this omission.</p>
+ *
  * // source: apc_login_proc_act.jsp — JexBIZException codes
  * // req: FR-LOGIN-002, NFR-USE-L02, NFR-SEC-LOG-L01
  */
 @RestControllerAdvice
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class AuthExceptionHandler {
 
     /**

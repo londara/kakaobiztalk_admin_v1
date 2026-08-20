@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { InstitutionPage } from '../features/biztalk/InstitutionPage';
+import { AlimTalkPage } from '../features/biztalk/AlimTalkPage';
 import { SenderNumberPage } from '../features/biztalk/SenderNumberPage';
 import { AppLayout } from './AppLayout';
 import { RequireOperator, RequireSession } from './session';
@@ -66,6 +67,7 @@ export function AppRoutes() {
           <Route element={<RequireOperator />}>
             <Route path="/institutions" element={<InstitutionPage />} />
             <Route path="/senders" element={<SenderNumberPage />} />
+            <Route path="/alimtalk" element={<AlimTalkPage />} />
           </Route>
         </Route>
       </Route>

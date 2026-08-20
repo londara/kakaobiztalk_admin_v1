@@ -137,6 +137,44 @@
       </plugin>
 
       <!--
+        req: Skill 5 DoD — SBOM 생성 + 금지 OSS 라이선스 0건, TEST-PLAN-LOGIN §5
+
+        이 플러그인이 없어서 CI 가 통과할 수 없었다. `.github/workflows/ci.yml` 의
+        `dependencies` job 이 `org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom` 을
+        호출하는데 pom 에 선언이 없었으므로, Maven 이 설치되어 있었더라도 그 job 은
+        플러그인 해결에 실패했을 것이다. CI 스크립트와 빌드 정의가 어긋난 채로 아무도
+        실행하지 않았기 때문에 드러나지 않았다.
+
+        The CI could not have passed without this: `ci.yml`'s `dependencies` job invokes
+        `cyclonedx-maven-plugin`, which the pom never declared — so even with Maven installed that
+        job would have failed to resolve the plugin. The CI script and the build definition had
+        drifted apart, and nothing ran to reveal it.
+
+        `verify` 에 묶는 이유: SBOM 이 별도 명령으로만 생성되면 잊힌다. 빌드가 만들면
+        빌드가 있는 곳마다 있다.
+        Bound to `verify` because an SBOM produced only by a separate command gets forgotten;
+        produced by the build, it exists wherever the build does.
+      -->
+      <plugin>
+        <groupId>org.cyclonedx</groupId>
+        <artifactId>cyclonedx-maven-plugin</artifactId>
+        <version>2.8.0</version>
+        <executions>
+          <execution>
+            <id>sbom</id>
+            <phase>verify</phase>
+            <goals><goal>makeAggregateBom</goal></goals>
+          </execution>
+        </executions>
+        <configuration>
+          <outputFormat>all</outputFormat>
+          <!-- 테스트 전용 의존성도 포함한다 — 빌드 환경도 공급망이다.
+               Test-scoped dependencies are included: the build environment is supply chain too. -->
+          <includeTestScope>true</includeTestScope>
+        </configuration>
+      </plugin>
+
+      <!--
         req: TEST-PLAN-LOGIN §2 — coverage gates.
         crypto and domain packages carry a higher bar (95%); enforced in CI, see ci.yml.
       -->

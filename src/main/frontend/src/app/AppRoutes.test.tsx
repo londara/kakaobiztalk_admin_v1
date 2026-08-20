@@ -187,9 +187,12 @@ describe('AppRoutes', () => {
     expect(screen.getByRole('link', { name: '문자내역' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: '이용기관 관리' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: '발신번호 관리' })).not.toBeInTheDocument();
+    // 알림톡 발송은 발송 능력을 가진 화면이므로 비운영자에게 보여서는 안 된다(FR-AZ-A03).
+    // AlimTalk can send, so it must not appear for a non-operator (FR-AZ-A03).
+    expect(screen.queryByRole('link', { name: '템플릿 샘플 검증' })).not.toBeInTheDocument();
   });
 
-  it('운영자에게는 세 메뉴가 모두 보인다 / an operator sees all three menu items', async () => {
+  it('운영자에게는 네 메뉴가 모두 보인다 / an operator sees all four menu items', async () => {
     const user = userEvent.setup();
     loginResponse = { passwordChangeRequired: false, operator: true, displacedSession: false };
     stubFetch();
@@ -198,9 +201,46 @@ describe('AppRoutes', () => {
     await signIn(user);
     await screen.findByRole('heading', { name: '서비스 관리' });
 
-    for (const label of ['이용기관 관리', '문자내역', '발신번호 관리']) {
+    for (const label of ['이용기관 관리', '문자내역', '발신번호 관리', '템플릿 샘플 검증']) {
       expect(screen.getByRole('link', { name: label })).toBeInTheDocument();
     }
+  });
+
+  it('메뉴에서 템플릿 샘플 검증 화면으로 갈 수 있다 / the menu reaches the AlimTalk screen', async () => {
+    // 이 경로는 두 번의 이터레이션 동안 AppRoutes 에 존재했지만 메뉴 항목이 없어 <b>주소를
+    // 직접 입력하지 않으면 도달할 수 없었다</b>. 경로를 등록하는 것과 화면에 닿을 수 있게
+    // 하는 것은 다른 일이며, 라우팅 테스트가 없으면 그 차이가 드러나지 않는다.
+    // The route existed in AppRoutes for two iterations, but with no menu item it was
+    // <b>unreachable without typing the address</b>. Registering a route and making a screen
+    // reachable are different things, and without a routing test the difference does not surface.
+    const user = userEvent.setup();
+    loginResponse = { passwordChangeRequired: false, operator: true, displacedSession: false };
+    stubFetch();
+
+    renderWithProviders(<AppRoutes />, { route: '/' });
+    await signIn(user);
+    await screen.findByRole('heading', { name: '서비스 관리' });
+
+    await user.click(screen.getByRole('link', { name: '템플릿 샘플 검증' }));
+
+    expect(await screen.findByRole('heading', { name: '카카오 알림톡 템플릿' })).toBeInTheDocument();
+  });
+
+  it('FR-AZ-A03: 비운영자가 알림톡 주소로 들어오면 되돌린다 / a non-operator is redirected away from AlimTalk', async () => {
+    // 메뉴를 숨기는 것은 편의이지 방어가 아니다. 주소를 직접 입력해도 RequireOperator 가
+    // 막아야 하고, 그 뒤에는 서버의 @PreAuthorize(D-A37 이후 실제로 동작)와
+    // /api/admin/** URL 규칙이 있다.
+    // Hiding a menu is a convenience, not a control: typing the address must still be refused by
+    // RequireOperator, behind which sit the server's @PreAuthorize (executing since D-A37) and the
+    // /api/admin/** URL rule.
+    const user = userEvent.setup();
+    stubFetch();
+
+    renderWithProviders(<AppRoutes />, { route: '/alimtalk' });
+    await signIn(user);
+
+    expect(await screen.findByRole('heading', { name: '문자내역' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '카카오 알림톡 템플릿' })).not.toBeInTheDocument();
   });
 
   it('메뉴로 화면을 옮길 수 있다 / the menu moves between screens', async () => {

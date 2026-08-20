@@ -163,6 +163,96 @@ jobs:
             exit 1
           fi
 
+      # req: D-A24, RISK-A03, CONST-SEC-L02 — the legacy hardcoded the Kakao sender profile key
+      #      in two JSPs (biztalk_admin_50_s001_act.jsp and its sibling), and that key is now
+      #      compromised. SenderProfileKeyResolver rejects the leaked value by SHA-256, but a
+      #      hash comparison cannot stop a *different* key from being pasted into source.
+      #      이 규칙이 그것을 막는다 / this rule does.
+      #
+      #      규칙이 좁은 이유 / why the rule is narrow: `COMPROMISED_KEY_SHA256` 는 의도적으로
+      #      커밋된 해시이고 `ProfileKey.REDACTED` 는 마스킹 문자열이다. 둘 다 자격증명이
+      #      아니므로 이름 기준으로 제외한다.
+      #      `COMPROMISED_KEY_SHA256` is a deliberately committed hash and `ProfileKey.REDACTED`
+      #      is the masking string. Neither is credential material, so both are excluded by name.
+      - name: Reject sender profile key literals
+        run: |
+          hits=$(/tmp/codegrep.sh '(sender_key|senderkey|profile_key|profilekey)[a-z0-9_]*[[:space:]]*=[[:space:]]*"[^"]{16,}"' src/main/java \
+            | grep -viE 'SHA256|REDACTED|SYNTHETIC' || true)
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "::error::Sender profile key literal in source (legacy defect D-A24). Inject via IRIS_ATK_PROFILE_KEY_*."
+            exit 1
+          fi
+
+      # req: D-A30, NFR-SEC-LOG-A01, harness §10 — 실데이터 평문 로그 금지 / no PII in plaintext logs
+      #      레거시는 발송마다 sender_key 와 수신번호를 그대로 기록했다.
+      #      The legacy wrote the sender_key and the recipient number to the log on every send.
+      #
+      #      ProfileKey 와 RecipientNumber 는 toString()·@JsonValue 가 <b>마스킹된</b> 형태를
+      #      돌려주므로 값 객체를 로그에 넘기는 것은 안전하다. 위험한 것은 원시 접근자
+      #      `exposeForVendorCall()` 하나뿐이다 — 그래서 그것만 겨냥한다.
+      #      Passing the value objects to a log is safe: toString() and @JsonValue both return the
+      #      masked form. Exactly one accessor returns the raw value, so the rule targets it.
+      - name: Reject unmasked credential or PII in log statements
+        run: |
+          hits=$(/tmp/codegrep.sh 'log\.(trace|debug|info|warn|error)\([^;]*exposeForVendorCall' src/main/java)
+          hits="$hits$(/tmp/codegrep.sh 'log\.(trace|debug|info|warn|error)\([^;]*(senderKey|sender_key|profileKey|profile_key)[[:space:]]*[,)+]' src/main/java)"
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "::error::Unmasked profile key or recipient in a log statement (legacy defect D-A30)."
+            exit 1
+          fi
+
+      # req: FR-AZ-A05, T-A2 — the raw accessor must not spread beyond the vendor boundary.
+      #      마스킹은 기본값일 때만 유효하다. `exposeForVendorCall()` 이 화면·API·로그로
+      #      퍼지면 마스킹은 선택 사항이 되고, 선택 사항인 통제는 언젠가 선택되지 않는다.
+      #      Masking only holds while it is the default. If the raw accessor spreads into the API or
+      #      the UI layer, masking becomes optional — and an optional control is eventually not chosen.
+      - name: Confine the raw PII accessor to the vendor boundary
+        run: |
+          hits=$(/tmp/codegrep.sh 'exposeForVendorCall' src/main/java \
+            | grep -vE '^src/main/java/com/webcash/iris/biztalk/alimtalk/(domain/(ProfileKey|RecipientNumber)\.java|infra/vendor/)' || true)
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "::error::exposeForVendorCall() used outside domain/ProfileKey, domain/RecipientNumber and infra/vendor (FR-AZ-A05)."
+            exit 1
+          fi
+
+      # req: ADR-007, CONST-SEC-L02, SEC-A02 — no secret value in a configuration resource.
+      #
+      # 이 규칙이 존재하는 이유는 실제로 일어났기 때문이다. `application.yml` 은 머리말에
+      # *"시크릿은 이 파일에 두지 않는다 … 아래 자리표시자에는 의도적으로 기본값이 없다"* 고
+      # 적어 두었는데, 같은 파일 안에 운영 DB 비밀번호가 평문으로, 그리고 AES-256-GCM 키가
+      # `${VAR:default}` 기본값으로 들어 있었다. 후자는 세 줄 위에 "NO DEFAULT" 라고 적힌
+      # 바로 아래였다. 주석은 이런 것을 막지 못한다 — 빌드가 막아야 한다.
+      #
+      # This rule exists because it happened. `application.yml` states in its header that no secret
+      # belongs in it and that the placeholders deliberately carry no defaults — while holding a
+      # production database password in clear and an AES-256-GCM key as a `${VAR:default}` fallback,
+      # the latter three lines below a comment reading "NO DEFAULT". Comments do not prevent this; a
+      # build does.
+      #
+      # 자리표시자(`CHANGE_ME`)와 예시 파일은 제외한다 / placeholders and example files are excluded.
+      - name: Reject secret values in configuration resources
+        run: |
+          files=$(find src/main/resources -name 'application*.yml' ! -name '*.example' 2>/dev/null || true)
+          [ -z "$files" ] && exit 0
+          hits=""
+          for f in $files; do
+            # ① 시크릿 성격의 키에 리터럴 값 / a literal value on a secret-shaped key
+            hits="$hits$(grep -nHiE '^[[:space:]]*(password|secret-key|secretkey|private-key|api-key|apikey|token|sender-key)[[:space:]]*:[[:space:]]*[^$#[:space:]]' "$f" \
+              | grep -viE 'CHANGE_ME|__|<.*>' || true)"
+            # ② 시크릿 성격의 키에 ${VAR:default} 기본값 / a ${VAR:default} fallback on one
+            hits="$hits$(grep -nHiE '^[[:space:]]*(password|secret-key|secretkey|private-key|api-key|apikey|token|sender-key)[[:space:]]*:[[:space:]]*\$\{[A-Z_0-9]+:[^}[:space:]]' "$f" || true)"
+            # ③ 자격증명이 박힌 JDBC URL / credentials embedded in a JDBC URL
+            hits="$hits$(grep -nHiE '^[[:space:]]*url[[:space:]]*:[[:space:]]*jdbc:[^$]*(user|password)=' "$f" || true)"
+          done
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "::error::Secret value or defaulted secret in a configuration resource (SEC-A02). Inject it, and leave no default."
+            exit 1
+          fi
+
       # req: harness §5 — every method carries provenance
       - name: Require source or req provenance comments
         run: |
