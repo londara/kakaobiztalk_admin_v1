@@ -1,7 +1,7 @@
 # Requirements Specification — 이용기관 정보 관리 / 발신번호 (Sender Number Management)
 
-> **Version**: 1.0
-> **Date**: 2026-08-17
+> **Version**: 1.1 — write-path gap pass, 2026-08-20
+> **Date**: 2026-08-17 (v1.0) · 2026-08-20 (v1.1)
 > **Scope**: legacy screen **10 (이용기관 정보 관리)** and its three popups — **11 (발신번호 상세/수정)**, **12 (발신번호 등록)**, **13 (발신번호 제거)**
 > **Predecessors**: [PROJECT-PROPOSAL.md](../planning/PROJECT-PROPOSAL.md), [BUSINESS-REQUIREMENTS.md](../planning/BUSINESS-REQUIREMENTS.md)
 > **Sibling specs**: [REQUIREMENTS-SPEC.md](REQUIREMENTS-SPEC.md) (문자내역), [REQUIREMENTS-SPEC-LOGIN.md](REQUIREMENTS-SPEC-LOGIN.md) (로그인), [REQUIREMENTS-SPEC-INSTITUTION.md](REQUIREMENTS-SPEC-INSTITUTION.md) (이용기관관리)
@@ -83,6 +83,18 @@ Twenty-one defects were confirmed. Consistent with the precedent set on the two 
 | D-S20 | Low | Dead and contradictory code: the 수수료 tab is commented out of the JSP but its handler survives in JS and calls an undefined `fn_updateChart()`; `grid2`/`getDat2`/`biztalk_admin_10_l002` are commented out; hidden `IS_CD`/`PARAM_4` are hardcoded to `1` then overwritten; `13.js` binds `#btn_auth_send` to an element that does not exist | FIX → §2.7 |
 | D-S21 | Low | Over-fetching: `RGSR_ID` and `UDT_ID` are returned to the browser but never displayed | FIX → NFR-SEC-PII-D02 |
 
+### 1.5 Write-path pass (v1.1, 2026-08-20)
+
+Sprint S1 delivered the list and left 등록 and 삭제 on screen as **disabled** controls. This revision specifies what happens when they are enabled. It adds requirements; **it changes none of FR-SNDC-001…010 or FR-SNDD-001…008**, which already specified the two operations themselves. What was missing was the ground between the button and the service.
+
+**PM directive: the legacy logic is the baseline.** Flow, field set and business rule are ported from screens 12 and 13 as they stand — the form is reached from the list scoped to the 이용기관 already chosen there, carries 이용기관코드·이용기관명(읽기전용)·발신번호·설명·사유 in that order, states the same three rules to the operator, and 삭제 acts on the rows checked in the grid with a 사유. The length and prefix branches of `isValidDpNo()` are preserved exactly. The directive does **not** reopen any defect already ruled FIX in §1.4, and it does not mandate `window.open` — the popup was a transport, not a logic ([ADR-SND-020](../design/adr/ADR-SND-020-write-dialog-presentation.md)). The full reading is recorded in [questions-log §41](questions-log.md).
+
+**Four new requirements come from gaps the legacy never had to decide**, because a popup window decided them for it: a selection that can outlive the page it was made on (FR-SNDD-009), buttons with no enablement rule (FR-SNDD-010), the post-write refresh that used to be `opener.getDat()` (FR-SND-012), and what a rejected form does (FR-SNDC-014). Three PM rulings close AMB-S06, AMB-S08 and the new AMB-S10.
+
+> **FR-SNDD-009 is the one to read twice.** It is D-S1's shape arriving by a new route. D-S1 acted on a *masked* value; server-side paging (FR-SND-003, added by this project) makes it possible to act on a *stale* one — rows selected on page 1 while page 3 is displayed. The defect class is "the operation acts on something other than what the operator saw", and paging reintroduced the opportunity while fixing something else.
+
+---
+
 > **On D-S1.** The masking IDO versions are stamped `20251017`, four years after the delete logic (2021). The most likely reading is that read-masking was added in the October 2025 release and broke deletion at that moment. Because the failure is silent — the operator sees "정상적으로 처리되었습니다" and the number simply reappears on the next query — it may have gone unnoticed since. **The migration must not assume the ledger reflects operators' intent:** numbers believed deleted are probably still live and still valid for sending. AMB-S04 raises the data audit.
 
 ---
@@ -116,6 +128,7 @@ Twenty-one defects were confirmed. Consistent with the precedent set on the two 
 | FR-SND-009 | 등록일자 and 수정일자 display date **and** time | Should | E2E test |
 | FR-SND-010 | The institution selector lists institutions the operator is entitled to see, and indicates 사용여부 rather than silently mixing active and suspended institutions. *(Legacy calls `biztalk_admin_00_l001` with `USE_YN=ALL`.)* | Should | E2E test |
 | FR-SND-011 | Reading a 발신번호 list is recorded as an audit event (PM ruling AMB-S04 — full display is compensated by read auditing) | Must | Integration test |
+| FR-SND-012 | After a successful registration or deletion the list is re-queried against the current 이용기관 and page, and the row selection is cleared. *(The legacy called `opener.getDat()` — a property of window ownership that does not survive into a single-document application, so it is stated.)* **v1.1** | Must | E2E test |
 
 ### 2.3 Registration (screen 12)
 
@@ -131,6 +144,10 @@ Twenty-one defects were confirmed. Consistent with the precedent set on the two 
 | FR-SNDC-008 | Registration and its history record are written in **one transaction**; a history-write failure fails the registration rather than being swallowed. Fixes D-S7 | Must | Integration test (forced history failure) |
 | FR-SNDC-009 | 등록자 and 최종수정자 are taken from the authenticated session, never from the request body | Must | Integration test |
 | FR-SNDC-010 | Length rules are preserved: 8–11 digits, extended to 12 for numbers beginning 030 or 050, and exactly 8 for 15xx/16xx representative numbers | Must | Unit test per branch |
+| FR-SNDC-011 | 사유 is **mandatory** on registration and stored in the history record (PM ruling AMB-S10). *A deliberate parity break: the legacy rendered the field and enforced nothing, because its client validation was vacuous (D-S11).* Under RESIDUAL-S01 the 사유 is the only record of the operator's basis for claiming a number | Must | Integration test (direct call omitting 사유) | 
+| FR-SNDC-012 | 등록 is reachable only when an 이용기관 is selected on the list, and the form's 이용기관코드/이용기관명 are read-only, taken from that selection. An institution supplied in the request body is never trusted (FR-AZ-D03 applies to the write path unchanged). *(Legacy popup 12 received `IS_CD` from its opener.)* **v1.1** | Must | E2E test + security test (register against another institution) |
+| FR-SNDC-013 | Every rule the registration screen **states** to the operator is enforced server-side, and the screen states exactly the rules that are enforced. *(The legacy stated three and enforced one — D-S12. The requirement is bidirectional so the two cannot drift apart again.)* **v1.1** | Must | Unit test per stated rule + spec-parity review |
+| FR-SNDC-014 | A rejected registration leaves the form open with the operator's input intact and names the offending field and rule. *(Legacy: `jex.alert('등록중 오류 발생.')` and nothing else — NFR-USE-D02 stated the principle; this binds it to the flow.)* **v1.1** | Should | E2E test + usability review |
 
 ### 2.4 Detail and description edit (screen 11)
 
@@ -155,6 +172,9 @@ Twenty-one defects were confirmed. Consistent with the precedent set on the two 
 | FR-SNDD-006 | 사유 is mandatory on deletion and stored in the history record | Must | Integration test |
 | FR-SNDD-007 | Deletion requires explicit confirmation showing exactly which numbers will be removed | Should | E2E test |
 | FR-SNDD-008 | Re-registering a previously deleted number is permitted and creates a new live record, with the earlier deletion still visible in history | Should | Integration test |
+| FR-SNDD-009 | **The set of numbers deleted is exactly the set the confirmation enumerates.** A selection accumulated across several pages is retained and every member of it is listed before confirmation; the list shows the selected count at all times. *This is D-S1's defect class arriving through server-side paging rather than through masking — an operation acting on rows the operator can no longer see* **v1.1** | Must | E2E test (select on two pages, assert the confirmation lists both) + integration test |
+| FR-SNDD-010 | 삭제 is unavailable while nothing is selected, and 등록 while no 이용기관 is selected. No control is presented that cannot act. *(Inverse of D-S8: the legacy bound a handler to a button it never rendered; the same principle bars a button that cannot do anything.)* **v1.1** | Must | E2E test |
+| FR-SNDD-011 | Changing the 이용기관 clears the selection; paging within one institution does not. *(A selection refers to rows of the institution on screen; carrying it across a switch would delete rows the operator never saw — while carrying it across a page is how a 100-number deletion is assembled, per NFR-PERF-D03.)* **v1.1** | Should | E2E test |
 
 ### 2.6 History
 
@@ -226,6 +246,10 @@ Twenty-one defects were confirmed. Consistent with the precedent set on the two 
 | CONST-DATA-D04 | Logical delete (FR-SNDD-001) requires **new schema** on `KKB_DPNO_LDGR`, which has no status column. This narrows CONST-DATA-01 and requires explicit G1 sign-off — see CONFLICT-S01 | AMB-S02; §1.2 |
 | CONST-BIZ-D01 | A 발신번호 is globally unique across institutions. Existing cross-institution duplicates must be identified and resolved before migration | AMB-S03 |
 | CONST-BIZ-D02 | Sender-number registration carries **no proof of ownership**. First registration claims the number | AMB-S01, RESIDUAL-S01 |
+| CONST-BIZ-D03 | The barred special/emergency number list is **externalized data, not compiled code**, so it can change without a release. An empty or unreadable list **fails startup** rather than silently disabling the rule — that failure mode is D-S12 itself. The 14 values currently in `SenderNumberValidator` become the initial set; 112, 114, 119 and 1335 are additionally fixed in the test suite so no configuration edit can drop the numbers the ruling names **v1.1** | AMB-S06 (PM ruling), [ADR-SND-021](../design/adr/ADR-SND-021-barred-number-list.md) |
+| CONST-BIZ-D04 | An 이용기관's lifecycle state does **not** cascade to its 발신번호 rows. Sending is already barred one level up by the institution's own state (ADR-INST-014), so the numbers stay in the ledger. Legacy `KKB_DPNO_LDGR_D002` (hard cascade) is not ported **v1.1** | AMB-S08 (PM ruling) |
+
+> **CONST-BIZ-D04 leaves numbers that outlive their institution.** Harmless while a 기관코드 stays dead — but a 기관코드 **re-issued to a different institution** would inherit them, because the ledger keys on `IS_CD` and nothing else. Whether 기관코드 is ever reused is an institution-slice property, so it is tracked as **RISK-S14** rather than mitigated here.
 | CONST-TECH-01 | Java 17+ / Spring Boot 3.x, MyBatis, React SPA | ADR-001 (proposal §11) |
 | CONST-LEGAL-01 | Personal data masked in UI, logs and exports | 개인정보보호법 (BR-007) |
 | CONST-LEGAL-02 | Audit log retention per 전자금융감독규정 / ISMS-P, term `[보류]` | BR-016, OI-02 |
@@ -237,12 +261,12 @@ Twenty-one defects were confirmed. Consistent with the precedent set on the two 
 
 | UC-ID | Scenario | Primary user | Related FR |
 |-------|----------|--------------|------------|
-| [UC-SND-001](use-cases/UC-SND-001.md) | Select an institution and review its sender numbers | Operator | FR-SND-001…011, FR-AZ-D01…D05 |
-| [UC-SND-002](use-cases/UC-SND-002.md) | Register a new sender number | Operator | FR-SNDC-001…010, FR-SNDH-001…003 |
+| [UC-SND-001](use-cases/UC-SND-001.md) | Select an institution and review its sender numbers | Operator | FR-SND-001…012, FR-AZ-D01…D05 |
+| [UC-SND-002](use-cases/UC-SND-002.md) | Register a new sender number | Operator | FR-SNDC-001…014, FR-SND-012, FR-SNDH-001…003 |
 | [UC-SND-003](use-cases/UC-SND-003.md) | Review detail and edit the description | Operator | FR-SNDU-001…006, FR-SNDH-001…003 |
-| [UC-SND-004](use-cases/UC-SND-004.md) | Delete one or more sender numbers | Operator | FR-SNDD-001…008, FR-SNDH-001…003 |
+| [UC-SND-004](use-cases/UC-SND-004.md) | Delete one or more sender numbers | Operator | FR-SNDD-001…011, FR-SND-012, FR-SNDH-001…003 |
 
-Orphan check: every FR, NFR and CONST in this document maps to at least one of UC-SND-001…004 — see [requirements-matrix.csv](requirements-matrix.csv). **Orphan count: 0.**
+Orphan check: every FR, NFR and CONST in this document maps to at least one of UC-SND-001…004 — see [requirements-matrix.csv](requirements-matrix.csv). **Orphan count: 0** (re-verified at v1.1 across the 9 requirements and 2 constraints added).
 
 ---
 
@@ -257,6 +281,16 @@ Orphan check: every FR, NFR and CONST in this document maps to at least one of U
 | AMB-S03 | The duplicate check is per-institution, so one number can be registered by several institutions (D-S9) | A: globally unique / B: unique per institution / C: allow with approval | **A — globally unique** | RESOLVED |
 | AMB-S04 | 발신번호 masked on the list by a name-masking function, unmasked on detail — the direct cause of D-S1 | A: show in full + audit reads / B: phone-specific masking rule / C: mask by role | **A — show in full, audit read events** | RESOLVED |
 
+### 6.1a Resolved by PM (2026-08-20, write-path pass)
+
+| ID | Item | Candidates | PM response | Status |
+|----|------|-----------|-------------|--------|
+| AMB-S06 | The authoritative list of barred special/emergency numbers. The screen names 112, 114 and 1335 as examples; no complete list exists in code (D-S12) | A: adopt the 14 current values as configuration / B: block registration until an authoritative KISA/KAIT list is obtained | **A** | RESOLVED → CONST-BIZ-D03 |
+| AMB-S08 | Cascade behaviour when an 이용기관 is logically deleted. `KKB_DPNO_LDGR_D002` hard-deletes every number for an `IS_CD`, contradicting FR-SNDD-001 | A: institution state bars sending, numbers left in the ledger / B: cascade into the archive | **A** | RESOLVED → CONST-BIZ-D04, RISK-S14 |
+| AMB-S10 | Whether 사유 is mandatory on registration. Mandatory on deletion (FR-SNDD-006); the legacy registration screen rendered the field and enforced nothing | A: mandatory, symmetric with deletion / B: optional, matching observed legacy behaviour | **A — mandatory** | RESOLVED → FR-SNDC-011 |
+
+> **AMB-S10 against the "follow old logic" directive.** The two were given the same day and they disagree on this one field. The explicit answer to the explicit question governs; the divergence is recorded in [questions-log §41](questions-log.md) as a deliberate parity break and is one edit to reverse.
+
 ### 6.2 Conflicts and residual risks requiring G1 acknowledgement
 
 | ID | Item | Detail |
@@ -270,14 +304,14 @@ Orphan check: every FR, NFR and CONST in this document maps to at least one of U
 | ID | Item | Candidates | Working assumption | Owner | Needed by |
 |----|------|-----------|--------------------|-------|-----------|
 | AMB-S05 | How logical delete is represented so that the legacy send path honours it (CONFLICT-S02) | A: new status column + change the legacy read / B: a representation the legacy already rejects / C: portal writes state, gap tracked as a cutover risk | **B — resolved at Skill 3, 2026-08-17.** Deletion moves the row to a new archive table; the legacy send path already rejects a number absent from the ledger, so it fails safe with no legacy change. See [ADR-SND-017](../design/adr/ADR-SND-017-senderno-lifecycle.md) | Architect | ✅ closed |
-| AMB-S06 | The authoritative list of special/emergency numbers barred from registration. The UI names 112, 114 and 1335 as examples; no complete list exists in code (FR-SNDC-006) | A: adopt the KISA/KAIT published special-number list / B: an internally maintained list | A | Domain owner | Skill 3 |
-| AMB-S07 | Whether a maximum number of 발신번호 per institution applies. No limit exists today | A: no limit, monitor / B: a configurable cap | A | Domain owner | Skill 3 |
-| AMB-S08 | Cascade behaviour when an institution is logically deleted (institution slice AMB-I05). `KKB_DPNO_LDGR_D002` hard-deletes every number for an `IS_CD`; that path contradicts FR-SNDD-001 | A: institution delete blocks the numbers without removing them / B: cascade the logical delete | A | Domain owner | Skill 3 |
-| AMB-S09 | Whether `RGSR_ID`/`UDT_ID` should hold an internal user ID rather than an email address, and how existing rows are migrated (NFR-SEC-PII-D01) | A: internal user ID, email retained only in the user master / B: keep email, encrypt at rest | A | Architect | Skill 3 |
+| AMB-S06 | The authoritative list of special/emergency numbers barred from registration (FR-SNDC-006) | A: adopt the current list as configuration / B: block on an authoritative KISA/KAIT list | **A — resolved by PM, 2026-08-20.** See §6.1a, CONST-BIZ-D03 | Domain owner | ✅ closed |
+| AMB-S07 | Whether a maximum number of 발신번호 per institution applies. No limit exists today | A: no limit, monitor / B: a configurable cap | **A**, and S2a implements no cap. Adding one later is a validation rule over a count query — no schema, no migration — so the deferral is free | Domain owner | Open, non-blocking |
+| AMB-S08 | Cascade behaviour when an institution is logically deleted (institution slice AMB-I05). `KKB_DPNO_LDGR_D002` hard-deletes every number for an `IS_CD`; that path contradicts FR-SNDD-001 | A: institution delete leaves the numbers / B: cascade the logical delete | **A — resolved by PM, 2026-08-20.** See §6.1a, CONST-BIZ-D04, RISK-S14 | Domain owner | ✅ closed |
+| AMB-S09 | Whether `RGSR_ID`/`UDT_ID` should hold an internal user ID rather than an email address, and how existing rows are migrated (NFR-SEC-PII-D01) | A: internal user ID, email retained only in the user master / B: keep email, encrypt at rest | **B — resolved by architect at Skill 3, 2026-08-20.** A needs a user master, a two-table backfill, and would still receive plaintext emails from `AOA_ADMIN` after cutover (RISK-S05) — producing a column holding two identifier kinds. A stays the programme-level target, owned by the login slice. See [questions-log §45](questions-log.md) | Architect | ✅ closed |
 
 Carried and still open: **OI-02** (audit retention term) blocks NFR-OPS-AUDIT-D02 and CONST-LEGAL-02.
 
-> Five items remain open (AMB-S05…S09), none blocking: each carries a stated working assumption.
+> **v1.1 status:** AMB-S05, S06, S08 and S09 are closed; **AMB-S07 alone remains open** and carries a stated working assumption. AMB-S10 was raised and resolved within this pass.
 > **G1 approval must explicitly cover CONFLICT-S01 and RESIDUAL-S01.**
 
 ### 6.4 Operational action arising from D-S1
@@ -291,3 +325,4 @@ Independent of the migration, deletion has been silently failing in production �
 | Date | Version | Change | Author |
 |------|---------|--------|--------|
 | 2026-08-17 | 1.0 | Initial specification of the 발신번호 slice (screens 10/11/12/13) from static analysis of 24 legacy artifacts; 21 defects recorded; AMB-S01…S04 resolved by PM | trace-mapper / docs-writer |
+| 2026-08-20 | 1.1 | **Write-path gap pass** for 등록 (screen 12) and 삭제 (screen 13). Added FR-SND-012, FR-SNDC-011…014, FR-SNDD-009…011, CONST-BIZ-D03, CONST-BIZ-D04. PM rulings AMB-S06, AMB-S08, AMB-S10; architect resolution AMB-S09. Recorded the "follow old logic" directive and the one field where it diverges from a same-day ruling. AMB-S07 alone left open. New risk RISK-S14 | trace-mapper / docs-writer |

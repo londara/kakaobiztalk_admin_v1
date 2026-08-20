@@ -3,9 +3,16 @@ package com.webcash.iris.biztalk.api;
 import com.webcash.iris.biztalk.domain.InstitutionRow;
 import com.webcash.iris.biztalk.domain.InstitutionSearchCriteria;
 import com.webcash.iris.biztalk.domain.InstitutionService;
+import com.webcash.iris.biztalk.domain.InstitutionWriteService;
 import com.webcash.iris.biztalk.domain.PagedResult;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -44,14 +51,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class InstitutionAdminController {
 
     private final InstitutionService service;
+    private final InstitutionWriteService writeService;
 
     /**
      * 컨트롤러를 생성한다. / Creates the controller.
      *
-     * @param service 이용기관 조회 서비스 / the institution query service
+     * @param service      이용기관 조회 서비스 / the institution query service
+     * @param writeService 이용기관 쓰기 서비스 / the institution write service
      */
-    public InstitutionAdminController(InstitutionService service) {
+    public InstitutionAdminController(InstitutionService service,
+                                      InstitutionWriteService writeService) {
         this.service = service;
+        this.writeService = writeService;
     }
 
     /**
@@ -82,5 +93,100 @@ public class InstitutionAdminController {
         // Normalisation belongs to the domain: clamping here would let a future entry point
         // bypass the cap.
         return service.search(InstitutionSearchCriteria.of(name, status, page, size));
+    }
+
+    /**
+     * 이용기관 한 건을 조회한다 — 수정 팝업이 여는 값.
+     * Reads one institution, as opened by the edit popup.
+     *
+     * <p><b>인증키는 마스킹되어 나간다.</b> 레거시 상세조회({@code biztalk_admin_01_l002})는
+     * 계약의 {@code out} 규칙에 {@code ATK} 를 선언하고 평문을 돌려주었으며, 팝업은 그 값을
+     * 입력칸에 넣었다 — 목록(D-I5)과 중복검사(D-I3)에 이은 세 번째 노출 경로이고 첫 분석에서
+     * 기록되지 않았다(D-I20). 전체 값을 보는 것은 별도로 인가·감사되는 조작이다
+     * (FR-ATK-003).</p>
+     * <p><b>The 인증키 leaves masked.</b> The legacy detail service declared {@code ATK} in its
+     * contract and returned the plaintext, and the popup put it into a field — the third exposure
+     * path after the list (D-I5) and the duplicate check (D-I3), unrecorded by the first analysis
+     * (D-I20). Seeing the full value is a separately authorized and audited operation
+     * (FR-ATK-003).</p>
+     *
+     * <p>경로가 {@code /search} 와 겹치지 않는 이유: Spring 은 리터럴 경로를 템플릿보다 먼저
+     * 맞춘다. 그럼에도 형식은 서비스가 검사한다 — 라우팅 우선순위에 정확성을 의존하지
+     * 않는다.</p>
+     * <p>This does not collide with {@code /search}: Spring matches a literal path ahead of a
+     * template. The format is still checked in the service — correctness does not rest on routing
+     * precedence.</p>
+     *
+     * @param code 기관코드 / the institution code
+     * @return 마스킹된 이용기관 / the institution, key masked
+     */
+    // source: biztalk_admin_01.js — loadData(), biztalk_admin_01_l002
+    // req: FR-INSTC-001, FR-INSTC-010, FR-ATK-002, FR-AZ-I01, D-I20
+    @GetMapping("/{code}")
+    @PreAuthorize("hasRole('OPERATOR')")
+    public InstitutionRow detail(@PathVariable String code) {
+        return service.findByCode(code);
+    }
+
+    /**
+     * 이용기관을 수정한다. / Updates an institution.
+     *
+     * <p>{@code PUT} 이며 <b>등록으로 바뀌지 않는다.</b> 레거시는 등록과 수정을 하나의
+     * UPSERT 로 처리해, 이미 있는 기관코드로 등록을 호출하면 그 기관과 인증키까지 조용히
+     * 덮어썼다(D-I6). 대상이 없으면 여기서는 404 이며 새 행은 생기지 않는다.</p>
+     * <p>A {@code PUT} that <b>cannot become a create</b>. The legacy served both from one upsert,
+     * so a create with an existing code silently overwrote that institution and its credential
+     * (D-I6). A missing target is a 404 here and no row is created.</p>
+     *
+     * <p>본문에 기관코드가 없다 — 대상은 경로가 정한다(FR-INSTC-002). 인증키도 없다 — 재발급은
+     * 아래의 별도 조작이다(FR-INSTC-011).</p>
+     * <p>The body carries no code — the path names the target (FR-INSTC-002) — and no key:
+     * rotation is the separate operation below (FR-INSTC-011).</p>
+     *
+     * @param code    기관코드 / the institution code
+     * @param request 수정 내용 / the requested changes
+     * @param http    출처 IP 확보용 / for the source address
+     * @return 수정된 이용기관 — 인증키는 마스킹된다 / the updated institution, key masked
+     */
+    // source: biztalk_admin_01.js — fn_save(), biztalk_admin_01_c001
+    // req: FR-INSTC-002, FR-INSTC-003, FR-INSTC-004, FR-INSTC-006, FR-INSTC-007,
+    //      FR-INSTC-012, FR-INSTC-013, FR-AZ-I01, FR-AZ-I04
+    @PutMapping("/{code}")
+    @PreAuthorize("hasRole('OPERATOR')")
+    public InstitutionRow update(@PathVariable String code,
+                                 @Valid @RequestBody InstitutionUpdateRequest request,
+                                 HttpServletRequest http) {
+
+        return writeService.update(code, request.toEdit(), http.getRemoteAddr());
+    }
+
+    /**
+     * 인증키를 재발급한다. / Rotates the 인증키.
+     *
+     * <p>확인한 시점에 <b>즉시 확정</b>되며 저장과 무관하다(FR-INSTC-011, PM 결정 AMB-I13).
+     * 레거시는 브라우저에서 {@code Math.random()} 으로 만든 값을 폼에 담아 두었다가 저장할 때
+     * 기록했으므로, 닫기를 누르면 사라졌고 시도한 기록도 남지 않았다(D-I4).</p>
+     * <p>Committed <b>at once</b> on confirmation, independent of the save (FR-INSTC-011, PM ruling
+     * AMB-I13). The legacy generated the value with {@code Math.random()} in the browser and held
+     * it in the form until 저장, so 닫기 discarded it and left no record of the attempt (D-I4).</p>
+     *
+     * <p>응답은 새 키를 <b>한 번</b> 담는다 — 운영자가 고객사에 전달해야 하기 때문이다. 서버는
+     * 다시 보여주지 않고 로그에도 남기지 않는다(FR-ATK-004). 그래서 {@code POST} 다: 응답에
+     * 자격증명이 담기는 요청은 URL 이나 브라우저 이력에 남아서는 안 된다.</p>
+     * <p>The response carries the new key <b>once</b>, because the operator has to pass it to the
+     * customer. The server will not show it again and never logs it (FR-ATK-004). Hence
+     * {@code POST}: a request whose response carries a credential must not sit in a URL or in
+     * browser history.</p>
+     *
+     * @param code 기관코드 / the institution code
+     * @param http 출처 IP 확보용 / for the source address
+     * @return 새 인증키 / the newly issued key
+     */
+    // source: biztalk_admin_01.js — btn_generate_code
+    // req: FR-ATK-001, FR-ATK-004, FR-ATK-005, FR-INSTC-011, FR-AZ-I01, FR-AZ-I04
+    @PostMapping("/{code}/key/rotate")
+    @PreAuthorize("hasRole('OPERATOR')")
+    public AuthKeyResponse rotateAuthKey(@PathVariable String code, HttpServletRequest http) {
+        return new AuthKeyResponse(writeService.rotateAuthKey(code, http.getRemoteAddr()));
     }
 }

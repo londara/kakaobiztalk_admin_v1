@@ -20,9 +20,21 @@ import org.junit.jupiter.params.provider.ValueSource;
  * and DB-dependent verification has dropped to tier 3 (RISK-S13), pure logic like this is the
  * part that can still be verified properly.</p>
  *
- * // req: FR-SNDC-005, FR-SNDC-006, FR-SNDC-010
+ * <p>Sprint S2a 에서 금지 번호 목록이 컴파일 상수에서 배포 자산으로 옮겨졌다(CONST-BIZ-D03,
+ * ADR-SND-021). 이 테스트는 <b>배포되는 그 파일</b>을 읽는다 — 시험용 목록을 따로 만들면 시험이
+ * 검증하는 값과 실제로 적용되는 값이 갈라질 수 있고, 그 갈라짐은 특수번호가 등록 가능해지는
+ * 형태로 나타난다.</p>
+ * <p>Sprint S2a moved the barred list from a compiled constant to a deployment asset (CONST-BIZ-D03,
+ * ADR-SND-021). This test reads <b>the file that ships</b>: a separate fixture list could drift from
+ * the one actually enforced, and that drift would surface as a special number becoming registrable.</p>
+ *
+ * // req: FR-SNDC-005, FR-SNDC-006, FR-SNDC-010, CONST-BIZ-D03
  */
 class SenderNumberValidatorTest {
+
+    /** 배포되는 목록 그대로. / Exactly the list that ships. */
+    // req: CONST-BIZ-D03
+    private static final BarredNumbers BARRED = BarredNumbers.bundled();
 
     @Nested
     @DisplayName("D-S13 회귀 — 숫자만 허용 / digits only")
@@ -35,7 +47,7 @@ class SenderNumberValidatorTest {
         void rejectsNonNumeric(String input) {
             // 레거시 isValidDpNo() 는 길이와 접두어만 보았으므로 abcdefgh 가 통과했다.
             // The legacy isValidDpNo() checked only length and prefix, so abcdefgh passed.
-            assertThat(SenderNumberValidator.validate(input)).isEqualTo(Result.NOT_NUMERIC);
+            assertThat(SenderNumberValidator.validate(input, BARRED)).isEqualTo(Result.NOT_NUMERIC);
         }
 
         @Test
@@ -44,7 +56,7 @@ class SenderNumberValidatorTest {
         void rejectsFullWidthDigits() {
             // Character.isDigit 는 전각 숫자에 true 를 반환하므로 별도로 확인한다.
             // Character.isDigit returns true for full-width digits, so this is asserted explicitly.
-            Result result = SenderNumberValidator.validate("０１０１２３４５６７８");
+            Result result = SenderNumberValidator.validate("０１０１２３４５６７８", BARRED);
             assertThat(result).isNotEqualTo(Result.VALID);
         }
     }
@@ -58,7 +70,7 @@ class SenderNumberValidatorTest {
         @DisplayName("특수번호는 거절한다 / rejects special numbers")
         // req: FR-SNDC-006
         void rejectsBarredNumbers(String input) {
-            assertThat(SenderNumberValidator.validate(input)).isEqualTo(Result.BARRED);
+            assertThat(SenderNumberValidator.validate(input, BARRED)).isEqualTo(Result.BARRED);
         }
 
         @Test
@@ -74,8 +86,8 @@ class SenderNumberValidatorTest {
             // length rule appears to cover special numbers — but only incidentally, and that
             // breaks the moment a barred number of 8+ digits is added. Asserting BARRED rather
             // than "rejected" keeps the intent in the code.
-            assertThat(SenderNumberValidator.validate("1335")).isEqualTo(Result.BARRED);
-            assertThat(SenderNumberValidator.validate("112")).isEqualTo(Result.BARRED);
+            assertThat(SenderNumberValidator.validate("1335", BARRED)).isEqualTo(Result.BARRED);
+            assertThat(SenderNumberValidator.validate("112", BARRED)).isEqualTo(Result.BARRED);
         }
     }
 
@@ -105,7 +117,7 @@ class SenderNumberValidatorTest {
         @DisplayName("접두어별 길이 한도를 적용한다 / applies the per-prefix length limit")
         // req: FR-SNDC-010
         void appliesLengthRules(String input, Result expected) {
-            assertThat(SenderNumberValidator.validate(input)).isEqualTo(expected);
+            assertThat(SenderNumberValidator.validate(input, BARRED)).isEqualTo(expected);
         }
     }
 
@@ -118,7 +130,7 @@ class SenderNumberValidatorTest {
         @DisplayName("빈 값은 거절한다 / rejects blank input")
         // req: FR-SNDC-003
         void rejectsBlank(String input) {
-            assertThat(SenderNumberValidator.validate(input)).isEqualTo(Result.REQUIRED);
+            assertThat(SenderNumberValidator.validate(input, BARRED)).isEqualTo(Result.REQUIRED);
         }
 
         @Test
@@ -129,14 +141,14 @@ class SenderNumberValidatorTest {
             // undefined == "" 가 거짓이라 통과했다. 서버는 그런 여지를 남기지 않는다.
             // D-S11 regression: the legacy client read a missing element, got undefined, and
             // undefined == "" is false so the check passed. The server leaves no such gap.
-            assertThat(SenderNumberValidator.validate(null)).isEqualTo(Result.REQUIRED);
+            assertThat(SenderNumberValidator.validate(null, BARRED)).isEqualTo(Result.REQUIRED);
         }
 
         @Test
         @DisplayName("앞뒤 공백은 제거한 뒤 판정한다 / trims before judging")
         // req: FR-SNDC-003
         void trimsBeforeValidating() {
-            assertThat(SenderNumberValidator.validate("  0212345678  ")).isEqualTo(Result.VALID);
+            assertThat(SenderNumberValidator.validate("  0212345678  ", BARRED)).isEqualTo(Result.VALID);
         }
     }
 
@@ -167,3 +179,5 @@ class SenderNumberValidatorTest {
         }
     }
 }
+
+

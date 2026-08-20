@@ -718,3 +718,159 @@ Screen 61 has three client-side files and no server side, so a conventional four
 > That is not an abstraction. `ADV_KKO_AT_SEND_M` is **called by no code in this repository**, and screen 61's output is **consumed by no code at all**. Neither the missing `order` nor the misnamed `failback_data` had any path by which it could ever fail visibly, which is precisely why both survived into a file stamped `20250428`. The three Critical contract defects in this slice were not hard to find; they were impossible to find *from inside the screen*, and nothing outside the screen was looking.
 >
 > **Practical consequence for the remaining slices:** for any screen whose output crosses a system boundary, read the boundary contract *before* putting scope or limit questions to the PM. Both corrections in §34 trace to having asked first and read second.
+
+---
+
+# Part 3b — 이용기관관리 screen 01, gap pass (Skill 02, 2026-08-20)
+
+**Slice**: legacy screen **01** (이용기관 등록/수정 popup) — the write half of Part 3
+**Spec**: [REQUIREMENTS-SPEC-INSTITUTION.md](REQUIREMENTS-SPEC-INSTITUTION.md) v1.2
+**Trigger**: implementation of the 기관코드 → popup path. Specifying the popup field by field surfaced one defect, one conflict and three decisions the existing spec did not carry.
+
+## 36. Resolved
+
+### AMB-I11 — a Must requirement with nothing in this system to satisfy it
+**Question.** FR-INSTC-008 requires the institution cache to be refreshed after a save. The legacy did that with `FINInstitution.getInstance().getManager().reload()` — an **in-process Jex cache inside IRIS_ADMIN**. The portal is a separate process: it cannot reach that cache, and it keeps no server-side institution cache of its own. How is the requirement closed?
+**Candidates.** A: rewrite as portal-side cache invalidation, legacy cache tracked as an out-of-boundary gap · B: build a notifier calling a new IRIS_ADMIN reload endpoint · C: downgrade to Should and defer
+**PM response.** **A.**
+**Effect.** FR-INSTC-008 rewritten. The portal invalidates the view it owns; the legacy runtime's cache stays with RISK-I02 / ADR-INST-016. Option B was declined for the reason ADR-INST-016 already gives: this project does not add call paths into a system it does not own, and the endpoint it would call does not exist.
+**Note.** D-I17 is still closed by this, but by a different mechanism than the spec assumed. The legacy defect was a *swallowed* failure (`catch(Throwable){printStackTrace();}`); there is now nothing to swallow, because the only failure on the path is the save itself and that reaches the operator.
+
+### AMB-I12 — validation vs. data that predates the validation
+**Question.** FR-INSTC-009 validates 사업자등록번호 as 10 digits. Stored rows may violate it. If an operator edits an unrelated field — a 사용여부 change, say — on such a row, does the save fail?
+**Candidates.** A: enforce on every save · B: enforce only when the field changed · C: warn, allow, audit
+**PM response.** **A — enforce on every save.**
+**Effect.** FR-INSTC-016. The operator has the offending value on screen, so bad data is corrected by attrition rather than accumulating. **Recorded for QA:** this is a deliberate behavioural break. An edit that the legacy would have accepted can now be refused, and the refusal is about a field the operator did not touch. TC-I002-23 asserts it and is not a parity regression.
+
+### AMB-I13 — when 인증키 재발급 takes effect
+**Question.** The legacy filled `#ATK` in the browser and persisted it on 저장, so 닫기 discarded it. UC-INST-002 §3.2 requires rotation to be explicit and separately audited but never states the commit point.
+**Candidates.** A: commit on its own confirmation, separate from 저장 · B: stage in the form and commit with 저장
+**PM response.** **A — commit on confirmation, with its own audit record.**
+**Effect.** FR-INSTC-011. Two consequences worth stating: the audit record and the row can no longer disagree (with B, an audited "rotation" abandoned at 닫기 would name a key that was never stored), and the 저장 payload now carries **no credential material at all** — which is what lets the update statement omit `ATK` entirely and makes a masked-value-written-back accident unrepresentable rather than guarded.
+
+## 37. New finding — D-I20
+
+**A second, unrecorded instance of D-I3.** The Part 3 analysis recorded credential disclosure through 중복검사 (`biztalk_admin_01_l001`, D-I3). The **detail service is the same hole**: `WSVC.biztalk_admin_01_l002` declares `ATK` in its `<out>` rule, `biztalk_admin_01.js:loadData()` writes it into `$("#ATK")`, and the service carries `<login>Y</login>` and nothing else (D-I2). Any authenticated caller can post any 기관코드 to `biztalk_admin_01_l002.act` and read that institution's plaintext credential; for an operator using the screen normally, the key sits in the popup's DOM.
+
+Severity High, disposition FIX → FR-INSTC-010 (the form shows the masked value; no form-populating endpoint returns the plaintext).
+
+> **Why the first pass missed it.** D-I3 and D-I5 were both found by asking *which responses contain `ATK`* — of the **list** and **duplicate-check** services. The detail service was read for its field list, to establish what the edit form loads, and its `ATK` was noted as "what populates 인증키" rather than as an exposure. The disclosure is identical; only the framing differed. **Enumerate exposure paths per credential, not per screen** — `grep` the `<out>` rules of every service in the slice for the credential name, then ask who can call each.
+
+## 38. Conflict raised
+
+### CONFLICT-I03 — the application clock is right, and wrong for these two columns
+`RGDT` and `LAST_AMDT` are `YYYYMMDDHH24MISS` **wall-clock strings**, written until now by the legacy through the database's `now()`. The portal's `Clock` bean is deliberately `Clock.systemUTC()` — chosen in the 로그인 slice so audit ordering survives a multi-instance deployment, and correct for that. Formatting these two columns from it would place every portal-written timestamp **nine hours behind** every legacy-written one **in the same column**, and ADR-INST-016 keeps the legacy writing that column. Sorting and comparison would silently interleave two epochs.
+
+**Resolved at this pass → FR-INSTC-013.** These two columns are written by `to_char(now(),'YYYYMMDDHH24MISS')` in the mapper — the legacy expression with `HH` restored (D-I9). The application clock stays UTC and stays out of them. Escalated to Skill 3 for an ADR because it is a boundary decision rather than a coding preference.
+
+> Neither side of this conflict is a defect. It is the ordinary cost of two writers on one column, and it was invisible while the slice was read-only.
+
+## 39. Closed
+
+**AMB-I06** — canonical 기관코드 format, and 사업자등록번호 length. Closed by FR-INSTC-014 with the rule made explicit: where the legacy's three sources disagree (form `maxlength`, contract `length`, DB column), **the narrowest governs**. 기관코드 is 6 characters, `K0` + 4 alphanumerics — the contract's `length="16"` is a transport maximum, not the domain format. Enforcement point per AMB-I12.
+
+**AMB-I09** — half-closed. FR-INSTC-010 settles what the *edit form* shows (masked). Who may reveal a full key, and under what audit, remains open.
+
+## 40. Method note
+
+The three questions in §36 have one shape in common: **each is a requirement whose subject does not exist in the new architecture.** FR-INSTC-008 names a cache that lives in another process. FR-INSTC-007 names a 최종수정자 name the portal's session has no field for (→ FR-INSTC-012). FR-INSTC-006 names a timestamp whose clock the programme had already chosen differently, for good reasons, elsewhere (→ CONFLICT-I03).
+
+None was findable by reading the legacy, and none was findable by reading the spec. All three appeared at the moment the requirement had to be **bound to a specific line of code** — which is late, but is also why the earlier slices' `// req:` convention earns its cost: the binding is where the mismatch becomes visible.
+
+> **For the remaining write-path slices:** before implementing a requirement, name the component in *this* system that satisfies it. If the answer is a legacy component, the requirement needs re-writing, not implementing.
+
+---
+
+# Part 4b — 발신번호 등록·삭제, write-path gap pass (Skill 02, 2026-08-20)
+
+> Spec: [REQUIREMENTS-SPEC-SENDERNO.md](REQUIREMENTS-SPEC-SENDERNO.md) v1.1 · Scope: the two controls Sprint S1 left disabled — 등록 (legacy popup `biztalk_admin_12`) and 삭제 (legacy popup `biztalk_admin_13`)
+> Trigger: PM request, "when click 등록 is biztalk_admin_12, and select row for delete 삭제", followed by the directive **"please follow old logic"**
+
+Sprint S1 shipped the list and deliberately rendered 등록 and 삭제 as **disabled** buttons rather than omitting them ([SenderNumberPage.tsx](../../src/main/frontend/src/features/biztalk/SenderNumberPage.tsx#L309-L314)) — the reasoning recorded there was that a button which does nothing when pressed is D-S8 with the sides reversed. This pass wires them, and it is a **gap pass rather than a new specification**: FR-SNDC-001…010 and FR-SNDD-001…008 already existed and are unchanged. What was missing was everything between the button and the service.
+
+## 41. PM directive — the legacy logic is the baseline
+
+**Directive.** "Please follow old logic."
+
+Read literally against a slice whose reason for existing is twenty-one recorded defects, that directive would reinstate a delete that deletes nothing. It is read instead as what it plainly governs — **flow, field set and business rule** — and the interpretation is written down here so nobody has to re-derive it:
+
+| The directive governs | Ported unchanged from |
+|-----------------------|----------------------|
+| 등록 is reached from the list, scoped to the 이용기관 already chosen there; the form's 이용기관코드/기관명 are read-only | `biztalk_admin_10.js` `btn_register` → popup 12 with the opener's `IS_CD` |
+| Field set and order: 이용기관코드, 이용기관명, 발신번호, 설명, 사유; actions [등록] [닫기] | `biztalk_admin_12_view.jsp` |
+| The three rules stated to the operator on the registration screen, verbatim | `biztalk_admin_12_view.jsp` `infoList01` |
+| 삭제 acts on the rows selected in the grid; the confirmation lists those numbers and takes a 사유; actions [삭제] [닫기] | `biztalk_admin_10.js` `btn_delete` → popup 13, `_gu.getCheckData()` |
+| Length and prefix branches: 8–11 digits, 12 for 030/050, exactly 8 for 15xx/16xx | `biztalk_admin_12_c001_act.jsp` `isValidDpNo()` |
+| 등록자/수정자 taken from the session, not the form | `SessionManager.getFlnm()/getEml()` |
+| On success the form closes and the list re-queries | `opener.getDat()` |
+
+| The directive does **not** reopen | Because |
+|-----------------------------------|---------|
+| D-S1, D-S5, D-S6, D-S7 — delete matching, per-number history, transaction, result-variable check | Already ruled FIX; AMB-S02 and §6.4 of the spec |
+| D-S9 global uniqueness, D-S11 server-side validation, D-S12 barred numbers, D-S13 digits-only, D-S15 lengths | Already ruled FIX; AMB-S03 |
+| D-S18 — no 인증키 in the registration form's context load | Already ruled FIX; inherits FR-ATK-004 |
+| Authorization and tenant scope (FR-AZ-D01…D05) | Delivered in S1; the legacy had none |
+| `window.open` popup → modal dialog | A transport, not a logic. See [ADR-SND-020](../design/adr/ADR-SND-020-write-dialog-presentation.md) |
+
+**One place where the directive and a ruling given the same day meet.** AMB-S10 below made 사유 mandatory on registration; the legacy screen had the field and enforced nothing (its client validation was vacuous — D-S11 — so an empty 사유 passed). The explicit answer to the explicit question is taken as governing, and the divergence is recorded here rather than smoothed over. **It is a deliberate behavioural break from the legacy, and it is one edit to reverse** (FR-SNDC-011).
+
+## 42. Resolved this pass
+
+### AMB-S10 — is 사유 mandatory on registration?
+**Question.** FR-SNDD-006 makes 사유 mandatory on deletion. FR-SNDC-001 lists 사유 as a registration field and FR-SNDC-007 caps it at 100 characters, but nothing in the spec says whether it may be empty. The legacy accepted empty by accident, not by decision.
+**Candidates.** A: mandatory, symmetric with deletion · B: optional, matching observed legacy behaviour
+**PM response.** **A — mandatory.**
+**Effect.** FR-SNDC-011. Every `KKB_DPNO_HIS` row in the slice now carries a *why*, for `ACN='C'` as well as `ACN='D'`. This matters more here than symmetry usually would: under RESIDUAL-S01 registration carries no proof of ownership, so the 사유 is the only record of the operator's basis for claiming a number. **Recorded for QA as a deliberate parity break** — TC-S002-23 asserts a rejection the legacy would have accepted.
+
+### AMB-S06 — the authoritative list of barred special and emergency numbers
+**Question.** The registration screen names 112, 114 and 1335 as examples (D-S12). No complete list exists in any legacy layer. `SenderNumberValidator.BARRED_NUMBERS` currently holds 14 values as a stated working assumption.
+**Candidates.** A: adopt the current 14 as configuration, replaceable without a release · B: block registration until an authoritative KISA/KAIT list is obtained
+**PM response.** **A.**
+**Effect.** CONST-BIZ-D03 and [ADR-SND-021](../design/adr/ADR-SND-021-barred-number-list.md). The set leaves compiled code and becomes a loaded resource. Two properties are load-bearing rather than incidental: an empty or unreadable list **fails startup** instead of silently disabling the rule — that failure mode is D-S12 exactly — and the four numbers the PM ruling names (112, 114, 119, 1335) are additionally fixed in the test suite, so no future configuration edit can quietly drop them.
+**RISK-S11 downgraded, not closed.** The list is now changeable in minutes; what remains open is whether it is *complete*, which no amount of design settles.
+
+### AMB-S08 — cascade when an 이용기관 is logically deleted
+**Question.** The institution slice logically deletes an institution (`IS_STTS='D'`, ADR-INST-014). Legacy `KKB_DPNO_LDGR_D002` hard-deletes every number for an `IS_CD`, which contradicts FR-SNDD-001.
+**Candidates.** A: institution state bars sending; the numbers are left in the ledger · B: cascade the deletion into `KKB_DPNO_ARCV`
+**PM response.** **A.**
+**Effect.** CONST-BIZ-D04. It is the cheaper answer *and* the better-founded one: enforcement already exists one level up. `KAKAOTALK` validates the institution before it validates the caller ID, so a `'D'` institution is refused by ADR-INST-014's mechanism without the number rows moving at all. Cascading would also couple this slice to an in-flight sprint (I2a) for no gain in safety.
+**Two consequences recorded rather than assumed away.**
+1. **Orphan-by-design.** Numbers survive their institution in the ledger. Harmless while the 기관코드 is dead — but a 기관코드 later **re-issued to a different institution** would inherit them, since the ledger keys on `IS_CD` and nothing else. Whether 기관코드 is ever reused is an institution-slice property, not ours, so it is raised as **RISK-S14** rather than mitigated here.
+2. The separate `kakaobiztalk_admin` repository still carries a handwritten hard-cascade `KKB_DPNO_LDGR_D002`. Ruling A does not make that safe; it makes it *divergent*. Stays on RISK-S05 as a programme coordination item.
+
+## 43. Gaps found by this pass
+
+Four, none of which is a legacy defect — all four are things the legacy never had to decide because a popup window decided them for it.
+
+| Gap | Why it exists | Requirement |
+|-----|---------------|-------------|
+| **Selection can outlive the page it was made on.** S1 clears the selection when the 이용기관 changes but not when the page does, and the grid renders one page. An operator could select on page 1, move to page 3, and press 삭제 | The legacy grid held the entire result set in the browser (D-S14), so "selected" and "visible" never diverged. Server-side paging separated them | **FR-SNDD-009** — deleted set ≡ enumerated set, selection retained across pages, count always visible |
+| **Neither button had an enablement rule.** 등록 needs an institution; 삭제 needs a selection | The legacy popups opened regardless and failed later, or in 삭제's case sent an empty list | **FR-SNDD-010** |
+| **Nothing specified the refresh after a write.** | `opener.getDat()` — an implicit property of window ownership that does not survive into an SPA | **FR-SND-012** |
+| **Nothing specified what a rejected form does.** The legacy showed `등록중 오류 발생.` and left the operator to guess | NFR-USE-D02 stated the principle but no requirement bound it to the register flow | **FR-SNDC-014** |
+
+The first is the one worth naming as a class. It is the **same shape as D-S1** — an operation acting on something other than what the operator saw — arriving by a different route: not a masked value this time, but a stale one. The 발신번호 slice's standing check was *"for every value that leaves the server and comes back, ask whether it came back in the same form it left."* This pass adds: **for every set an operation acts on, ask whether the operator could still see all of it when they pressed the button.**
+
+## 44. Still open
+
+| ID | Item | Disposition |
+|----|------|-------------|
+| AMB-S07 | Maximum 발신번호 per institution | **Open, non-blocking.** Working assumption A (no cap) stands and S2a implements no cap. Adding one later is a validation rule against a count query — no schema, no data migration — so deferring costs nothing |
+| AMB-S09 | Whether `RGSR_ID`/`UDT_ID` hold an internal user ID rather than an email | **Resolved at Skill 3, option B** — see §45 |
+| OI-02 | Audit retention term | Carried, unchanged. Blocks NFR-OPS-AUDIT-D02 |
+
+## 45. Design-time resolution (Skill 3, 2026-08-20)
+
+### AMB-S09 — operator identity in `RGSR_ID` / `UDT_ID`
+**Question.** `RGSR_NM`/`UDT_NM` are encrypted at rest while `RGSR_ID`/`UDT_ID` hold the operator's email in plaintext (D-S16). NFR-SEC-PII-D01 requires the two to be treated consistently.
+**Candidates.** A: an internal user ID, with the email held only in the user master · B: keep the email and encrypt it at rest
+**Architect resolution.** **B.**
+**Why.** The requirement asks for *consistency*, and B delivers it in this slice with no dependency outside it. A is the better end state but is not a sender-number change: it needs a user master with stable internal IDs, a backfill of every historical row in this table **and** in `KKB_DPNO_HIS`, and — decisively — `AOA_ADMIN` keeps writing emails into the same columns after we ship (RISK-S05). A would therefore produce a column holding two incompatible identifier kinds, which is worse than the inconsistency it set out to fix.
+**Effect.** Register and delete write `ENCRYPT(<session email>)` through the same mechanism as `RGSR_NM` (CONST-DATA-D02, ADR-005). D-S16 closes on the consistency test. **Option A is recorded as the programme-level target, owned by the login slice, not deferred silently.**
+**One thing this does not fix.** Rows written by `AOA_ADMIN` after cutover still carry plaintext. Reads must tolerate both forms, which is a mapper concern flagged for S2a-05 and not a requirement change.
+
+## 46. Method note
+
+This pass produced no new defect and one new class of finding, and that ratio is itself the observation. The slice had been read four times — Skill 2, Skill 3, Sprint S1, and a security audit — and the four gaps in §43 survived all four **because none of them is visible in the legacy source.** They are gaps in the *new* architecture: properties a popup window supplied for free that a single-document SPA has to state.
+
+The institution slice's note said to name the component in *this* system that satisfies a requirement. This one is the converse: **name the property the legacy got for free from its runtime, and ask who supplies it now.** `opener.getDat()`, "selected implies visible", and "the popup cannot open without an `IS_CD`" were all runtime guarantees, not code. Two of them became requirements here; the third became a defect class.

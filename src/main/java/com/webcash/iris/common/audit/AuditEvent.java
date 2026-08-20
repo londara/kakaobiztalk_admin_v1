@@ -123,6 +123,50 @@ public record AuditEvent(
     public static final String ACTION_SENDER_NUMBER_VIEW = "biztalk.sender-number.view";
 
     /**
+     * 발신번호 등록 / sender number registered.
+     *
+     * <p>이 화면에서 등록은 데이터 입력이 아니라 <b>발송 권한 부여</b>다. {@code KAKAOTALK} 은
+     * {@code KKB_DPNO_LDGR} 에 행이 있는지로 발신 가능 여부를 판단하므로, 행이 하나 생기는 것은
+     * 그 번호로 메시지를 보낼 수 있게 되는 것과 같다. 소유 인증이 없는 상태에서(AMB-S01,
+     * RESIDUAL-S01) 누가 어떤 번호를 <b>어떤 사유로</b> 주장했는지가 유일한 사후 추적 수단이다.</p>
+     * <p>Registration here is not data entry but a <b>grant of sending capability</b>:
+     * {@code KAKAOTALK} decides whether a send may proceed by whether a row exists, so creating one
+     * makes that number usable as a caller ID. With ownership verification declined (AMB-S01,
+     * RESIDUAL-S01), who claimed which number <b>and why</b> is the only trace available afterwards.</p>
+     *
+     * <p>기관 코드와 사유는 담고 <b>발신번호는 담지 않는다</b> — ADR-SND-019 는 조회에만 적용되는
+     * 규칙이 아니다. 감사 저장소는 보존 기간이 길고 접근 모델이 다르므로, 쓰기 기록이라고 해서
+     * 번호를 담아도 되는 것은 아니다.</p>
+     * <p>Carries the institution and the reason, <b>never the number</b>: ADR-SND-019 is not a
+     * read-only rule. The audit store has longer retention and a different access model, and a write
+     * record is no more entitled to hold the number than a read record is.</p>
+     *
+     * // source: biztalk_admin_12_c001_act.jsp — mntLogYn=N, no application-level record at all
+     * // req: FR-AZ-D05, NFR-OPS-AUDIT-D01, ADR-SND-019
+     */
+    public static final String ACTION_SENDER_NUMBER_REGISTER = "biztalk.sender-number.register";
+
+    /**
+     * 발신번호 삭제 / sender numbers deleted.
+     *
+     * <p>등록과 <b>별개의 액션</b>이다. 삭제는 해당 기관의 발송 능력을 즉시 없애며, 번호가
+     * 하나뿐인 기관이라면 발송이 전면 중단된다(위협 T-D4). 등록과 구분되지 않으면 "이 기관은
+     * 언제 발송할 수 없게 되었는가" 를 사후에 답할 수 없다.</p>
+     * <p>A <b>distinct action</b> from registration: deleting removes sending capability at once, and
+     * for an institution with a single number it stops sending entirely (threat T-D4). If the two are
+     * indistinguishable, "when did this institution lose the ability to send" cannot be answered.</p>
+     *
+     * <p>영향받은 <b>건수</b>를 함께 남긴다. 한 건을 지운 것과 그 기관의 번호 전부를 지운 것은
+     * 같은 사건이 아니다. 번호 자체는 담지 않는다.</p>
+     * <p>Recorded with the <b>count</b> affected: deleting one number and deleting all of an
+     * institution's numbers are not the same event. The numbers themselves are not carried.</p>
+     *
+     * // source: biztalk_admin_10_d001_act.jsp — reported success even when nothing was deleted (D-S1)
+     * // req: FR-AZ-D05, FR-SNDD-004, NFR-OPS-AUDIT-D01, ADR-SND-019
+     */
+    public static final String ACTION_SENDER_NUMBER_DELETE = "biztalk.sender-number.delete";
+
+    /**
      * 이용기관 보고서 조회 / institution usage report query.
      *
      * <p>이 화면에는 개인정보가 없다. 그럼에도 감사가 필수인 이유는 노출되는 것이
@@ -208,4 +252,53 @@ public record AuditEvent(
      * // req: FR-TLKX-007, NFR-OPS-AUDIT-T01
      */
     public static final String ACTION_TALK_HISTORY_EXPORT = "biztalk.talk-history.export";
+
+    /**
+     * 이용기관 수정 / 이용기관 updated.
+     *
+     * <p>레거시에는 이 기록이 없었다. {@code mntLogYn=Y} 가 Jex 서비스 모니터 행을 남겼을
+     * 뿐이고 그것은 Jex 와 함께 사라진다. 이 화면이 바꾸는 것은 <b>다른 시스템이 인가 판단에
+     * 쓰는 제어 데이터</b>다 — 기관코드는 모든 슬라이스의 조회 조건이고, 사용여부는 발송
+     * 가능 여부를 결정한다. 누가 무엇을 어떻게 바꿨는지가 남지 않으면 사고 후에 되짚을
+     * 방법이 없다.</p>
+     * <p>The legacy recorded none of this: {@code mntLogYn=Y} produced a Jex service-monitor row
+     * that disappears with Jex. What this screen changes is <b>control data another system uses to
+     * decide entitlement</b> — the institution code every slice filters on, and the status that
+     * decides whether sending is permitted. Without a record of who changed what, an incident
+     * cannot be reconstructed.</p>
+     *
+     * <p>기록에는 <b>바뀐 필드의 이전값과 새값</b>이 담긴다(FR-AZ-I04). 설명은 값 없이 변경
+     * 사실만 남긴다 — 650자까지 가능하며 감사 저장소는 본문 보관소가 아니다.</p>
+     * <p>Carries the <b>prior and new values of the changed fields</b> (FR-AZ-I04). The
+     * description records only that it changed: it runs to 650 characters and the audit store is
+     * not a content repository.</p>
+     *
+     * // source: biztalk_admin_01_c001_act.jsp — mntLogYn=Y, no application-level record
+     * // req: FR-AZ-I04, NFR-OPS-AUDIT-I01, FR-INSTC-007
+     */
+    public static final String ACTION_INSTITUTION_UPDATE = "biztalk.institution.update";
+
+    /**
+     * 이용기관 인증키 재발급 / 이용기관 인증키 rotated.
+     *
+     * <p>수정과 <b>별개의 액션</b>으로 기록한다. 필드 하나를 고치는 것과 고객사의 운영
+     * 자격증명을 교체하는 것은 감사 관점에서 같은 사건이 아니다 — 후자는 그 고객사의 연동을
+     * 즉시 중단시키며, 새 키가 전달되기 전까지 발송은 실패한다. 두 사건이 구분되지 않으면
+     * "언제 이 고객사의 키가 바뀌었는가" 를 사후에 답할 수 없다.</p>
+     * <p>Recorded as a <b>distinct action</b> from an edit: changing one field and replacing a
+     * customer's live credential are not the same event for audit purposes. The latter stops that
+     * customer's integration until the new key is distributed. If the two are indistinguishable,
+     * "when did this customer's key change" cannot be answered afterwards.</p>
+     *
+     * <p><b>키는 담지 않는다</b> — 새 키도, 이전 키도, 마스킹된 조각도. 감사 저장소는 보존
+     * 기간이 길고 접근 모델이 달라, 자격증명을 담으면 그것이 곧 2차 노출 경로가 된다
+     * (FR-ATK-004, ADR-INST-015).</p>
+     * <p><b>No key material</b> — not the new key, not the old one, not a masked fragment. The
+     * audit store has longer retention and a different access model; a credential written there
+     * becomes a second exposure path (FR-ATK-004, ADR-INST-015).</p>
+     *
+     * // source: biztalk_admin_01.js — btn_generate_code, unrecorded browser-side generation
+     * // req: FR-ATK-004, FR-ATK-005, FR-INSTC-011, FR-AZ-I04
+     */
+    public static final String ACTION_INSTITUTION_KEY_ROTATE = "biztalk.institution.key.rotate";
 }

@@ -51,7 +51,7 @@ Per harness standard: `FR-` functional, `NFR-<area>-` non-functional, `CONST-<ar
 
 ### 1.4 Defect disposition (PM ruling, 2026-08-14)
 
-Nineteen defects were confirmed. Consistent with the AMB-01 precedent set on the 문자내역 slice, **all are fixed**; four required an explicit PM ruling because they change scope or affect external integrations rather than merely correcting broken code (§6).
+Nineteen defects were confirmed in the first pass; **D-I20 was added on 2026-08-20** by the screen-01 gap pass (§6.1a). Twenty in total. Consistent with the AMB-01 precedent set on the 문자내역 slice, **all are fixed**; four required an explicit PM ruling because they change scope or affect external integrations rather than merely correcting broken code (§6).
 
 | ID | Sev | Defect | Disposition |
 |----|-----|--------|-------------|
@@ -74,6 +74,7 @@ Nineteen defects were confirmed. Consistent with the AMB-01 precedent set on the
 | D-I17 | Low | `biztalk_admin_01_c001_act.jsp` calls `commit()` but never `endTransaction()` (unlike `_d001`); `FINInstitution…reload()` sits in `catch(Throwable){printStackTrace();}`, so a cache-refresh failure after a committed change is swallowed | FIX → FR-INSTC-008, NFR-OPS-I02 |
 | D-I18 | Low | No 재사용 path — `_u001` accepts `USE_YN` but the screen only ever sends `N`; re-enabling requires the edit popup | FIX → FR-INSTL-002 |
 | D-I19 | Medium | All validation is client-side: 기관코드 length/`K0` prefix, 사업자등록번호 digits, required fields. The contract declares `IS_CD` length 16 while the UI enforces 6 | FIX → FR-INSTC-003 |
+| D-I20 | High | 상세조회 `biztalk_admin_01_l002` declares `ATK` in its `<out>` rule and `biztalk_admin_01.js` writes it into `$("#ATK")` — the **plaintext 인증키 sits in the edit popup's DOM**, and the service carries `<login>Y</login>` only (D-I2), so any authenticated caller can post any 기관코드 to it. D-I3 recorded this exposure through 중복검사 `_l001`; the detail service is a **second path that was never recorded** | FIX → FR-INSTC-010, FR-ATK-002 |
 
 > **Pattern note.** The 문자내역 defects lived in *gaps between layers*; the 로그인 defects were *deliberately disabled controls*. This slice shows a third signature: **controls that exist only in the browser** — duplicate check, permission gate, key generation, and every format rule. Each looks enforced from the UI and none is enforced by the server.
 
@@ -115,8 +116,15 @@ Nineteen defects were confirmed. Consistent with the AMB-01 precedent set on the
 | FR-INSTC-005 | The duplicate check returns **only an availability result** — never another institution's record, and never its 인증키. Fixes D-I3 | Must | Security test |
 | FR-INSTC-006 | 등록일시 and 최종수정일시 are stored as a full `YYYYMMDDHH24MISS` timestamp. Fixes D-I9 — the legacy pattern omits `HH`, writing a literal `24` as the hour on every record | Must | Unit test + data check |
 | FR-INSTC-007 | 등록자 and 최종수정자 are taken from the authenticated session, never from the request body | Must | Integration test |
-| FR-INSTC-008 | After a successful change the institution cache is refreshed; a refresh failure is surfaced as an error and alerted, not swallowed. Fixes D-I17 | Must | Integration test (simulated refresh failure) |
+| FR-INSTC-008 | After a successful change the **portal's own** cached view is invalidated, so the operator never reads back a stale record. The legacy runtime's in-process institution cache lies **outside this boundary** and cannot be refreshed from here — that gap is tracked as RISK-I02 (ADR-INST-016). D-I17's swallowed failure is fixed by there being nothing to swallow: a save failure reaches the operator (PM ruling AMB-I11) | Must | E2E test (the list reflects the change) + code review |
 | FR-INSTC-009 | 사업자등록번호 is validated as a 10-digit number *(length assumed — see AMB-I06)* | Should | Unit test |
+| FR-INSTC-010 | The edit form shows 인증키 **masked**. No endpoint that populates the form returns the plaintext value; revealing it stays FR-ATK-003. Fixes D-I20, where the detail service returned the key and the popup put it in the DOM | Must | Security test (detail response contains no plaintext key) |
+| FR-INSTC-011 | 인증키 재발급 **commits on its own explicit confirmation**, separately from 저장, and writes its own audit record. 닫기 cannot discard a rotation the operator confirmed, and the 저장 payload never carries key material (PM ruling AMB-I13) | Must | E2E test + integration test (update payload contains no 인증키) |
+| FR-INSTC-012 | 최종수정자 is taken from the session's authenticated identity. The portal's identity is the email address, so `LSED_ID` and `LSED_NM` both receive it — the legacy read 성명 from `SessionManager.getFlnm()`, which has no portal counterpart. Leaving `LSED_NM` unwritten would keep a previous editor's name beside the new editor's id | Must | Integration test |
+| FR-INSTC-013 | `RGDT` and `LAST_AMDT` are written on the **database clock** — `to_char(now(),'YYYYMMDDHH24MISS')`, the same wall clock the legacy runtime writes into these columns. The application `Clock` bean is UTC and must not be used for them (CONFLICT-I03) | Must | Mapper SQL test + data check |
+| FR-INSTC-014 | Field limits are stated rather than implied: 기관코드 exactly 6 (`K0` + 4 alphanumerics), 기관명 ≤ 100, 영문명 ≤ 100, 사업자등록번호 10 digits, 설명 ≤ 650, 인증키 27 generated. Where the legacy's three sources disagreed — form `maxlength`, contract `length`, DB column — the **narrowest** governs. Closes the AMB-I06 format question | Must | Unit test per rule |
+| FR-INSTC-015 | 사용여부 accepts `Y` and `N` **only** on this screen. `D` is reachable solely through 삭제 (FR-INSTL-004), so the edit form cannot become an unaudited delete path | Must | Integration test (`D` rejected) |
+| FR-INSTC-016 | 사업자등록번호 is validated on **every** save, including when the field was not edited: a stored value that violates FR-INSTC-009 blocks the save until corrected (PM ruling AMB-I12) | Should | Integration test (row holding a non-conforming legacy value) |
 
 ### 2.4 Lifecycle — disable, re-enable, delete
 
@@ -231,11 +239,24 @@ Orphan check: every FR, NFR and CONST in this document maps to at least one of U
 | AMB-I03 | Hard delete, no institution history, orphaned message history (D-I7) | A: soft delete / B: hard delete + history / C: as-is | **A — logical delete with history** | RESOLVED |
 | AMB-I04 | 인증키 is weak, plaintext, exposed in the grid and disclosed by the duplicate check (D-I3…I6) | A: stop exposure, keep keys / B: reissue all / C: harden new only | **A — preserve existing keys, close every exposure path, move generation server-side** | RESOLVED |
 
+
+### 6.1a Resolved by PM (2026-08-20 — screen 01 gap pass)
+
+Raised while specifying the edit popup in detail. Each was a **Must** requirement or an open assumption that could not be built either way without a ruling.
+
+| ID | Item | Candidates | PM response | Status |
+|----|------|-----------|-------------|--------|
+| AMB-I11 | FR-INSTC-008 (Must) requires an institution-cache refresh, but the legacy `FINInstitution…reload()` refreshed an in-process Jex cache **inside IRIS_ADMIN**. The portal is a separate process: it can neither reach that cache nor does it keep one of its own | A: rewrite as portal-side cache invalidation, legacy cache tracked as an out-of-boundary gap / B: build a notifier that calls a new IRIS_ADMIN reload endpoint / C: downgrade to Should and defer | **A — the requirement is met by invalidating what this system owns; the legacy runtime's cache stays with RISK-I02 (ADR-INST-016). No cross-system call to a system we do not own** | RESOLVED |
+| AMB-I12 | 사업자등록번호 validation vs. stored values that predate it — enforcing FR-INSTC-009 on save can block an unrelated edit (e.g. a 사용여부 change) on a row holding a non-conforming legacy value | A: enforce on every save / B: enforce only when the field changed / C: warn, allow, audit | **A — enforce on every save. The operator is already looking at the field, so bad data is corrected by attrition rather than accumulating; a state-dependent rule is harder to reason about than a strict one** | RESOLVED |
+| AMB-I13 | When 인증키 재발급 takes effect. The legacy filled the field and persisted on 저장, so 닫기 discarded it; UC-INST-002 §3.2 requires rotation to be explicit and audited but never says when it commits | A: commit on its own confirmation, separate from 저장 / B: stage in the form and commit with 저장 | **A — commit on confirmation with its own audit record. The audit trail and the row can then never disagree, and the 저장 path carries no credential material at all** | RESOLVED |
+
+> These three rulings are what FR-INSTC-008, FR-INSTC-011 and FR-INSTC-016 now state.
 ### 6.2 Conflicts requiring G1 acknowledgement
 
 | ID | Conflict | Resolution |
 |----|----------|-----------|
 | CONFLICT-I02 | **AMB-I03 (logical delete) vs. CONST-DATA-01** — the 문자내역 spec constrains the programme to "the existing schema reused unchanged; no DDL migration in this scope", but logical delete was assumed to require a delete flag and a deletion history table | **DISSOLVED at Skill 3 (2026-08-14).** Design analysis found the conflict rested on a false premise. `FT_FTIS_INFO` already carries a status column (`IS_STTS`), and a DB-backed `AuditService` already exists from the 로그인 slice. Deletion is therefore recorded as `IS_STTS='D'` plus an audit event — **no DDL at all**. CONST-DATA-01 stands unmodified and no precedent for schema change is set. See [ADR-INST-014](../design/adr/ADR-INST-014-lifecycle-state-model.md) |
+| CONFLICT-I03 | **FR-INSTC-006 vs. the delivered `ClockConfig`.** `RGDT`/`LAST_AMDT` are `YYYYMMDDHH24MISS` **wall-clock strings**, and every existing row was written by the legacy through the database's `now()`. The portal's `Clock` bean is deliberately `Clock.systemUTC()` (로그인 slice, so audit order survives multi-instance deployment). Formatting these two columns from that clock would place every portal-written timestamp **nine hours behind** every legacy-written one **in the same column** — and the legacy keeps writing it (ADR-INST-016). Neither side is wrong: UTC is right for audit, wall clock is right for a shared legacy column | **Resolved at this gap pass → FR-INSTC-013.** The two columns are written by `to_char(now(),'YYYYMMDDHH24MISS')` in the mapper — the legacy expression with the `HH` restored (D-I9). The application clock stays UTC and stays out of these columns. Recorded as an ADR at Skill 3 because it is a boundary decision, not a coding preference |
 | RESIDUAL-I01 | **AMB-I04 accepts a known-weak credential.** Preserving existing 인증키 values keeps integrations alive but leaves keys that were generated by `Math.random()` in the browser in production use. Exposure paths close; the underlying entropy does not improve | Accepted by PM as a deliberate trade-off. Mitigated by FR-ATK-005 (rotation as a first-class operation) so a reissue campaign becomes an operational decision rather than a development project. **Should be revisited once the portal goes internet-facing** — it interacts with CONST-SEC-01 |
 
 ### 6.3 Open
@@ -243,14 +264,14 @@ Orphan check: every FR, NFR and CONST in this document maps to at least one of U
 | ID | Item | Candidates | Working assumption | Owner | Needed by |
 |----|------|-----------|--------------------|-------|-----------|
 | AMB-I05 | Cascade scope for logical delete — which `IS_CD`-keyed data (발신번호, 수수료, 템플릿, 문자발송내역) must be blocked, retained or archived | A: block new activity, retain all history / B: per-table policy | A — retain everything, block new activity | Domain owner | Skill 3 |
-| AMB-I06 | Canonical 기관코드 format. The UI enforces exactly 6 characters with a `K0` prefix; the service contract declares length 16. 사업자등록번호 length is likewise unstated | A: 6 chars `K0`+4, BRNO 10 digits (assumed) / B: contract's 16 is canonical | A | Domain owner | Skill 3 |
+| AMB-I06 | Canonical 기관코드 format. The UI enforces exactly 6 characters with a `K0` prefix; the service contract declares length 16. 사업자등록번호 length is likewise unstated | A: 6 chars `K0`+4, BRNO 10 digits (assumed) / B: contract's 16 is canonical | A | Domain owner | ✅ **closed 2026-08-20** — FR-INSTC-014 fixes the limits (narrowest source governs); AMB-I12 fixes when they are enforced |
 | AMB-I07 | Response-time target for the institution list | A: P95 < 1 s (assumed, small table) / B: reuse the 3 s 문자내역 target | A | PM | Skill 3 |
 | AMB-I08 | `BSNN_STTS_CKYN` gates `KKB_FT_FTIS_INFO_L003`, which selects institutions for what appears to be a business-status check. Its relationship to 사용여부 is unrecoverable from code — two independent enable flags may exist | A: independent of 사용여부, out of scope here / B: must be reconciled | A | Domain owner | Skill 3 |
 | AMB-I09 | 인증키 masking format and who may reveal it (FR-ATK-002/003) | A: show last 4, reveal restricted to a senior operator role / B: never revealable, rotation only | A | PM | Skill 3 |
 
 | AMB-I10 | Enforcement of 사용여부 / deleted state at the **send API**, which is the legacy IRIS runtime and not this portal (FR-INSTL-009) | A: portal writes state, legacy enforces, gap tracked as a cutover risk · B: change the legacy send path · C: new gate owned by this portal | **A — resolved at Skill 3, 2026-08-14.** This portal writes and verifies the state; enforcement remains with the legacy runtime and the residual gap is tracked as RISK-I02 | PM | ✅ closed |
 
-> Five items remain open (AMB-I05…I09), plus OI-02 (audit retention) carried from Skill 01. None blocks design: each carries a stated working assumption.
+> Four items remain open (AMB-I05, AMB-I07, AMB-I08, AMB-I09), plus OI-02 (audit retention) carried from Skill 01. **AMB-I06 closed 2026-08-20** (FR-INSTC-014). AMB-I09 is now half-answered — FR-INSTC-010 settles that the edit form shows the masked value; who may reveal a full key remains open. None blocks design: each carries a stated working assumption.
 >
 > **CONFLICT-I02 no longer blocks G1** — Skill 3 found it rested on a false premise and dissolved it without any schema change (§6.2). G1 approval therefore needs to cover only RESIDUAL-I01.
 
@@ -262,6 +283,7 @@ Orphan check: every FR, NFR and CONST in this document maps to at least one of U
 |------|---------|--------|--------|
 | 2026-08-14 | 1.0 | Initial draft — 이용기관관리 slice, from static analysis of 19 legacy artifacts; 19 defects identified, 4 PM rulings incorporated | Skill 02 |
 | 2026-08-14 | 1.1 | **CONFLICT-I02 dissolved** during Skill 3 design — logical delete needs no DDL (ADR-INST-014), so CONST-DATA-01 stands unchanged. CONST-DATA-I02 rewritten. **AMB-I10 added and closed** — send-API enforcement stays with the legacy runtime (RISK-I02) | Skill 03 |
+| 2026-08-20 | 1.2 | **Screen 01 gap pass.** New defect **D-I20** (plaintext 인증키 returned by the detail service `_l002` and written into the popup DOM — a second, unrecorded instance of D-I3). Seven requirements added (FR-INSTC-010…016) covering the edit form's key display, rotation commit point, 최종수정자 identity, timestamp clock authority, stated field limits, 사용여부 value set, and BRNO enforcement point. **FR-INSTC-008 rewritten** per AMB-I11. **CONFLICT-I03 raised and resolved** (UTC application clock vs. wall-clock legacy column). **AMB-I06 closed**; AMB-I11…I13 ruled by PM | Skill 02 |
 
 ---
 

@@ -1,8 +1,8 @@
 # Test Plan — 발신번호 (Sender Number Management)
 
-> **Version**: 1.0
-> **Date**: 2026-08-17
-> **Predecessor**: [REQUIREMENTS-SPEC-SENDERNO.md](../requirements/REQUIREMENTS-SPEC-SENDERNO.md), [DEV-PLAN-SENDERNO.md](DEV-PLAN-SENDERNO.md)
+> **Version**: 1.1 — write-path pass, 2026-08-20 (see §13)
+> **Date**: 2026-08-17 (v1.0) · 2026-08-20 (v1.1)
+> **Predecessor**: [REQUIREMENTS-SPEC-SENDERNO.md](../requirements/REQUIREMENTS-SPEC-SENDERNO.md) v1.1, [DEV-PLAN-SENDERNO.md](DEV-PLAN-SENDERNO.md) v1.1, [sprint-S2a-tasks.md](sprint-S2a-tasks.md)
 > **Siblings**: [TEST-PLAN.md](TEST-PLAN.md), [TEST-PLAN-LOGIN.md](TEST-PLAN-LOGIN.md), [TEST-PLAN-INSTITUTION.md](TEST-PLAN-INSTITUTION.md)
 
 ---
@@ -45,6 +45,16 @@ What replaces it, in descending order of strength:
 
 An in-process PostgreSQL such as `io.zonky.test:embedded-postgres` (Apache-2.0, no GPL entanglement per CODE-004) would restore tier 1 without Docker — **but only if the DDL for the custom `ENCRYPT`/`decrypt`/`masking` functions can be obtained and replayed.** Against stock PostgreSQL it would test functions we invented, which is worse than tier 3 because it looks like tier 1.
 
+> ### ⚠ The two paragraphs above are superseded — read §13.3
+>
+> **Corrected 2026-08-20, Sprint S2a** (retrospective action A3). They are left in place because the reasoning they contain is still worth reading, and because striking them silently is how a correction gets lost twice.
+>
+> **What was right.** Docker is prohibited, Testcontainers is unusable, and a stand-in function is not the real function.
+>
+> **What was wrong.** The conclusion that tier 1 is therefore unreachable. `embedded-postgres` needs no Docker, is already in `pom.xml`, and works here — RISK-S13's own addendum said so on 2026-08-19 and this section had not caught up.
+>
+> **What the distinction actually is.** Not "real functions or nothing", but **which half of a defect** a test can reach. Defects in the SQL's *shape* — projection, aliasing, predicates present or absent, `INSERT … SELECT` alignment, and whether a zero-row `DELETE` raises — are fully reachable with same-name stand-ins, because the defect is in the statement rather than in the function body. Defects in the *cryptography or masking output* are not. **D-S1 lives in the first half**, which is why Sprint S2a verifies it at tier 1 and this plan no longer claims otherwise.
+
 `KAKAOTALK` and `AOA_ADMIN` are exercised as SQL against the shared schema rather than as running applications (§5), and therefore sit at tier 2.
 
 ## 3. Defect regression suite
@@ -68,7 +78,7 @@ One test minimum per fixed defect. The suite is the primary evidence at G3.
 | D-S13 | Medium | TC-S002-04 | Alphabetic input rejected |
 | D-S14 | Medium | TC-S001-05/06 | Repeat paging is stable; page size is honoured |
 | D-S15 | Medium | TC-S002-10/11, TC-S003-07 | Over-length 설명/사유 rejected server-side |
-| D-S16 | Medium | New: identity-consistency check | 등록자ID is not a plaintext email while 등록자명 is encrypted |
+| D-S16 | Medium | New: identity-consistency check | 등록자ID is not a plaintext email while 등록자명 is encrypted. **Per AMB-S09 ruling B the ID is the `ENCRYPT`ed email** — the assertion is consistency between the two columns, and reads must also tolerate plaintext rows written by `AOA_ADMIN` (RISK-S05) |
 | D-S17 | Medium | TC-S001-08 | No phantom `ISNM`; binding is by name, not position |
 | D-S18 | Medium | TC-S002-12 | The institution-context response contains no 인증키 |
 | D-S19 | Low | TC-S001-07 | No query issued before an institution is selected |
@@ -193,3 +203,53 @@ Both are marked as such rather than counted as passing coverage.
 | 5 | Attempt every operation as a non-operator and against another institution | FR-AZ-D01…D05 |
 
 Scenario 4 is the acceptance test for the slice. If it passes end-to-end — including the archive contents and the per-number history — the four critical defects are closed.
+
+**Scenario 4 gains a required variant at v1.1:** the multi-select is made **across two pages** before 삭제 is pressed (TC-S004-21). Run as a single-page selection only, the scenario cannot distinguish a system that deletes the selection from one that deletes the visible rows — and those were the same thing in the legacy, which is exactly why the distinction needs asserting now.
+
+## 13. v1.1 additions — the write-path pass
+
+Spec v1.1 added 9 requirements and 2 constraints for 등록 and 삭제 ([sprint-S2a-tasks.md](sprint-S2a-tasks.md)). This section carries their coverage; §11's parity claim is re-verified against it.
+
+### 13.1 New test cases
+
+| Requirement | Cases | Level |
+|-------------|-------|-------|
+| FR-SNDC-011 (사유 mandatory) | TC-S002-23 | Integration + E2E |
+| FR-SNDC-012 (institution fixed by the list) | TC-S002-24, TC-S002-25 | E2E + security |
+| FR-SNDC-013 (stated rules ≡ enforced rules) | TC-S002-26 | Review-assisted test |
+| FR-SNDC-014 (rejection keeps the form) | TC-S002-27 | E2E |
+| FR-SND-012 (post-write refresh) | TC-S002-28, TC-S004-26 | E2E |
+| CONST-BIZ-D03 (list is loaded data, fails loud) | TC-S002-29, TC-S002-30 | Startup + unit |
+| FR-SNDD-009 (enumerated set ≡ deleted set) | TC-S004-21, TC-S004-22 | E2E + integration |
+| FR-SNDD-010 (no control that cannot act) | TC-S004-23 | E2E |
+| FR-SNDD-011 (selection lifetime) | TC-S004-24, TC-S004-25 | E2E |
+| CONST-BIZ-D04 (no institution cascade) | TC-S004-27 | Integration |
+| T-T7 (barred-list tampering) | TC-S002-29/30 + change-control review | Security |
+| T-T8 (crafted ref set) | Extends TC-S004-03/10 with refs outside the session's scope | Security |
+
+### 13.2 Two of these are not ordinary cases
+
+**TC-S002-26 asserts an equivalence between a screen and a service.** Both directions: every rule the registration screen states is enforced, and every enforced rule is stated. D-S12 was the first direction failing; the second direction failing would be worse in a different way — a rule the operator has no way to know about. This cannot be a pure unit test, because one side of the equivalence is display text; it is a test over the loaded rule set plus a reviewed comparison against the rendered copy, and it is listed as such rather than dressed up as automated.
+
+**TC-S002-29 asserts that the application refuses to start.** A test whose expected outcome is a boot failure looks perverse until you name the alternative: a silently empty barred list is D-S12 reproduced by a typo, and it would pass every other test in this plan. **The failure mode this slice exists to eliminate is "the control is absent and nothing says so"** — so a control that can go absent must fail loudly at the earliest possible moment.
+
+### 13.3 Tier 1 is available after all — corrected during Sprint S2a
+
+**This section originally said "no new tier-1 capability" and that the DB-dependent gap was unchanged. That was wrong, and the correction is the most consequential thing in this revision.**
+
+§2 records tier 1 (a real PostgreSQL exercising the real mapper XML) as unresolved, on the premise that Docker is prohibited so Testcontainers cannot run — RISK-S13. The premise is right and the conclusion is not: `io.zonky.test:embedded-postgres` starts a real PostgreSQL **binary as a process**, needs no Docker, is already declared in `pom.xml`, and the 톡전송 slice proved it works in this environment. RISK-S13's own addendum recorded that correction on 2026-08-19; it had not reached this plan.
+
+Sprint S2a therefore verifies the write path at **tier 1**: [`SenderNumberMapperIntegrationTest`](../../src/test/java/com/webcash/iris/biztalk/infra/db/SenderNumberMapperIntegrationTest.java), 14 cases against a real database, the real mapper XML, and the V3 schema built by V3's own statements.
+
+**Why that matters more here than anywhere else in the programme.** D-S1 is a defect *between* layers: the list masked a value, the grid carried it into the delete, the delete matched on the decrypted column — each correct alone, together deleting nothing. A test with a mocked mapper **cannot reproduce it**, because a double returns whatever row count the test chose. `aMaskedValueMatchesNothingAndReportsZero` runs the legacy's exact predicate against a real database and asserts it returns **zero without raising**. That is D-S1's premise, verified rather than described.
+
+**What is still not covered, stated precisely:**
+
+| Verified at tier 1 | Still unverifiable here |
+|--------------------|------------------------|
+| Statement shape — column/value alignment, aliases, the presence and absence of predicates, `INSERT … SELECT` correspondence | The **real** `ENCRYPT`'s determinism — spike S1-01, and V3 §1 refuses to create the index without it |
+| A zero-row delete returns 0 and raises nothing (D-S1's premise) | The **real** `masking`'s output format (ADR-005 §4.3) |
+| The unique index refuses a cross-institution duplicate inserted **around** the application (T-T5) | The volume of duplicates already in production data (S2a-01) |
+| The archive's byte-identical copy of `DP_NO`, and that an archived number is not a live duplicate | FR-SNDD-003's send-path half — `KAKAOTALK`'s own check (C-S01, RISK-S10) |
+
+The stand-in functions are same-name, same-signature only; they are stand-ins for the SQL's **shape**, never for the functions' behaviour, and the test's header says so. §2's tier table should be read with this section: for this slice, tier 1 is reachable and used.

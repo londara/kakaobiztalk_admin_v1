@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '../../test/renderWithProviders';
@@ -156,7 +156,7 @@ describe('SenderNumberPage', () => {
     expect(await screen.findByRole('option', { name: /△△기관 \(미사용\)/ })).toBeInTheDocument();
   });
 
-  it('D-S8 — 구현되지 않은 동작에 눌리는 버튼을 두지 않는다', async () => {
+  it('FR-SNDD-010 / D-S8 — 동작할 수 없는 버튼은 눌리지 않는다', async () => {
     vi.stubGlobal(
       'fetch',
       mockFetch((url) =>
@@ -167,18 +167,162 @@ describe('SenderNumberPage', () => {
     renderWithProviders(<SenderNumberPage />);
     await screen.findByRole('option', { name: /○○기관/ });
 
-    // 레거시 배치를 맞추기 위해 등록·삭제 자리는 두되, 동작이 구현되기 전까지는
-    // <b>비활성</b>이어야 한다. 단정하는 대상은 "버튼의 부재" 가 아니라 "눌리는 버튼의
-    // 부재" 다 — 레거시는 수정 핸들러만 두고 버튼을 두지 않았고(D-S8), 그 반대인
-    // "버튼만 있고 동작이 없는" 상태도 같은 결함이다.
+    // Sprint S1 은 이 두 버튼을 "구현 전이므로 비활성" 으로 두었다. S2a 에서 둘 다 연결되었고,
+    // 단정의 근거가 <b>바뀌었다</b> — 이제 비활성인 이유는 미구현이 아니라 <b>활성 조건</b>이다
+    // (FR-SNDD-010). 등록은 이용기관을, 삭제는 선택을 필요로 한다.
     //
-    // The 등록/삭제 slots exist so the layout matches the legacy, but must stay <b>disabled</b>
-    // until the operations land. What is asserted is not the absence of a button but the absence
-    // of a *pressable* one: the legacy had a 수정 handler with no button (D-S8), and the reverse
-    // — a button with no operation — is the same defect.
+    // 레거시는 조건 없이 팝업을 열었고, 삭제는 선택이 없어도 빈 목록으로 요청을 보냈다 —
+    // D-S1 때문에 그것마저 성공으로 보고되었다. 그리고 여전히 '수정' 버튼은 없다: 상세·수정은
+    // Sprint S2b 이며, 핸들러만 두고 버튼을 두지 않았던 D-S8 의 반대도 같은 결함이다.
+    //
+    // Sprint S1 left both buttons disabled *because the operations did not exist*. S2a wires both, so
+    // the reason has <b>changed</b>: they are disabled by their <b>enablement conditions</b>
+    // (FR-SNDD-010) — 등록 needs an institution, 삭제 needs a selection. The legacy opened its popups
+    // regardless and sent an empty list for delete, which D-S1 then reported as success. There is
+    // still no 수정 button: detail and edit are Sprint S2b.
     expect(screen.getByRole('button', { name: '등록' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '삭제' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: '수정' })).not.toBeInTheDocument();
+
+    // 기관을 고르면 등록만 열린다. 삭제는 선택이 없으므로 여전히 닫혀 있다.
+    // Choosing an institution opens 등록 only; 삭제 stays closed for want of a selection.
+    await userEvent.selectOptions(screen.getByLabelText('이용기관'), 'K0ABCD');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '등록' })).toBeEnabled(),
+    );
+    expect(screen.getByRole('button', { name: '삭제' })).toBeDisabled();
+
+    // 행을 고르면 삭제가 열린다.
+    // Choosing a row opens 삭제.
+    await userEvent.click(await screen.findByLabelText('01012345678 선택'));
+    expect(screen.getByRole('button', { name: '삭제' })).toBeEnabled();
+  });
+
+  it('FR-SNDD-009 — 선택은 페이지를 넘어도 유지되고 확인 화면이 전부 열거한다', async () => {
+    // 두 페이지짜리 결과. 각 페이지에 한 행씩 있고 서로 다른 번호다.
+    // A two-page result with one row per page and different numbers.
+    const pageOne = {
+      ...senderNumbersResponse,
+      totalCount: 2,
+      page: 0,
+      totalPages: 2,
+    };
+    const pageTwo = {
+      rows: [
+        {
+          ...senderNumbersResponse.rows[0],
+          ref: 'cGFnZS10d28',
+          number: '15881234',
+        },
+      ],
+      totalCount: 2,
+      page: 1,
+      size: 20,
+      totalPages: 2,
+    };
+
+    vi.stubGlobal(
+      'fetch',
+      mockFetch((url) => {
+        if (url.includes('/institutions')) {
+          return institutionsResponse;
+        }
+        return url.includes('page=1') ? pageTwo : pageOne;
+      }),
+    );
+
+    renderWithProviders(<SenderNumberPage />);
+    await screen.findByRole('option', { name: /○○기관/ });
+    await userEvent.selectOptions(screen.getByLabelText('이용기관'), 'K0ABCD');
+
+    // 1페이지에서 한 건을 고른다.
+    // One row is chosen on page 1.
+    await userEvent.click(await screen.findByLabelText('01012345678 선택'));
+    expect(screen.getByTestId('senderno-selected-count')).toHaveTextContent('선택 1건');
+
+    // 2페이지로 넘어간다. 선택은 유지된다 — 100건 삭제를 조립하는 정상 경로다(NFR-PERF-D03).
+    // Move to page 2. The selection survives: this is how a 100-number delete is assembled.
+    await userEvent.click(screen.getByRole('button', { name: '다음' }));
+    await screen.findByLabelText('15881234 선택');
+    expect(screen.getByTestId('senderno-selected-count')).toHaveTextContent('선택 1건');
+
+    // 2페이지에서도 한 건을 고른다.
+    // A second row is chosen on page 2.
+    await userEvent.click(screen.getByLabelText('15881234 선택'));
+    expect(screen.getByTestId('senderno-selected-count')).toHaveTextContent('선택 2건');
+
+    // 확인 화면은 <b>둘 다</b> 열거한다. 1페이지의 번호는 지금 화면에 없다 — 그것을 열거하지
+    // 못하면 운영자는 자기가 무엇을 지우는지 확인할 수 없고, 삭제는 보지 못한 것에 걸린다.
+    // 이것이 D-S1 의 계열이 서버 페이징을 통해 다시 들어오는 경로다.
+    //
+    // The confirmation enumerates <b>both</b>. The page-1 number is not on screen: unable to
+    // enumerate it, the operator cannot verify what is being deleted and the delete applies to
+    // something unseen — D-S1's family re-entering through server-side paging.
+    await userEvent.click(screen.getByRole('button', { name: '삭제' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveAccessibleName('발신번호 제거');
+    expect(within(dialog).getByText('01012345678')).toBeInTheDocument();
+    expect(within(dialog).getByText('15881234')).toBeInTheDocument();
+    expect(within(dialog).getByTestId('senderno-delete-count')).toHaveTextContent('선택 2건');
+  });
+
+  it('FR-SNDD-011 — 이용기관을 바꾸면 선택이 비워진다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      mockFetch((url) =>
+        url.includes('/institutions') ? institutionsResponse : senderNumbersResponse,
+      ),
+    );
+
+    renderWithProviders(<SenderNumberPage />);
+    await screen.findByRole('option', { name: /○○기관/ });
+    await userEvent.selectOptions(screen.getByLabelText('이용기관'), 'K0ABCD');
+
+    await userEvent.click(await screen.findByLabelText('01012345678 선택'));
+    expect(screen.getByTestId('senderno-selected-count')).toHaveTextContent('선택 1건');
+
+    // 보이지 않는 기관의 행을 선택된 채로 들고 있으면 삭제가 사용자가 보지 못한 행에 걸린다.
+    // 페이지 이동과 달리 여기서는 확인 화면이 그 사실을 드러내 주지도 못한다 — 기관명이
+    // 뒤섞인 목록을 운영자가 알아채기를 기대할 수 없다.
+    // Keeping rows from an institution no longer displayed would apply the delete to rows the user
+    // never saw. Unlike a page move, the confirmation could not reveal it either: expecting an
+    // operator to notice a mixed-institution list is not a control.
+    await userEvent.selectOptions(screen.getByLabelText('이용기관'), 'K0EFGH');
+    await waitFor(() =>
+      expect(screen.queryByTestId('senderno-selected-count')).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole('button', { name: '삭제' })).toBeDisabled();
+  });
+
+  it('FR-SNDC-012 — 등록 팝업은 목록이 고른 이용기관으로 열린다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      mockFetch((url) => {
+        if (url.includes('/institutions')) {
+          return institutionsResponse;
+        }
+        if (url.includes('/context')) {
+          return { institution: 'K0ABCD', institutionName: '○○기관' };
+        }
+        return senderNumbersResponse;
+      }),
+    );
+
+    renderWithProviders(<SenderNumberPage />);
+    await screen.findByRole('option', { name: /○○기관/ });
+    await userEvent.selectOptions(screen.getByLabelText('이용기관'), 'K0ABCD');
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '등록' })).toBeEnabled());
+    await userEvent.click(screen.getByRole('button', { name: '등록' }));
+
+    // 레거시 팝업은 부모 창의 IS_CD 를 받아 열렸다. 그 성질은 유지되지만 이제 타입이 그것을
+    // 강제한다 — 대화상자는 이용기관 없이 존재할 수 없다(ADR-SND-020).
+    // The legacy popup opened with the opener's IS_CD. That property is kept, and now the type
+    // enforces it: the dialog cannot exist without an institution (ADR-SND-020).
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveAccessibleName('발신번호 등록');
+    expect(within(dialog).getByText('K0ABCD')).toBeInTheDocument();
   });
 
   it('FR-SND-007 — 행 선택은 표시값이 아니라 ref 로 관리한다', async () => {

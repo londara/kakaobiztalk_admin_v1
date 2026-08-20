@@ -95,4 +95,107 @@
     <include refid="filters"/>
   </select>
 
+
+  <!--
+    ============================================================================
+    수정 경로 / the 수정 (edit) path — Sprint I2a
+    ============================================================================
+    source: IDO.KKB_FT_FTIS_INFO_L002 (detail), IDO.KKB_FT_FTIS_INFO_C001 (upsert)
+    req:    FR-INSTC-001, FR-INSTC-002, FR-INSTC-006, FR-INSTC-010…013, FR-ATK-005
+
+    레거시 원본 / the legacy originals:
+
+        /* _L002 (상세조회) */
+        SELECT FINTECH_ISCD, ISNM, ISENGNM, BRNO, ATK, CMOP, IS_STTS
+          FROM FT_FTIS_INFO
+         WHERE FINTECH_ISCD = :IS_CD
+
+        /* _C001 (등록/수정 — 하나의 UPSERT) */
+        WITH UPSERT AS (
+          UPDATE FT_FTIS_INFO SET ISNM=:IS_NM, …, ATK=:ATK, …,
+                 LAST_AMDT = to_char(now(),'YYYYMMDD24MISS'), …
+           WHERE FINTECH_ISCD = :IS_CD RETURNING *)
+        INSERT INTO FT_FTIS_INFO (…) SELECT … WHERE NOT EXISTS (SELECT * FROM UPSERT)
+
+    FIX D-I6   등록과 수정이 <b>한 문장</b>이었다. 이미 있는 기관코드로 등록을 호출하면 그
+               기관과 그 기관의 인증키까지 조용히 덮어썼다. → 수정은 UPDATE 만 한다.
+               대상이 없으면 0행이며 INSERT 로 전환되지 않는다.
+               Create and update were one statement, so a create with an existing code silently
+               overwrote that institution and its credential. Update is now an UPDATE alone.
+
+    FIX D-I9   to_char(now(),'YYYYMMDD24MISS') 에 HH 가 빠져 있어 시(時) 자리에 리터럴 24 가
+               기록되었다. 목록이 substring(0,8) 만 보여 4년간 가려졌다. → HH24 를 복원한다.
+               The pattern omitted HH, writing a literal 24 in the hour position on every row.
+
+    FIX D-I20  상세조회가 ATK 를 평문으로 반환했고 화면이 그 값을 입력칸에 넣었다. SELECT 는
+               ATK 를 그대로 읽지만, 서비스 계층이 마스킹한 뒤에만 화면에 도달한다
+               (InstitutionService.toRow → AtkMasker). 평문은 서비스 경계를 넘지 않는다.
+               The detail service returned the plaintext key and the screen put it in a field. The
+               SELECT still reads ATK, but only the masked value leaves the service layer.
+
+    ADR-INST-017  LAST_AMDT 는 <b>데이터베이스 시계</b>로 쓴다. 애플리케이션 Clock 은 UTC 이며
+               (감사 기록용으로 옳다) 이 컬럼에 쓰면 레거시가 같은 컬럼에 남긴 값보다 9시간
+               뒤처진다 — 두 시대가 한 컬럼에서 섞인다.
+               LAST_AMDT is written on the database clock. The application clock is UTC — correct
+               for audit records — and using it here would leave portal rows nine hours behind the
+               legacy rows in the same column.
+  -->
+
+  <!-- req: FR-INSTC-001, FR-INSTC-010 -->
+  <select id="findByCode" resultMap="institutionMap">
+    SELECT FINTECH_ISCD AS CODE,
+           ISNM         AS NAME,
+           ISENGNM      AS ENGLISH_NAME,
+           BRNO         AS BUSINESS_NUMBER,
+           ATK          AS AUTH_KEY,
+           IS_STTS      AS STATUS,
+           CMOP         AS DESCRIPTION,
+           RGDT         AS REGISTERED_AT,
+           LAST_AMDT    AS LAST_MODIFIED_AT
+      FROM FT_FTIS_INFO
+     WHERE FINTECH_ISCD = #{code}
+       <!-- FIX D-I7: 논리 삭제된 기관은 수정 화면에서도 열리지 않는다 / not openable either -->
+       AND IS_STTS &lt;&gt; 'D'
+  </select>
+
+  <!--
+    수정. 여기에 없는 컬럼이 이 문장의 요점이다.
+    The update. What is *not* in it is the point.
+
+      FINTECH_ISCD — WHERE 절에만. 기관코드는 불변이다(FR-INSTC-002)
+      ATK          — 재발급 문장만이 쓴다(FR-INSTC-011, TM-I022)
+      RGDT/RGSR_*  — 등록 시점의 사실이다. 수정은 등록이 아니다
+      그 외 30여 개 운영 컬럼 — 이 슬라이스가 소유하지 않는다(ADR-INST-016 rule 4)
+  -->
+  <!-- req: FR-INSTC-002, FR-INSTC-006, FR-INSTC-007, FR-INSTC-012, FR-INSTC-013 -->
+  <update id="update">
+    UPDATE FT_FTIS_INFO
+       SET ISNM      = #{command.name},
+           ISENGNM   = #{command.englishName},
+           BRNO      = #{command.businessNumber},
+           IS_STTS   = #{command.status},
+           CMOP      = #{command.description},
+           <!-- FIX D-I9 / ADR-INST-017 -->
+           LAST_AMDT = to_char(now(),'YYYYMMDDHH24MISS'),
+           LSED_ID   = #{command.actorId},
+           <!-- FR-INSTC-012: 포털의 신원은 이메일이다 / the portal's identity is the email -->
+           LSED_NM   = #{command.actorId}
+     WHERE FINTECH_ISCD = #{command.code}
+       AND IS_STTS &lt;&gt; 'D'
+  </update>
+
+  <!--
+    인증키 재발급. 인증키를 쓰는 <b>유일한</b> 문장이다.
+    Key rotation — the <b>only</b> statement that writes the credential.
+  -->
+  <!-- req: FR-ATK-001, FR-ATK-005, FR-INSTC-011, FR-INSTC-013 -->
+  <update id="rotateAuthKey">
+    UPDATE FT_FTIS_INFO
+       SET ATK       = #{authKey},
+           LAST_AMDT = to_char(now(),'YYYYMMDDHH24MISS'),
+           LSED_ID   = #{actorId},
+           LSED_NM   = #{actorId}
+     WHERE FINTECH_ISCD = #{code}
+       AND IS_STTS &lt;&gt; 'D'
+  </update>
 </mapper>

@@ -683,8 +683,29 @@ tbody tr:hover {
 
 .lg-tab-actions {
   display: flex;
+  align-items: center;
   gap: 6px;
   padding-bottom: 6px;
+}
+
+/*
+  선택 건수 / the selected count.
+
+  목록이 서버 페이징이므로 선택된 행이 화면에 없을 수 있다(FR-SNDD-009). 이 값이 보이지 않으면
+  운영자는 3페이지를 보면서 1페이지에서 고른 두 건을 잊은 채 삭제를 누른다. 그래서 눈에 띄어야
+  하고, 버튼과 나란히 있어야 한다 — 삭제를 누르기 직전에 읽히는 자리다.
+  With server-side paging a selected row may not be on screen (FR-SNDD-009). Unseen, this count
+  lets an operator on page 3 press 삭제 having forgotten two rows chosen on page 1. It therefore has
+  to be noticeable and to sit beside the button — where it is read just before 삭제 is pressed.
+*/
+.lg-selected-count {
+  margin-left: 4px;
+  padding: 4px 10px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #1e3a8a;
+  background: #e8effb;
+  border: 1px solid #b6c8e8;
 }
 
 /* 버튼 / buttons — 레거시의 회색 그라데이션을 단색 대비로 대체 */
@@ -1299,4 +1320,230 @@ table.lg-grid tbody td.lg-cell-ellipsis > span {
 }
 .lg-row button {
   flex: 0.5;
+}
+
+/* ---------------------------------------------------------------------------
+   수정 팝업 / the edit popup
+   source: biztalk_admin_01_view.jsp — .Pop_header, .Pop_wrap, .Pop_container, table.tb_ipt
+   req: FR-INSTC-001, FR-INST-007, WCAG 2.1 AA
+
+   레거시는 별도 브라우저 창(ap.openPop, 980×630)이었다. 같은 문서 안의 대화상자로 바꾼
+   이유는 두 가지다: 팝업 차단기에 막히지 않는다는 것, 그리고 포커스와 접근성 트리를
+   제어할 수 있다는 것 — 별도 창에서는 모달 의미를 스크린리더에 전달할 방법이 없다.
+   보이는 골격(어두운 배경 위 흰 상자, 회색 라벨 칸을 가진 2열 격자)은 레거시를 따른다.
+
+   The legacy opened a separate 980×630 browser window. This is a dialog in the same document for
+   two reasons: it cannot be blocked by a popup blocker, and focus and the accessibility tree are
+   controllable — a separate window has no way to convey modal semantics to a screen reader. The
+   visible shape (a white panel over a dimmed page, a two-column grid with grey label cells)
+   follows the legacy.
+   --------------------------------------------------------------------------- */
+
+.lg-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  /*
+    레거시 팝업 배경(#666 계열)을 반투명으로 옮긴 값. 뒤 내용이 읽히지 않을 만큼 어둡게
+    하되 완전히 가리지는 않는다 — 어떤 화면 위에 열렸는지가 맥락이다.
+    The legacy popup's grey backdrop as a translucent layer: dark enough that the page behind
+    stops competing for attention, not so dark that the context is lost.
+  */
+  background: rgba(31, 35, 40, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 32px 16px;
+  overflow-y: auto;
+  z-index: 100;
+}
+
+.lg-modal {
+  width: 100%;
+  max-width: 980px;          /* 레거시 openPop width:980 */
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-top: 2px solid #6b7785;
+  padding: 20px 24px 24px;
+}
+
+.lg-modal-header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 18px;
+}
+
+.lg-modal-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/*
+  팝업 안의 격자는 라벨·입력 <b>2벌</b>이다 — 레거시 tb_ipt 의 col 160px/auto/160px/auto.
+  목록 화면의 .lg-form-grid 는 3벌(6열)이므로 여기서만 열 정의를 덮어쓴다. 나머지 규칙
+  (라벨 여백, 입력 높이, textarea 폭)은 그대로 쓴다.
+
+  The grid inside the popup carries <b>two</b> label-and-field pairs — the legacy table's
+  160px/auto/160px/auto columns — where the list screen's .lg-form-grid has three. Only the column
+  definition is overridden; the label spacing, field height and textarea width rules are reused.
+*/
+.lg-modal .lg-form-grid {
+  grid-template-columns: 10rem minmax(0, 1fr) 10rem minmax(0, 1fr);
+}
+
+.lg-modal .lg-form-grid textarea {
+  min-height: 9rem;
+}
+
+/*
+  읽기 전용 값. 입력칸처럼 보이지 않게 한다 — 레거시는 이용기관코드와 인증키를
+  {@code disabled} 입력칸으로 두었고, 그 모양은 "지금은 못 고치지만 고칠 수 있는 값" 으로
+  읽힌다. 기관코드는 불변이며(FR-INSTC-002) 인증키는 이 화면에서 편집 대상이 아니다.
+  A read-only value, deliberately not shaped like a field: the legacy used disabled inputs, which
+  read as "editable, just not now". The code is immutable (FR-INSTC-002) and the key is not edited
+  here at all.
+*/
+.lg-modal .lg-form-readonly {
+  display: block;
+  min-height: 34px;
+  padding: 6px 0;
+  font-size: 0.9375rem;
+  color: var(--text);
+  word-break: break-all;
+}
+
+/* 입력칸 옆에 버튼이 붙는 줄 — 레거시 .btnStyle3 이 입력 뒤에 오던 자리 */
+.lg-field-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lg-field-inline > .lg-form-readonly {
+  flex: 1 1 auto;
+}
+
+.lg-field-inline > .lg-btn {
+  flex: 0 0 auto;
+}
+
+/*
+  필드 단위 오류. 격자의 <b>입력 칸 열</b>에 놓여 해당 입력 바로 아래에 오게 한다 —
+  레거시는 alert() 을 연달아 띄웠고, 그때 어느 칸이 문제인지는 문장으로만 알 수 있었다.
+  A per-field error, placed in the grid's field column so it lands directly under its input. The
+  legacy raised a chain of alert() calls, where which box was wrong could only be inferred from the
+  sentence.
+*/
+.lg-field-error {
+  grid-column: 2 / -1;
+  margin: -4px 0 2px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--danger);
+}
+
+.lg-field-error::before {
+  /* 색만으로 오류를 전달하지 않는다 (WCAG 1.4.1) */
+  content: '! ';
+}
+
+/*
+  확인 절차와 알림. 팝업 안에 인라인으로 두는 이유는 window.confirm 이 무엇을 확인하는지
+  맥락과 함께 보여줄 수 없기 때문이다.
+  Confirmations and notices sit inline because window.confirm cannot show what is being confirmed
+  alongside its context.
+*/
+.lg-modal-confirm,
+.lg-modal-notice {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--danger);
+  background: #fdf6f5;
+}
+
+.lg-modal-notice {
+  border-left-color: var(--focus);
+  background: #f2f7fd;
+}
+
+.lg-modal-confirm p,
+.lg-modal-notice p {
+  margin: 0 0 10px;
+  font-size: 0.9375rem;
+}
+
+.lg-modal-notice label {
+  margin: 0 0 4px;
+  font-size: 0.8125rem;
+}
+
+.lg-modal-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 저장·닫기 줄 — 레거시 .t_center mgb30 */
+.lg-modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+/*
+  삭제 확인의 대상 목록 / the delete confirmation's target list.
+
+  줄이지 않는다 — 100건이면 100줄이다(FR-SNDD-009). 요약하면 다른 페이지에서 고른 행을 운영자가
+  확인할 방법이 없어지고, 그때 삭제는 보지 못한 것에 걸린다. 스크롤이 요약보다 낫다.
+  Never abbreviated: 100 targets mean 100 lines (FR-SNDD-009). Summarising would leave rows chosen on
+  another page unverifiable, and the delete would then apply to something unseen. Scrolling beats
+  summarising.
+*/
+.lg-target-list {
+  max-height: 12rem;
+  margin: 4px 0 0;
+  padding: 6px 10px 6px 26px;
+  overflow-y: auto;
+  font-variant-numeric: tabular-nums;
+  background: var(--panel, #f7f8fa);
+  border: 1px solid var(--border, #d4d8de);
+}
+
+.lg-target-list > li {
+  padding: 1px 0;
+}
+
+/* 목록 화면의 성공 안내 / the list screen's success notice */
+.lg-notice {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: #14532d;
+  background: #eef8f1;
+  border: 1px solid #a6d6b6;
+}
+
+/*
+  좁은 화면 / narrow viewports.
+  격자를 한 벌(2열)로 접는다. 10rem 라벨 두 벌과 입력 두 벌은 좁은 폭에서 겹친다.
+  The grid folds to a single pair: two 10rem labels and two fields collide in a narrow viewport.
+*/
+@media (max-width: 720px) {
+  .lg-modal .lg-form-grid {
+    grid-template-columns: 7rem minmax(0, 1fr);
+  }
+
+  .lg-modal .lg-form-grid > .lg-form-wide,
+  .lg-modal .lg-field-error {
+    grid-column: 2 / -1;
+  }
+
+  .lg-modal-backdrop {
+    padding: 12px 8px;
+  }
 }

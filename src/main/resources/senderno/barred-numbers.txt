@@ -1,0 +1,45 @@
+# =============================================================================
+# 발신번호로 등록할 수 없는 특수·긴급번호
+# Special and emergency numbers barred from registration as a 발신번호
+#
+# req: FR-SNDC-006, CONST-BIZ-D03, ADR-SND-021, AMB-S06
+# =============================================================================
+#
+# 이 파일이 코드 밖에 있는 이유 / why this list is not in the code
+# -----------------------------------------------------------------------------
+# 이 목록은 규제 데이터이며 소유자가 이 팀이 아니다(KISA / KAIT). 자주 바뀌지는 않지만
+# 결코 바뀌지 않는 것도 아니고, 바뀔 때 릴리스를 기다려야 한다면 그 사이 화면은 사용자에게
+# 고지한 규칙을 지키지 못한다 — 그것이 D-S12 다.
+#
+# The list is regulatory data owned outside this team (KISA / KAIT). It changes rarely but not
+# never, and if a correction had to wait for a release the screen would meanwhile fail to keep a
+# rule it states to the operator — which is D-S12.
+#
+# 비어 있거나 읽을 수 없으면 애플리케이션이 기동하지 않는다 / an empty or unreadable list
+# fails startup. 조용히 규칙이 사라지는 것이 D-S12 의 실패 방식이므로, 그 상태를 기동
+# 실패로 만든다. The silent disappearance of the rule *is* D-S12's failure mode, so it is made
+# a boot failure instead.
+#
+# 112 · 114 · 119 · 1335 는 PM 결정(AMB-S06)이 명시한 값이며 BarredNumbers.MANDATORY 에서
+# 항상 합쳐진다 — 이 파일에서 지워도 차단은 유지된다.
+# 112, 114, 119 and 1335 are named by PM ruling AMB-S06 and are always unioned in from
+# BarredNumbers.MANDATORY: deleting them here does not un-bar them.
+#
+# 형식 / format: 한 줄에 한 번호, 숫자만. '#' 뒤는 주석.
+#                one number per line, digits only; '#' begins a comment.
+# =============================================================================
+
+112     # 경찰 / police
+113     # 간첩신고 / espionage report
+114     # 전화번호 안내 / directory enquiries
+117     # 학교폭력 신고 / school-violence report
+118     # 사이버 침해 신고 / cyber-incident report
+119     # 소방·구급 / fire and ambulance
+120     # 민원 상담 / civil-complaint line
+125     # 밀수 신고 / smuggling report
+128     # 환경 신고 / environmental report
+129     # 보건복지 상담 / health and welfare
+132     # 법률구조 상담 / legal aid
+182     # 실종아동 신고 / missing children
+1335    # 방송통신위원회 / Korea Communications Commission
+1339    # 응급의료 정보센터 / emergency medical information

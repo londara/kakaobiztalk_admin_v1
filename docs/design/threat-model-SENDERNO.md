@@ -1,9 +1,9 @@
 # Threat Model — 발신번호 (Sender Number Management)
 
-> **Version**: 1.0
-> **Date**: 2026-08-17
+> **Version**: 1.1 — write-path pass, 2026-08-20
+> **Date**: 2026-08-17 (v1.0) · 2026-08-20 (v1.1)
 > **Method**: STRIDE across trust boundaries + attack-surface analysis
-> **Predecessor**: [REQUIREMENTS-SPEC-SENDERNO.md](../requirements/REQUIREMENTS-SPEC-SENDERNO.md), [architecture-overview-SENDERNO.md](architecture-overview-SENDERNO.md)
+> **Predecessor**: [REQUIREMENTS-SPEC-SENDERNO.md](../requirements/REQUIREMENTS-SPEC-SENDERNO.md) v1.1, [architecture-overview-SENDERNO.md](architecture-overview-SENDERNO.md)
 > **Siblings**: [threat-model.md](threat-model.md), [threat-model-LOGIN.md](threat-model-LOGIN.md), [threat-model-INSTITUTION.md](threat-model-INSTITUTION.md)
 > **Orphan threats: 0** — every threat maps to an ADR or an NFR-SEC requirement.
 
@@ -68,6 +68,10 @@ TB-3 and TB-4 have no analogue in the earlier slices and are where this model do
 | T-T4 | Malformed or special numbers registered (112, 114, 1335, non-numeric) | Rule stated to users, implemented nowhere; no digit check | Server-side validation of format, digits and the special-number list | FR-SNDC-005, FR-SNDC-006, AMB-S06 |
 | T-T5 | **A duplicate is introduced through `AOA_ADMIN`, bypassing our uniqueness rule** | Nothing prevents it | DB-level unique constraint binds every writer | ADR-SND-018, CONST-BIZ-D01 |
 | T-T6 | Over-length 설명/사유 used to bloat storage or break downstream rendering | HTML `maxlength` only | Server-side length validation | FR-SNDC-007, FR-SNDU-006 |
+| T-T7 | **The barred-number rule is weakened by editing its configuration**, permitting registration of an emergency number *(new at v1.1)* | N/A — the rule did not exist (D-S12) | Deployment configuration under change control, **not** a portal-editable table: ADR-SND-021 rejected the DB option specifically so that the role which registers numbers cannot edit the rule that bars them. Empty/malformed ⇒ startup failure; 112/114/119/1335 asserted in tests independently of configuration | CONST-BIZ-D03, ADR-SND-021 |
+| T-T8 | **The delete request names refs the operator never selected**, or refs belonging to another institution *(new at v1.1)* | `IS_CD` and the number list came straight from the body into the delete loop | Every ref is re-resolved server-side against the session's scope; a ref that resolves to no live row in scope ⇒ 409, whole transaction rolled back. `SenderNumberRef` is an **opaque identifier, not a capability** | FR-AZ-D03, FR-SNDD-002, FR-SND-007 |
+
+> **T-T8 and FR-SNDD-009 are not the same control, and conflating them would be a mistake.** FR-SNDD-009 (the confirmation enumerates exactly what will be deleted) protects the **operator from their own stale selection** — it is a correctness guarantee on the client. T-T8's mitigation is entirely server-side and assumes the client is hostile. A crafted request never sees the confirmation dialog at all, so the enumeration contributes nothing against it; equally, the server-side scope check does nothing about an operator who deletes rows they forgot they had selected. Both are needed, for different reasons.
 
 ### 3.3 Repudiation
 
@@ -121,6 +125,8 @@ T-D4 is a genuine availability threat rather than a data one: an institution wit
 | Free-text 설명 / 사유 | Authenticated operators | T-T3, T-T6 | Bound parameters, server-side length limits, output escaping |
 | Audit store | Operators, auditors | T-I4 | No numbers written |
 | Institution context endpoint | Authenticated operators | T-I2 | Narrow response shape, asserted by test |
+| **Barred-number list resource** *(new at v1.1)* | Deployment / release process — **not operators** | T-T7 | Change control on the artefact; fail-loud startup validation; configuration-independent test assertions |
+| **Delete request ref set** *(new at v1.1)* | Authenticated operators | T-T8 | Each ref re-resolved against session scope; zero-match ⇒ 409 |
 
 **Surface removed:** the `COOCON_SMS` external integration is not wired (AMB-S01), so the outbound channel and its `JexSystemConfig` credential are absent from this slice entirely. This is the one security benefit of the AMB-S01 ruling and it is worth stating plainly alongside its cost — declining OTP removed an external attack surface at the price of T-S2.
 
@@ -147,7 +153,16 @@ Neither blocks G2 on this project's deliverables. Both must appear in the G3 rel
 
 ## 7. Maintenance
 
-Per harness §3.5, this model is updated when the architecture, the external channels or the PII handling changes. Two specific triggers for this slice:
+Per harness §3.5, this model is updated when the architecture, the external channels or the PII handling changes. Specific triggers for this slice:
 
 - **Spike S1-01 result.** If `ENCRYPT` proves non-deterministic, T-I7 becomes live and ADR-007 gains a second key to manage.
 - **RISK-S01 resolution.** If `BIZ_DB` and `BIZTALK_DB` turn out to be different physical databases, TB-4 changes shape and ADR-SND-017's central mechanism needs re-derivation.
+- **기관코드 reuse.** If the institution slice ever re-issues a 기관코드, RISK-S14 becomes live: the new holder inherits the previous holder's live sender numbers — a spoofing threat of T-S2's severity arriving with no write at all.
+
+### 7.1 Updated at v1.1 (2026-08-20)
+
+The write path moved from planned to specified, which added two threats (**T-T7**, **T-T8**) and two attack surfaces, and clarified one boundary that was previously implicit: **`SenderNumberRef` is an identifier, not a capability.** S1's API documentation already said so; this pass makes it a tested property of the delete path rather than a comment.
+
+PII handling changed in one respect and it is recorded here because §3.4/T-I5 depended on it: AMB-S09 resolves to encrypting the operator's email rather than replacing it with an internal ID, so **`RGSR_ID`/`UDT_ID` become consistent with `RGSR_NM` without a user master**. Reads must tolerate plaintext as well, because `AOA_ADMIN` keeps writing it — which means T-I5 is mitigated for rows *we* write and remains open for rows written elsewhere. That is a narrowing, not a closure, and RISK-S05 already carries it.
+
+**Orphan threats: still 0.** T-T7 maps to CONST-BIZ-D03 / ADR-SND-021; T-T8 maps to FR-AZ-D03, FR-SNDD-002 and FR-SND-007.

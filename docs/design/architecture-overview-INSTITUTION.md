@@ -67,9 +67,10 @@ flowchart TB
 | `InstitutionController` | **Exists** — the read-only list used by 문자내역's dropdown. Extended here, and **corrected**: it currently queries a table name that does not exist (§5) | FR-TEN-004 |
 | `InstitutionAdminController` | New. Create, update, disable, enable, delete, duplicate-check, key generate/rotate/reveal | FR-INSTC-\*, FR-INSTL-\*, FR-ATK-\* |
 | `InstitutionService` | Search, paging, escaping, masking. Read side | FR-INST-001…009 |
+| `InstitutionWriteService` | New. 등록/수정 and 인증키 rotation. Server-side validation, audit with before/after, transactional. **Everything in it mutates** — which is why it is not part of `InstitutionService` | FR-INSTC-001…016, FR-ATK-001/005 |
 | `InstitutionLifecycleService` | State transitions and delete cascade, transactional | FR-INSTL-001…009 |
-| `AtkGenerator` / `AtkMasker` | `SecureRandom` 160-bit generation; last-4 masking | FR-ATK-001/002 |
-| `InstitutionCacheNotifier` | Best-effort legacy cache refresh with **surfaced** failure | FR-INSTC-008, NFR-OPS-I02 |
+| `AtkGenerator` / `AtkMasker` | `SecureRandom` 160-bit generation (27 Base62 chars); last-4 masking | FR-ATK-001/002 |
+| ~~`InstitutionCacheNotifier`~~ | **Not built** (PM ruling AMB-I11, 2026-08-20). The cache the legacy refreshed is in-process inside IRIS_ADMIN; a separate process cannot reach it, and this portal keeps no institution cache of its own. FR-INSTC-008 is met by invalidating the portal's own query cache; the legacy runtime's cache remains RISK-I02 | FR-INSTC-008, NFR-OPS-I02 |
 | `AuditService` | **Exists**, from the 로그인 slice. Reused unchanged for institution events | FR-AZ-I04, NFR-OPS-AUDIT-I01 |
 | `InstitutionMapper` / `InstitutionAdminMapper` | MyBatis. Ported SQL in XML with `-- FIX D-In:` annotations per the established convention | CONST-DATA-I04 |
 
@@ -105,7 +106,7 @@ The legacy IDO maps `SELECT` columns to output fields **positionally**, bridging
 | `IS_STTS` | `status` (`USE_YN`) |
 | `BRNO`, `ATK`, `CMOP`, `RGDT`, `LAST_AMDT` | unchanged |
 
-> `FT_FTIS_INFO` has 40+ columns. This slice writes 11 and leaves the rest untouched even on update (ADR-INST-016 rule 4) — a naive full-column `INSERT` would null out 30 columns of operational configuration.
+> `FT_FTIS_INFO` has 40+ columns. This slice writes 11 on create and **8 on update** (§4.1), leaving the rest untouched (ADR-INST-016 rule 4) — a naive full-column `INSERT` would null out 30 columns of operational configuration.
 
 ## 4. API surface
 
@@ -113,17 +114,39 @@ The legacy IDO maps `SELECT` columns to output fields **positionally**, bridging
 |--------|------|------|-------------|
 | `GET` | `/api/admin/institutions` | OPERATOR | FR-TEN-004 — existing, list for dropdowns |
 | `GET` | `/api/admin/institutions/search` | OPERATOR | FR-INST-001…006 — paged search |
-| `GET` | `/api/admin/institutions/{code}` | OPERATOR | FR-INSTC-001 — detail for the edit form |
+| `GET` | `/api/admin/institutions/{code}` | OPERATOR | FR-INSTC-001, FR-INSTC-010 — detail for the edit form, **인증키 masked** (D-I20) |
 | `GET` | `/api/admin/institutions/availability?code=` | OPERATOR | FR-INSTC-005 — **boolean only** |
 | `POST` | `/api/admin/institutions` | OPERATOR | FR-INSTC-004 — create, rejects duplicates |
-| `PUT` | `/api/admin/institutions/{code}` | OPERATOR | FR-INSTC-004 — update, never creates |
+| `PUT` | `/api/admin/institutions/{code}` | OPERATOR | FR-INSTC-004 — update, never creates. **Body carries no 인증키** (FR-INSTC-011) |
 | `POST` | `/api/admin/institutions/{code}/status` | OPERATOR | FR-INSTL-001/002 |
 | `DELETE` | `/api/admin/institutions/{code}` | OPERATOR | FR-INSTL-004 — logical |
-| `POST` | `/api/admin/institutions/keys` | OPERATOR | FR-ATK-001 — generate for a new institution |
-| `POST` | `/api/admin/institutions/{code}/key/rotate` | OPERATOR | FR-ATK-005 |
+| `POST` | `/api/admin/institutions/keys` | OPERATOR | FR-ATK-001 — generate a candidate for a **new** institution (I2b, with 등록) |
+| `POST` | `/api/admin/institutions/{code}/key/rotate` | OPERATOR | FR-ATK-005, FR-INSTC-011 — **commits on its own confirmation**, returns the new key once |
 | `GET` | `/api/admin/institutions/{code}/key` | OPERATOR + audit | FR-ATK-003 — reveal |
 
 **Create and update are separate verbs.** The legacy exposed one upsert endpoint, which is the root of D-I6: a create call with an existing code silently overwrote that institution and its credential. Splitting them makes the defect unrepresentable rather than merely guarded against.
+
+### 4.1 What the 수정 path writes, and what it cannot
+
+`FT_FTIS_INFO` has 40+ columns. The update statement names **eight**:
+
+| Column | Source |
+|--------|--------|
+| `ISNM`, `ISENGNM`, `BRNO`, `IS_STTS`, `CMOP` | The request body, after server-side validation |
+| `LSED_ID`, `LSED_NM` | The session identity — the email, never the body (FR-INSTC-007/012) |
+| `LAST_AMDT` | `to_char(now(),'YYYYMMDDHH24MISS')` — the database clock (ADR-INST-017) |
+
+Three columns are **absent by construction**, and each absence is a defect made unrepresentable rather than a rule to be remembered:
+
+| Absent | Why | Requirement |
+|--------|-----|-------------|
+| `FINTECH_ISCD` | The path identifies the target; the code cannot be in the `SET` clause, so no request can rename an institution onto another's code | FR-INSTC-002 |
+| `ATK` | Only the rotation statement touches the credential. An ordinary save therefore **cannot** overwrite a key — including with the masked value the form holds, which is the accident this design removes | FR-INSTC-011, FR-ATK-005 |
+| `RGDT`, `RGSR_ID`, `RGSR_NM` | Registration facts. An update is not a registration | FR-INSTC-006 |
+
+The remaining 30-odd operational columns (`SRVR_IP`, `GRAMT`, `BSNN_STTS_CKYN`, …) are not named at all, which is what ADR-INST-016 rule 4 requires: a second live system depends on them.
+
+**Rotation is a third verb, not a field.** `POST /{code}/key/rotate` generates server-side, writes `ATK` plus the same three bookkeeping columns, and audits under its own action. It takes effect when the operator confirms it — not at 저장 — so the audit record can never name a key that was never stored (FR-INSTC-011, PM ruling AMB-I13).
 
 ## 5. Correction to already-delivered code
 

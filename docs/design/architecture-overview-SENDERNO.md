@@ -1,10 +1,10 @@
 # Architecture Overview — 발신번호 (Sender Number Management)
 
-> **Version**: 1.0
-> **Date**: 2026-08-17
-> **Predecessor**: [REQUIREMENTS-SPEC-SENDERNO.md](../requirements/REQUIREMENTS-SPEC-SENDERNO.md) — **G1 PENDING**
+> **Version**: 1.1 — write-path pass, 2026-08-20 (§4.3 added)
+> **Date**: 2026-08-17 (v1.0) · 2026-08-20 (v1.1)
+> **Predecessor**: [REQUIREMENTS-SPEC-SENDERNO.md](../requirements/REQUIREMENTS-SPEC-SENDERNO.md) v1.1 — **G1 PENDING**
 > **Siblings**: [architecture-overview.md](architecture-overview.md) (문자내역), [architecture-overview-LOGIN.md](architecture-overview-LOGIN.md), [architecture-overview-INSTITUTION.md](architecture-overview-INSTITUTION.md)
-> **ADRs**: [ADR-SND-017](adr/ADR-SND-017-senderno-lifecycle.md), [ADR-SND-018](adr/ADR-SND-018-encrypted-number-uniqueness.md), [ADR-SND-019](adr/ADR-SND-019-senderno-read-audit.md)
+> **ADRs**: [ADR-SND-017](adr/ADR-SND-017-senderno-lifecycle.md), [ADR-SND-018](adr/ADR-SND-018-encrypted-number-uniqueness.md), [ADR-SND-019](adr/ADR-SND-019-senderno-read-audit.md), [ADR-SND-020](adr/ADR-SND-020-write-dialog-presentation.md), [ADR-SND-021](adr/ADR-SND-021-barred-number-list.md)
 
 ---
 
@@ -70,8 +70,10 @@ flowchart TD
   end
 
   subgraph domain["com.webcash.iris.biztalk.domain"]
-    svc["SenderNumberService"]
+    svc["SenderNumberService<br/>read path"]
+    wsvc["SenderNumberWriteService<br/>register · delete (S2a)"]
     val["SenderNumberValidator<br/>format, special numbers, length"]
+    barred["BarredNumbers<br/>loaded resource (S2a)"]
     ref["SenderNumberRef<br/>opaque identity"]
     row["SenderNumberRow / SenderNumberCriteria"]
   end
@@ -88,15 +90,25 @@ flowchart TD
   end
 
   ui --> ctl --> svc
-  svc --> val
+  ctl --> wsvc
+  wsvc --> val
+  val --> barred
   svc --> ref
+  wsvc --> ref
   svc --> mapper
+  wsvc --> mapper
   svc --> tenant
+  wsvc --> tenant
   svc --> audit
-  svc -.->|기관명 only| inst
+  wsvc --> audit
+  wsvc -.->|기관명 only| inst
   mapper --> row
   svc --> paged
 ```
+
+**Read and write are separate services (v1.1).** `SenderNumberService` keeps the list; `SenderNumberWriteService` owns register and delete. This follows the `InstitutionService` / `InstitutionWriteService` split from the 이용기관관리 slice, and the reason is the same in both: the read path is `@Transactional(readOnly = true)` and the write path needs a real transaction with per-statement result checks (D-S7). Putting both behind one class means the transaction annotation stops describing the class, which is how a read-only default ends up silently applied to a write — or, worse, how a write's rollback boundary ends up wider than anyone intended.
+
+`BarredNumbers` is the loaded-resource holder behind the validator ([ADR-SND-021](adr/ADR-SND-021-barred-number-list.md)). It is a separate component rather than a static field so that its **fail-loud startup validation** has somewhere to live — a `Set.of(...)` cannot refuse to exist.
 
 **Nothing in `shared` is modified.** `TenantContext.effectiveInstitutionCode()` already implements exactly what FR-AZ-D03 requires — an operator may name an institution, a client-company user's requested value is ignored in favour of their own. `AuditService` already writes `REQUIRES_NEW` and already records denials. This slice consumes both as they are; its authorization requirements are new only in that the legacy had none.
 
@@ -164,6 +176,51 @@ The row is located by `ref` (opaque, [ADR-SND-018](adr/ADR-SND-018-encrypted-num
 
 Once the row leaves `KKB_DPNO_LDGR`, `KAKAOTALK`'s existing check rejects the number with no change on its side.
 
+**Where the deleted set comes from (added v1.1).** The `[ref…]` entering this flow is the list screen's selection, which under server-side paging may include rows not currently rendered. Two separate guarantees cover that, and they are not interchangeable — see the note under T-T8 in the [threat model](threat-model-SENDERNO.md):
+
+- **Client side, FR-SNDD-009**: the confirmation dialog enumerates every selected number, whichever page it was selected on, and the request carries exactly that set. This protects the operator from a stale selection.
+- **Server side, T-T8**: each ref is re-resolved against the session's scope inside the transaction. `SenderNumberRef` is an identifier, not a capability — a crafted set naming another institution's rows fails the same way a non-existent ref does.
+
+### 4.3 Register (UC-SND-002) — added v1.1
+
+```mermaid
+sequenceDiagram
+  participant U as Operator
+  participant S as SenderNumberService
+  participant V as SenderNumberValidator
+  participant I as InstitutionService
+  participant M as SenderNumberMapper
+  participant DB as BIZTALK_DB
+  participant A as AuditService
+
+  U->>S: openRegister(institution from the list)
+  S->>I: nameOf(institution)
+  I-->>S: 기관코드 + 기관명 only  %% never the detail service — D-S18
+  U->>S: register(number, description, reason)
+  Note over S: one transaction — ADR-002
+  S->>V: validate(number)
+  alt rejected
+    V-->>S: NOT_NUMERIC / BARRED / TOO_SHORT / …
+    S-->>U: 400 naming the field and the rule
+  else accepted
+    S->>M: findLiveAnywhere(number)   %% all institutions — D-S9
+    alt already live
+      S-->>U: 409 duplicate
+    else
+      S->>M: insertLedger(row, actor from session)
+      M->>DB: INSERT KKB_DPNO_LDGR
+      S->>M: history(number, 'C', reason)
+      M->>DB: INSERT KKB_DPNO_HIS
+      S->>A: record(senderno.register, SUCCESS)
+      Note over S: commit — history failure fails the registration
+    end
+  end
+```
+
+Four legacy properties are inverted here, and each maps to a defect: validation happens on the server and every branch of it is reachable (D-S11, D-S13); the barred-number check exists at all, from loaded configuration (D-S12, [ADR-SND-021](adr/ADR-SND-021-barred-number-list.md)); the uniqueness lookup spans **all** institutions (D-S9); and the result of *each* statement is checked rather than the previous one's (D-S7). The institution never comes from the request body (FR-SNDC-012) — the write-path twin of D-S3.
+
+**The uniqueness check reads live rows only.** That single choice is what makes FR-SNDD-008 (re-register a previously deleted number) fall out of the design instead of needing a special case: an archived number is not in the ledger, so it is not a duplicate. It is the same property that makes `KAKAOTALK` reject it.
+
 ## 5. Data model changes
 
 | Object | Change | Basis |
@@ -183,4 +240,7 @@ All DDL is additive. `KKB_DPNO_LDGR` is never altered in a way that changes what
 | Ownership verification (ARS/SMS OTP) | PM ruling AMB-S01; RESIDUAL-S01. The `COOCON_SMS` integration is not wired |
 | 수수료 tab | No contract, no query, no behaviour to port (§2.7 of the spec) |
 | Authentication | Inherited from the 로그인 slice unchanged |
+| A cap on 발신번호 per institution *(v1.1)* | AMB-S07 stays open with working assumption A (no cap). Adding one later is a validation rule over a count query — no schema, no migration |
+| Cascade from institution deletion *(v1.1)* | PM ruling AMB-S08 / CONST-BIZ-D04. Sending is barred one level up by institution state (ADR-INST-014), so moving the rows buys nothing. Legacy `KKB_DPNO_LDGR_D002` is not ported. Residual: RISK-S14 |
+| A `window.open` popup for 등록/삭제 *(v1.1)* | [ADR-SND-020](adr/ADR-SND-020-write-dialog-presentation.md). The popup was the legacy's transport; its three load-bearing properties (institution supplied by the list, read-only on the form, opener refreshed on success) are preserved by a modal dialog and lost by a real popup |
 | Changes to `KAKAOTALK` or `AOA_ADMIN` | Outside the project boundary. Their coexistence is handled by design and tracked as RISK-S01/S03/S05 |

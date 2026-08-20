@@ -1,8 +1,8 @@
 # Use Case UC-SND-004: Delete one or more sender numbers
 
 > **REQ-ID**: UC-SND-004
-> **Version**: 1.0
-> **Predecessor**: [REQUIREMENTS-SPEC-SENDERNO.md](../REQUIREMENTS-SPEC-SENDERNO.md)
+> **Version**: 1.1 — write-path pass, 2026-08-20
+> **Predecessor**: [REQUIREMENTS-SPEC-SENDERNO.md](../REQUIREMENTS-SPEC-SENDERNO.md) §1.5
 > **Legacy origin**: screen 13 — `biztalk_admin_13_view.jsp` / `biztalk_admin_13.js` / `WSVC.biztalk_admin_10_d001` / `IDO.KKB_DPNO_LDGR_D001`, `IDO.KKB_DPNO_HIS_C001`
 
 ---
@@ -12,11 +12,11 @@
 | Item | Content |
 |------|---------|
 | **Primary user** | Internal operator |
-| **Precondition** | Authenticated operator session; one or more sender numbers selected in UC-SND-001 |
+| **Precondition** | Authenticated operator session; one or more sender numbers selected in UC-SND-001. **Until at least one is, 삭제 is unavailable** (FR-SNDD-010) |
 | **Trigger** | Operator clicks 삭제 |
 | **Success outcome** | Every selected number is logically deleted in one transaction, each with its own history record carrying the 사유 |
 | **Failure outcome** | Unauthorized rejection, a number that no longer matches, or a rolled-back transaction — **never a silent no-op reported as success** |
-| **Related FR** | FR-SNDD-001…008, FR-SNDH-001…003, FR-AZ-D01…D05 |
+| **Related FR** | FR-SNDD-001…011, FR-SND-012, FR-SNDH-001…003, FR-AZ-D01…D05 |
 | **Related BR** | BR-002, BR-007 |
 
 > **Scope note.** This flow contains the slice's most serious defect. In production today, deletion **matches nothing, changes nothing, and reports success** (D-S1) — see E-1. It also has no ownership verification, by PM ruling AMB-S01.
@@ -26,7 +26,7 @@
 | Step | Actor | Action | System response |
 |------|-------|--------|-----------------|
 | 1 | Operator | Selects one or more rows and clicks 삭제 | Operator role verified server-side (FR-AZ-D01/D02/D04); institution scope verified (FR-AZ-D03) |
-| 2 | System | Opens the confirmation view | Lists exactly which numbers will be deleted (FR-SNDD-007) |
+| 2 | System | Opens the confirmation view | Lists **exactly** which numbers will be deleted — every selected row, including rows selected on a page no longer displayed (FR-SNDD-007, FR-SNDD-009) |
 | 3 | Operator | Enters 사유 and confirms | 사유 is mandatory (FR-SNDD-006) |
 | 4 | System | Resolves each selected row | By a server-resolvable key, never the displayed string (FR-SND-007) |
 | 5 | System | Verifies every number matches a live row | A request matching nothing **fails with an explicit error** (FR-SNDD-002) |
@@ -34,7 +34,7 @@
 | 7 | System | Writes one history record **per number** | Each carries that number alone, plus actor, timestamp, `ACN='D'` and 사유 (FR-SNDD-004, FR-SNDH-003) |
 | 8 | System | Commits | All numbers succeed or none do (FR-SNDD-005, NFR-OPS-D01) |
 | 9 | System | Writes the audit record | Actor, timestamp, institution, every number affected (FR-AZ-D05) |
-| 10 | System | Closes the popup | The list refreshes; deleted numbers no longer appear (FR-SNDD-003) |
+| 10 | System | Closes the confirmation | The list re-queries at the current 이용기관 and page and the selection is cleared; deleted numbers no longer appear (FR-SND-012, FR-SNDD-003) |
 
 ## 3. Alternative flows
 
@@ -78,6 +78,15 @@
 - At Step 3. A direct call omits `REASON`.
 - Action: rejected (FR-SNDD-006). The 사유 is the only record of *why* a number was withdrawn.
 
+### 4.8 E-8b: Selected rows are no longer on screen **(v1.1)**
+- At Steps 1–2. The operator selects two numbers on page 1, pages to page 3, and presses 삭제.
+- Action: the confirmation enumerates **both** selected numbers, not the rows currently displayed, and the deletion acts on exactly that enumerated set (FR-SNDD-009).
+- **Why this flow exists.** It is D-S1's defect class reached by a different route. D-S1 deleted against a *masked* value; server-side paging — which this project introduced to fix D-S14 — makes it possible to delete against a *stale* selection. In the legacy the whole result set lived in the browser, so "selected" and "visible" could never diverge. **A fix for one defect created the opportunity for another, and the requirement closes it explicitly rather than by convention.**
+
+### 4.9 E-9b: 삭제 pressed with nothing selected **(v1.1)**
+- At Step 1.
+- Action: the control is unavailable; no request is issued (FR-SNDD-010). **Regression guard:** the legacy button opened popup 13 regardless, so an empty selection produced a delete request with an empty number list — which, given D-S1, also reported success.
+
 ### 4.8 E-8: Deleted number still accepted by the send path
 - After Step 10.
 - Action: the number must be rejected as a caller ID (FR-SNDD-003). **This is an open design risk, not a solved one** — see CONFLICT-S02 and AMB-S05. A status column added by this project is invisible to the legacy send path, which would keep honouring the number. Verified at cutover, not assumed.
@@ -99,15 +108,19 @@
 
 ## 6. Screen sketch
 
+Legacy screen 13's layout, in a modal dialog rather than a `window.open` popup ([ADR-SND-020](../../design/adr/ADR-SND-020-write-dialog-presentation.md)). The 삭제번호 block is the enumeration FR-SNDD-009 requires — it is the operator's last chance to see the whole set, so it lists every selected number and never abbreviates to a count.
+
 ```
 ┌─ 발신번호 제거 ─────────────────────────────────────────────┐
 │ 이용기관코드 [K0xxxx  (읽기전용)]                           │
 │ 삭제번호     [0212345678                                  ] │
-│              [15881234                                    ] │
+│  (선택 2건)  [15881234                                    ] │
 │ 사유*        [                                            ] │
 │                      [ 삭제 ]  [ 닫기 ]                     │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+The list screen carries the same count next to 삭제 while rows are selected, so a selection made three pages ago is never invisible (FR-SNDD-009).
 
 ## 7. Test scenarios
 
@@ -133,3 +146,10 @@
 | TC-S004-18 | Bulk performance | Delete 100 numbers | Completes within 5 s as one transaction |
 | TC-S004-19 | Connection release | 200 consecutive delete operations | No connection leak; pool stable |
 | TC-S004-20 | Audit content | Any deletion | Audit record holds actor, timestamp, institution, every number affected |
+| TC-S004-21 | **FR-SNDD-009 — cross-page selection** | Select 1 row on page 1, page to 3, press 삭제 | The confirmation lists the page-1 number; exactly that number is deleted |
+| TC-S004-22 | **FR-SNDD-009 — enumerated set is the deleted set** | Select 3, delete, then diff the confirmation's list against the history rows | Identical sets, no member added or dropped |
+| TC-S004-23 | FR-SNDD-010 | Nothing selected | 삭제 unavailable; no request issued |
+| TC-S004-24 | FR-SNDD-011 | Select rows, then change 이용기관 | Selection cleared; the count returns to 0 |
+| TC-S004-25 | FR-SNDD-011 | Select rows, then page within the same institution | Selection retained; the count is unchanged |
+| TC-S004-26 | FR-SND-012 | Delete while on page 2 | List re-queries at page 2; selection empty |
+| TC-S004-27 | CONST-BIZ-D04 | Logically delete an institution, then read its numbers | Rows remain in the ledger; sending is refused by the institution check, not by their absence |

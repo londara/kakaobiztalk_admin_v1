@@ -1,7 +1,5 @@
 package com.webcash.iris.biztalk.domain;
 
-import java.util.Set;
-
 /**
  * 발신번호 형식 검증. / Sender-number format validation.
  *
@@ -31,41 +29,15 @@ import java.util.Set;
  * {@code number} rule never ran because {@code validationEngine} was initialised but never
  * invoked (D-S11). The net effect is that {@code abcdefgh} was registrable.</p>
  *
+ * <p>금지 번호 목록은 이 클래스가 갖지 않는다 — {@link BarredNumbers} 가 배포 자산에서 읽어
+ * 오며, 그래야 규제 목록이 릴리스 없이 갱신된다(CONST-BIZ-D03, ADR-SND-021).</p>
+ * <p>The barred list does not live here: {@link BarredNumbers} loads it from a deployment asset so
+ * that a regulatory list can be corrected without a release (CONST-BIZ-D03, ADR-SND-021).</p>
+ *
  * // source: biztalk_admin_12_c001_act.jsp — isValidDpNo(); biztalk_admin_12_view.jsp — infoList01
- * // req: FR-SNDC-005, FR-SNDC-006, FR-SNDC-010
+ * // req: FR-SNDC-005, FR-SNDC-006, FR-SNDC-010, FR-SNDC-013, CONST-BIZ-D03
  */
 public final class SenderNumberValidator {
-
-    /**
-     * 등록이 금지된 특수·긴급 번호. / Special and emergency numbers barred from registration.
-     *
-     * <p>레거시 화면은 112·114·1335 를 <b>예시로</b> 들었을 뿐 완전한 목록을 남기지 않았고,
-     * 코드에는 어떤 형태로도 존재하지 않았다. 여기 담긴 값은 그 예시와 널리 알려진 긴급번호를
-     * 합친 <b>작업 가정</b>이며, 권위 있는 목록은 미해결이다(AMB-S06). 최종 목록은 릴리스
-     * 없이 갱신할 수 있도록 설정으로 옮기는 것이 계획이다.</p>
-     * <p>The legacy screen named 112, 114 and 1335 as <b>examples</b> and left no complete list;
-     * the code contained none at all. The values here are a <b>working assumption</b> combining
-     * those examples with widely known emergency numbers. The authoritative list is unresolved
-     * (AMB-S06) and is planned to move to configuration so it can change without a release.</p>
-     *
-     * // req: FR-SNDC-006, AMB-S06
-     */
-    static final Set<String> BARRED_NUMBERS = Set.of(
-            "112",   // 경찰 / police
-            "113",   // 간첩신고 / espionage report
-            "114",   // 전화번호 안내 / directory enquiries
-            "117",   // 학교폭력 / school violence
-            "118",   // 사이버 침해 / cyber incident
-            "119",   // 소방·구급 / fire and ambulance
-            "120",   // 민원 / civil complaints
-            "125",   // 밀수신고 / smuggling report
-            "128",   // 환경신고 / environmental report
-            "129",   // 보건복지 / health and welfare
-            "132",   // 법률구조 / legal aid
-            "182",   // 실종아동 / missing children
-            "1335",  // 방송통신위원회 / KCC
-            "1339"   // 응급의료 / emergency medical
-    );
 
     private SenderNumberValidator() {
     }
@@ -79,12 +51,21 @@ public final class SenderNumberValidator {
      * <p>The order is deliberate: the digit check must precede the prefix and length rules for
      * those rules to mean anything.</p>
      *
+     * <p>금지 번호 목록을 <b>인수로 받는다.</b> 상수로 두면 목록을 배포 자산으로 옮긴 의미가
+     * 사라지고(CONST-BIZ-D03), 검증기가 어떤 목록으로 판정했는지도 호출부에서 보이지 않는다.
+     * 이 메서드는 순수 함수로 남고, 목록을 고르는 일은 {@link BarredNumbers} 가 한다.</p>
+     * <p>The barred list arrives as an <b>argument</b>. Holding it as a constant would undo the
+     * point of moving it into a deployment asset (CONST-BIZ-D03) and would hide which list a
+     * verdict was reached against. This method stays a pure function; choosing the list is
+     * {@link BarredNumbers}' job.</p>
+     *
      * @param number 검증할 발신번호 / the sender number to validate
+     * @param barred 금지 번호 목록 / the barred-number list
      * @return 검증 결과 / the validation outcome
      */
     // source: biztalk_admin_12_c001_act.jsp — isValidDpNo()
-    // req: FR-SNDC-005, FR-SNDC-006, FR-SNDC-010
-    public static Result validate(String number) {
+    // req: FR-SNDC-005, FR-SNDC-006, FR-SNDC-010, CONST-BIZ-D03
+    public static Result validate(String number, BarredNumbers barred) {
         if (number == null || number.isBlank()) {
             return Result.REQUIRED;
         }
@@ -115,7 +96,7 @@ public final class SenderNumberValidator {
         // 112 는 8자리 미만이라 우연히 걸리지만 1335 는 그렇지 않다.
         // D-S12 — stated to users, implemented nowhere. The length rule does not cover it:
         // 112 is caught incidentally by the minimum length, but 1335 is not.
-        if (BARRED_NUMBERS.contains(value)) {
+        if (barred.contains(value)) {
             return Result.BARRED;
         }
 

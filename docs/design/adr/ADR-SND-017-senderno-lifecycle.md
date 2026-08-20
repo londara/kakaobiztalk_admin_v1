@@ -42,6 +42,15 @@ This is the same situation ADR-INST-014 faced and the same principle applies —
 
 - `KKB_DPNO_LDGR` — live numbers only. A row's presence means "this number may be used".
 - `KKB_DPNO_ARCV` (new) — the complete deleted row plus deletion metadata: who, when, 사유, and the originating operation.
+
+  > **Amended 2026-08-20 (Sprint S2a).** The table is created as `CREATE TABLE KKB_DPNO_ARCV (LIKE
+  > KKB_DPNO_LDGR)` plus three added columns, rather than by writing out the column list. Two of the
+  > ledger's columns are `ENCRYPT()`'s return type and **this project does not have `ENCRYPT`'s
+  > definition** (ADR-005 §4.3, unresolved), so a hand-written type would be a guess — and a guess
+  > that differs from the ledger's would surface only on restore, which is the one operation this
+  > table exists for. `LIKE` copies the definition the database already holds. `INCLUDING` is
+  > deliberately not used: copying the ledger's unique index would make it impossible to delete the
+  > same number twice, which FR-SNDD-008 permits.
 - `KKB_DPNO_HIS` — unchanged, continues to record the event (`ACN='D'`).
 
 Delete is `INSERT INTO KKB_DPNO_ARCV … ; DELETE FROM KKB_DPNO_LDGR …` inside one transaction with the history write (ADR-002). Restoration is the reverse move and is a supported operation, not a DBA recovery exercise.

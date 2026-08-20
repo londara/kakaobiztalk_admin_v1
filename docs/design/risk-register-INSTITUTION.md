@@ -12,11 +12,13 @@
 | Severity | Count |
 |----------|-------|
 | High impact | 6 |
-| Medium impact | 5 |
-| Low impact | 1 |
-| **Total** | **12** |
+| Medium impact | 9 |
+| Low impact | 2 |
+| **Total** | **17** |
 
 Three risks (RISK-I01, I02, I03) are **not closable by writing code**. They need an operational audit, a cutover action, and a business decision respectively.
+
+> **Revised 2026-08-20** — five risks added (RISK-I13…I17) by the screen-01 gap pass. Four of the five are consequences of decisions taken deliberately at that pass, which is why they are risks rather than defects: a rewritten requirement (I13), a strict validation ruling (I14), a single-display credential (I15), and two clocks for one edit (I16). The fifth (I17) is the coexistence window applied to the credential itself.
 
 ---
 
@@ -92,6 +94,36 @@ Three risks (RISK-I01, I02, I03) are **not closable by writing code**. They need
 - **담당자**: PM + 정보보호 · **모니터링**: G3
 - **비고**: Carried, not new. It now binds on more record types than before — key reveals and deletions are exactly the events an audit would ask for
 
+
+### RISK-I13 — FR-INSTC-008 is now satisfied by less than it says
+- **영역**: 기술/운영 · **영향**: M · **확률**: M · **전략**: 수용 (bounded)
+- **대응 계획**: AMB-I11 rewrote the requirement: the portal invalidates its own view and does **not** refresh the legacy `FINInstitution` cache, because it cannot reach it. During coexistence a portal edit is therefore visible in the portal immediately and in the legacy runtime only after that cache expires or the instance restarts. Bounded by the same cutover action as RISK-I02 — disable legacy screens 00/01, then the legacy cache no longer serves an editing path
+- **담당자**: PM (cutover owner) · **모니터링**: every sprint gate; mandatory at cutover
+- **비고**: The mitigation is honesty, not a mechanism. The alternative — a notifier calling into IRIS_ADMIN — was declined as a call into a system this project does not own (ADR-INST-016). **If cutover slips indefinitely this stops being bounded**, exactly as noted on RISK-I02
+
+### RISK-I14 — Strict 사업자등록번호 validation blocks unrelated edits
+- **영역**: 운영 · **영향**: M · **확률**: M · **전략**: 수용
+- **대응 계획**: AMB-I12 enforces FR-INSTC-009 on every save. A row holding a legacy value that is not 10 digits cannot be saved at all until that value is corrected — including when the operator only wanted to set 사용여부 to `N`. Mitigations: the error names the field, and 중지 has its own endpoint in I2b that does not run form validation, so the urgent case has a path that is not blocked
+- **담당자**: PM · **모니터링**: first week of I2a in staging; revisit if it fires more than once
+- **비고**: The escape hatch matters. Without the separate 중지 endpoint this ruling would mean bad reference data could delay stopping a customer, which inverts the intent. **Recorded so that the I2b lifecycle endpoints are not "simplified" into the form path later**
+
+### RISK-I15 — A rotated key that never reaches the customer
+- **영역**: 운영/보안 · **영향**: M · **확률**: M · **전략**: 완화
+- **대응 계획**: FR-INSTC-011 commits rotation on confirmation and shows the new key **once**. If the operator loses it before distributing it, the customer's integration stays broken and the only recovery until FR-ATK-003 (reveal, I2b) exists is a second rotation. Mitigations: the confirmation names the consequence before committing; the key is displayed in a selectable field, not a transient toast; reveal lands in I2b
+- **담당자**: `frontend-developer` + 운영 · **모니터링**: I2a acceptance; closed when FR-ATK-003 ships
+- **비고**: The single-display rule is deliberate (FR-ATK-004 — the key is not stored anywhere client-side and not logged). The residual is operational, and it shrinks to nothing once reveal exists
+
+### RISK-I16 — Two clocks describe one edit
+- **영역**: 기술 · **영향**: L · **확률**: M · **전략**: 완화
+- **대응 계획**: ADR-INST-017 writes `LAST_AMDT` on the database's wall clock while the audit record for the same edit is written on the application's UTC clock. An incident reviewer comparing the two sees a nine-hour gap that is correct but surprising. Mitigation: the offset is documented in the ADR §2.2, in `InstitutionAdminMapper`, and in the audit action's Javadoc
+- **담당자**: `architect` · **모니터링**: G2; re-check if the deployment zone changes
+- **비고**: The alternative — one clock for both — is worse in either direction: UTC in the column breaks comparability with legacy rows; wall clock in the audit store breaks ordering across instances
+
+### RISK-I17 — The legacy popup still generates weak keys, into the same column
+- **영역**: 보안 · **영향**: M · **확률**: M · **전략**: 완화
+- **대응 계획**: While legacy screen 01 is live it can write `ATK` from `Math.random()` (D-I4) to any institution — including one the portal has just rotated with `SecureRandom`. The portal's key quality is therefore only as durable as the legacy screen's availability. Mitigation: legacy screens 00/01 disabled at deployment (T-I2-12); until then, treat any key whose rotation is not in the portal's audit trail as suspect
+- **담당자**: PM (cutover owner) · **모니터링**: every sprint gate; mandatory at cutover
+- **비고**: This is TM-I019 (concurrent legacy edit) sharpened to the credential. The audit trail is what makes it detectable: a portal-rotated key has an `institution.key.rotate` record, a legacy-written one has nothing
 ---
 
 ## Monitoring schedule
@@ -99,9 +131,10 @@ Three risks (RISK-I01, I02, I03) are **not closable by writing code**. They need
 | When | Review |
 |------|--------|
 | Sprint I1 day 1 | RISK-I05 (mapper fix), RISK-I09 (environment) |
-| Before Sprint I2 | RISK-I01 (data audit), RISK-I06 (DBA), RISK-I10 (format) |
-| Every sprint gate | RISK-I02, RISK-I11 |
+| Before Sprint I2a | RISK-I01 (data audit), RISK-I06 (DBA), RISK-I10 (format), RISK-I14 (validation ruling), RISK-I16 (clocks) |
+| Every sprint gate | RISK-I02, RISK-I11, RISK-I13, RISK-I17 |
 | G2 | RISK-I07 |
 | Staging validation | RISK-I08, RISK-I09 |
 | G3 | RISK-I03, RISK-I12 |
-| Cutover | **RISK-I02 (mandatory)**, RISK-I01 re-check, RISK-I04 |
+| I2a acceptance | RISK-I15 (rotated key distribution) |
+| Cutover | **RISK-I02 (mandatory)**, RISK-I01 re-check, RISK-I04, **RISK-I13**, **RISK-I17 (mandatory)** |

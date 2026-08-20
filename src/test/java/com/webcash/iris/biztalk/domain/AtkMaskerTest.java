@@ -24,8 +24,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 class AtkMaskerTest {
 
     /**
-     * 운영 데이터에서 관찰된 실제 인증키 길이. 레거시 생성기가 20자를 만든다.
-     * The real 인증키 length observed in production data; the legacy generator emits 20.
+     * 레거시 인증키 길이 — 운영 화면에서 확인된 20자. 값 자체는 합성한다(SI2a-01).
+     * The legacy 인증키 length, 20 as seen on a live screen. The values themselves are synthetic
+     * (SI2a-01).
      */
     private static final int LEGACY_KEY_LENGTH = 20;
 
@@ -46,7 +47,7 @@ class AtkMaskerTest {
     @DisplayName("마스킹 결과에 원본 앞부분이 남지 않는다 / no leading part of the original survives")
         // req: FR-ATK-002, TM-I003
     void leaksNoLeadingCharacters() {
-        String key = "6oG4mYDC6vrCLIyTzy8o";
+        String key = "SAMPLEsampleSAMPLE01";
 
         String masked = AtkMasker.mask(key);
 
@@ -94,8 +95,8 @@ class AtkMaskerTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "6oG4mYDC6vrCLIyTzy8o",
-            "89uJFb0wEm1N4MjXohVF",
+            "SAMPLEsampleSAMPLE01",
+            "SAMPLEsampleSAMPLE02",
             "aB3",
             "abcdefghijklmnopqrstuvwxyz0123456789"
     })

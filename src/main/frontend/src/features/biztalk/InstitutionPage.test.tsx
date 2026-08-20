@@ -26,7 +26,7 @@ describe('InstitutionPage', () => {
     name: '쿠콘_마이데이터사업1본부',
     englishName: 'COOCON_Business1',
     businessNumber: '1234567890',
-    authKeyMasked: '****************ohVF',
+    authKeyMasked: '****************LE02',
     status: 'Y',
     statusLabel: '사용',
     description: 'TESTSET1',
@@ -89,8 +89,8 @@ describe('InstitutionPage', () => {
     // 모든 고객사 키가 함께 나간다.
     // The legacy rendered every institution's key in a plaintext column: one screenshot took
     // the whole set with it.
-    expect(await screen.findByText('****************ohVF')).toBeInTheDocument();
-    expect(screen.queryByText(/89uJFb0wEm1N4MjXohVF/)).not.toBeInTheDocument();
+    expect(await screen.findByText('****************LE02')).toBeInTheDocument();
+    expect(screen.queryByText(/SAMPLEsampleSAMPLE02/)).not.toBeInTheDocument();
   });
 
   it('D-I5: 문서 어디에도 평문 키 형태가 없다 / no plaintext key shape appears in the document', async () => {
@@ -331,5 +331,64 @@ describe('InstitutionPage', () => {
     for (const label of ['등록', '수정', '중지', '삭제', '재사용']) {
       expect(screen.queryByRole('button', { name: label })).not.toBeInTheDocument();
     }
+  });
+
+  it('기관코드를 누르면 수정 팝업이 열린다 / clicking a 기관코드 opens the edit popup', async () => {
+    /*
+      레거시도 같은 동작이었다 — 그리드 렌더러가 만든 링크가 fn_getDetail(iscd) 을 호출해
+      MODE=U 로 biztalk_admin_01.act 팝업 창을 열었다. 차이는 두 가지다: 그 링크는 DB 값을
+      인라인 onclick 에 문자열로 이어 붙여 만들었고(D-I12), 창은 별도 브라우저 창이어서
+      모달 의미를 스크린리더에 전달할 수 없었다.
+
+      The legacy did the same thing: the grid renderer's link called fn_getDetail(iscd) and opened
+      the popup window with MODE=U. Two differences — that link was built by concatenating a DB
+      value into an inline onclick (D-I12), and a separate browser window cannot convey modal
+      semantics to a screen reader.
+    */
+    const fetchMock = vi.fn(async (url: string) => {
+      const body = url.includes('/search') ? page() : row;
+      return { ok: true, status: 200, json: async () => body } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderWithProviders(<InstitutionPage />);
+    await screen.findByRole('table');
+
+    await userEvent.click(screen.getByRole('button', { name: 'K00001' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveAccessibleName('이용기관 수정');
+
+    // 팝업은 목록 행을 그대로 쓰지 않고 그 기관을 다시 조회한다 — 지금의 값을 고쳐야 한다.
+    // The popup re-reads the institution instead of reusing the list row: the edit must apply to
+    // what is there now.
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) => url === '/api/admin/institutions/K00001'),
+      ).toBe(true),
+    );
+  });
+
+  it('팝업을 닫아도 조회 조건이 유지된다 / the criteria survive closing the popup', async () => {
+    // NFR-USE-I01. 조건이 URL 에 있으므로 팝업 상태와 무관하다 — 팝업 대상을 URL 에 두지
+    // 않는 이유도 같다: 공유된 주소가 남의 편집 상태로 열리면 안 된다.
+    // NFR-USE-I01. The criteria live in the URL and are independent of the popup — which is also
+    // why the popup's target does not: a shared address must not open on someone else's edit.
+    const fetchMock = vi.fn(async (url: string) => {
+      const body = url.includes('/search') ? page() : row;
+      return { ok: true, status: 200, json: async () => body } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderWithProviders(<InstitutionPage />, { route: '/institutions?name=쿠콘&status=Y&page=0' });
+    await screen.findByRole('table');
+
+    await userEvent.click(screen.getByRole('button', { name: 'K00001' }));
+    await screen.findByRole('dialog');
+    await userEvent.click(screen.getByRole('button', { name: '닫기' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByLabelText('검색')).toHaveValue('쿠콘');
+    expect(screen.getByLabelText('사용')).toBeChecked();
   });
 });

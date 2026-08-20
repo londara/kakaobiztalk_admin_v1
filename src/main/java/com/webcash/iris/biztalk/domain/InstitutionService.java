@@ -63,6 +63,41 @@ public class InstitutionService {
     }
 
     /**
+     * 기관코드로 한 건을 조회한다 — 수정 화면이 여는 값.
+     * Reads one institution by code, as opened by the edit screen.
+     *
+     * <p><b>인증키는 마스킹되어 나간다.</b> 레거시 상세조회
+     * ({@code biztalk_admin_01_l002})는 {@code ATK} 를 평문으로 반환했고 팝업이 그 값을
+     * 입력칸에 넣었다 — 즉 목록(D-I5)과 중복검사(D-I3)에 이어 <b>세 번째</b> 노출
+     * 경로였으며, 첫 분석에서 기록되지 않았다(D-I20). 마스킹은 {@link #toRow} 한 곳에서만
+     * 일어나므로 조회 경로가 늘어도 평문이 새 경로로 빠져나갈 수 없다.</p>
+     * <p><b>The 인증키 leaves masked.</b> The legacy detail service returned {@code ATK} in
+     * plaintext and the popup put it in a field — a <b>third</b> exposure path after the list
+     * (D-I5) and the duplicate check (D-I3), unrecorded by the first analysis (D-I20). Masking
+     * happens in {@link #toRow} alone, so a new read path cannot leak the plaintext.</p>
+     *
+     * <p>없는 기관과 논리 삭제된 기관을 <b>구분하지 않는다</b> — 둘 다 예외다. 구분해 주면
+     * "이 코드는 존재하지만 삭제되었다" 가 응답으로 새어 열거 창구가 된다(TM-I002).</p>
+     * <p>A missing institution and a logically deleted one are <b>not distinguished</b>: both
+     * raise. Distinguishing them would leak "this code exists but was deleted" into the response
+     * and become an enumeration oracle (TM-I002).</p>
+     *
+     * @param code 기관코드 / the institution code
+     * @return 마스킹된 이용기관 / the institution, with its key masked
+     * @throws InstitutionNotFoundException 대상이 없거나 논리 삭제되었을 때 / when absent or deleted
+     */
+    // source: biztalk_admin_01.js — loadData(): biztalk_admin_01_l002
+    // req: FR-INSTC-001, FR-INSTC-010, FR-ATK-002, D-I20
+    @Transactional(readOnly = true)
+    public InstitutionRow findByCode(String code) {
+        InstitutionAdminMapper.InstitutionEntity entity = mapper.findByCode(code);
+        if (entity == null) {
+            throw new InstitutionNotFoundException(code);
+        }
+        return toRow(entity);
+    }
+
+    /**
      * 매퍼 원본 행을 클라이언트 표현으로 변환한다.
      * Converts a raw mapper row into its client representation.
      *

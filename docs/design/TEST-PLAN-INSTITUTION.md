@@ -1,7 +1,7 @@
 # 테스트계획서 — 이용기관관리 (Client Institution Management)
 
-> **Version**: 1.0
-> **Date**: 2026-08-14
+> **Version**: 1.1
+> **Date**: 2026-08-14 · **Revised**: 2026-08-20 (screen-01 gap pass — §3.1, §4.1; E-03 expanded, E-06 added)
 > **Predecessor**: [REQUIREMENTS-SPEC-INSTITUTION.md](../requirements/REQUIREMENTS-SPEC-INSTITUTION.md), [DEV-PLAN-INSTITUTION.md](DEV-PLAN-INSTITUTION.md)
 > **Companions**: [TEST-PLAN.md](TEST-PLAN.md) (문자내역), [TEST-PLAN-LOGIN.md](TEST-PLAN-LOGIN.md)
 > **Status**: DRAFT — awaiting G2
@@ -84,9 +84,19 @@ One test minimum per in-scope legacy defect. These are the tests that prove the 
 
 D-I13/I14/I15 belong to the excluded 담당자관리 screen. **Their regression test is an absence test**: `managerEndpoints_doNotExist` asserts `biztalk_admin_00_l002`/`_l003` have no equivalent in the new system, so the roster-disclosure surface cannot reappear.
 
+### 3.1 Added by the screen-01 gap pass (2026-08-20)
+
+| Defect | Test | Assertion |
+|--------|------|-----------|
+| **D-I20** | `detail_masksAuthKey` | The detail endpoint's payload contains no value of the generated shape — 27 Base62 characters — and no substring of the stored key beyond the visible last 4 |
+| **D-I20** | `editModal_hasNoPlaintextKeyInDom` | Rendered modal: no attribute or text node holds a full key. The legacy put it in `value` on a `disabled` input, which is visible to anything that can read the DOM |
+| **D-I9** | `updateStatement_usesHh24` | Mapper XML: `to_char(now(),'YYYYMMDDHH24MISS')` present, `YYYYMMDD24MISS` **absent** (ADR-INST-017) |
+
+> **D-I17's test changes shape.** `cacheRefreshFailure_surfacesAndAlerts` tested a notifier that AMB-I11 removed. It is replaced by `saveFailure_reachesTheOperator` plus `listReflectsSaveWithoutManualResearch` — the failure path and the staleness path, which is what the requirement now says. `save_releasesConnection` is unchanged.
+
 ## 4. Negative-path security suite
 
-The core of this plan — 22 tests, each proving a **refusal** or a **non-disclosure**.
+The core of this plan — **30 tests** (S-01…S-30, the last eight added by the screen-01 gap pass, §4.1), each proving a **refusal** or a **non-disclosure**.
 
 | # | Test | Proves |
 |---|------|--------|
@@ -104,6 +114,21 @@ The core of this plan — 22 tests, each proving a **refusal** or a **non-disclo
 | S-22 | Legacy-shape query `WHERE IS_STTS='Y'` after a logical delete | Deleted institution **absent** (ADR-INST-014 §2.1) |
 
 S-22 is the one that would be easy to omit and matters most: it is the only automated evidence that our deletion semantics degrade safely for the legacy reader.
+
+### 4.1 Negative-path tests added by the gap pass
+
+| # | Test | Proves |
+|---|------|--------|
+| S-23 | Update payload carrying an `authKey` field, masked or plaintext | The field does not exist in the contract; the stored `ATK` is byte-identical afterwards (TM-I022) |
+| S-24 | Update payload with `status='D'` | 400; `IS_STTS` unchanged (TM-I023) |
+| S-25 | Update payload carrying a `code` different from the path | The path governs; no row's `FINTECH_ISCD` changes (FR-INSTC-002) |
+| S-26 | Update on a row whose stored 사업자등록번호 is 12 digits, changing only 사용여부 | Refused, message names the field (FR-INSTC-016 — the deliberate break) |
+| S-27 | Rotation as a non-operator | 403; `ATK` unchanged |
+| S-28 | Rotation audit record inspected | Actor, target and action present; **no key material in any field** (FR-ATK-004) |
+| S-29 | Rotation, then 닫기 without 저장 | The new key is persisted — a confirmed rotation is not discardable (FR-INSTC-011) |
+| S-30 | Update on a logically deleted institution (`IS_STTS='D'`) | 404; the row is not resurrected by an edit (ADR-INST-014) |
+
+S-29 is the counter-intuitive one. It asserts that a *write survives a cancel*, which reads like a bug until the reason is stated: the operator confirmed a credential rotation, the customer's integration is already broken, and an audit record already exists. Rolling it back at 닫기 would leave the audit trail describing a key that was never stored.
 
 ## 5. Legacy coexistence tests
 
@@ -178,12 +203,13 @@ Registry volume is hundreds of rows, not millions — load risk is low, and the 
 
 Parity is **intent parity**, not literal reproduction — 16 of the legacy behaviours are defects being deliberately changed (AMB-I01 precedent). Each is an approved deviation recorded in `defect_ref` of the matrix, and §3 is the evidence.
 
-## 12. E2E core scenarios (TOP 5)
+## 12. E2E core scenarios (TOP 6 — E-06 added 2026-08-20)
 
 | # | Journey | UC |
 |---|---------|-----|
 | E-01 | Search the registry, page, open an institution | UC-INST-001 |
 | E-02 | Register a new institution end to end, including server key generation | UC-INST-002 |
-| E-03 | Edit an institution; confirm 기관코드 is immutable | UC-INST-002 |
+| E-03 | Open the popup from the 기관코드 link, edit 기관명 and 설명, save, see the list update — 기관코드 read-only and 인증키 masked throughout | UC-INST-002 |
 | E-04 | Disable, confirm in the list, re-enable | UC-INST-003 |
 | E-05 | Delete with the dependent-count preview; confirm it leaves the list and history survives | UC-INST-003 |
+| E-06 | 인증키 재발급 — confirm the warning, receive the new key once, verify the audit record and that 닫기 does not undo it | UC-INST-002 §3.2 |

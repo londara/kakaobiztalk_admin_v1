@@ -14,6 +14,7 @@ import {
   type InstitutionStatusFilter,
 } from '../../api/institutionApi';
 import { DataTable, type GridColumnMeta } from '../../components/DataTable';
+import { InstitutionEditDialog } from './InstitutionEditDialog';
 import { useInstitutionSearch } from './queries';
 
 /**
@@ -46,10 +47,14 @@ import { useInstitutionSearch } from './queries';
  *
  * <h2>동작하지 않는 버튼을 두지 않는다 / no buttons that do nothing</h2>
  * <p>레거시 화면에는 담당자 '추가'·'삭제' 버튼이 마크업에 존재했지만 이벤트 핸들러가
- * 아예 없었다(D-I13). 이 화면은 Sprint I1 범위인 <b>조회</b>만 제공하며, 등록·수정·중지·
- * 삭제 버튼은 해당 기능이 구현되는 Sprint I2 에서 함께 추가한다.</p>
+ * 아예 없었다(D-I13). 이 화면은 <b>조회</b>와 <b>수정</b>을 제공한다 — 기관코드를 누르면
+ * 수정 팝업이 열린다(FR-INST-007). 등록·중지·재사용·삭제 버튼은 해당 기능이 구현되는
+ * Sprint I2b 에서 함께 들어온다. 같은 이유로 행 선택 체크박스도 아직 두지 않는다:
+ * 선택을 소비할 동작이 없다.</p>
  * <p>The legacy markup carried 담당자 추가/삭제 buttons with no event handlers at all (D-I13).
- * This screen offers only the <b>search</b> that Sprint I1 covers.</p>
+ * This screen offers <b>search</b> and <b>edit</b>: clicking a 기관코드 opens the edit popup
+ * (FR-INST-007). The 등록/중지/재사용/삭제 buttons arrive with their operations in Sprint I2b,
+ * and row-selection checkboxes wait for the same reason — nothing would consume the selection.</p>
  */
 
 /** 상태 라디오 선택지 — 레거시와 동일한 3분류. / Status radio options, the legacy's three. */
@@ -118,20 +123,28 @@ function sameSearch(a: Committed, b: Committed): boolean {
   return a.name === b.name && a.status === b.status && a.page === b.page;
 }
 
-interface Props {
-  /**
-   * 이용기관을 선택했을 때의 콜백 — Sprint I2 의 수정 화면이 소비한다.
-   * Called when an institution is chosen; Sprint I2's edit screen consumes it.
-   */
-  onSelect?: (row: InstitutionRow) => void;
-}
-
 /**
  * 이용기관 관리 화면 컴포넌트. / The 이용기관 management screen component.
  */
-export function InstitutionPage({ onSelect }: Props) {
+export function InstitutionPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const committed = useMemo(() => readCommitted(searchParams), [searchParams]);
+
+  /*
+    열려 있는 수정 팝업의 대상. 조회 조건과 달리 URL 에 두지 않는다 — 조건은 공유할 만한
+    것이지만 "이 기관을 편집하던 중" 은 그렇지 않고, 주소를 공유받은 사람의 화면이 남의
+    편집 상태로 열리게 된다. NFR-USE-I01(팝업에서 돌아와도 조회 조건이 유지된다)은 조건이
+    URL 에 있으므로 그대로 만족된다.
+
+    The target of the open edit popup. Unlike the search criteria it is not kept in the URL: the
+    criteria are worth sharing, "mid-edit on this institution" is not, and a shared address would
+    open on someone else's editing state. NFR-USE-I01 — criteria survive a return from the popup —
+    holds anyway, because the criteria live in the URL.
+  */
+  const [editing, setEditing] = useState<string | null>(null);
+
+  /** 저장 완료 안내 — 팝업이 닫힌 뒤 목록에서 보인다. / Post-save notice, shown on the list. */
+  const [saved, setSaved] = useState<string | null>(null);
 
   // 폼은 아직 확정되지 않은 입력이므로 화면 상태다. URL 이 바뀌면(뒤로가기 포함) 확정된
   // 조건으로 되돌린다 — 그리드가 보여 주는 것과 폼이 말하는 것이 어긋나지 않게 한다.
@@ -192,7 +205,7 @@ export function InstitutionPage({ onSelect }: Props) {
             <button
               type="button"
               className="link-button"
-              onClick={() => onSelect?.(ctx.row.original)}
+              onClick={() => setEditing(ctx.row.original.code)}
             >
               {ctx.getValue()}
             </button>
@@ -237,7 +250,11 @@ export function InstitutionPage({ onSelect }: Props) {
           meta: { cellClassName: 'lg-cell-ellipsis' },
         }),
       ]),
-    [onSelect],
+    // setEditing 은 useState 가 주는 안정된 참조이므로 의존성이 비어 있다 — 컬럼 정의는
+    // 화면 생애 동안 한 번만 만들어진다.
+    // setEditing is the stable setter useState provides, so the dependency list is empty and the
+    // column definitions are built once for the life of the screen.
+    [],
   );
 
   const table = useTable({
@@ -378,15 +395,28 @@ export function InstitutionPage({ onSelect }: Props) {
       </form>
 
       {/*
-        레거시 화면은 그리드 위에 등록·수정·중지·삭제 버튼 줄을 두었다. 그 줄은 여기에
-        없다 — Sprint I1 은 조회만 제공하며, 뒤에 동작이 없는 버튼을 두는 것이 레거시의
-        결함 D-I13 이었다(핸들러 없는 담당자 추가·삭제 버튼). 버튼은 기능과 함께 I2 에서
-        들어온다. 같은 이유로 행 선택 체크박스도 두지 않는다: 선택을 소비할 동작이 없다.
-        The legacy put a 등록/수정/중지/삭제 button row above the grid. It is absent here: Sprint
-        I1 provides search only, and a button with no operation behind it is precisely defect
-        D-I13. They arrive in I2 with their operations. Row-selection checkboxes are omitted for
-        the same reason — nothing would consume the selection.
+        레거시 화면은 그리드 위에 등록·수정·중지·삭제 버튼 줄을 두었다. 수정은 기관코드
+        링크가 대신하며(레거시도 같았다 — fn_getDetail), 나머지 셋은 기능과 함께 Sprint I2b
+        에서 들어온다. 뒤에 동작이 없는 버튼을 두는 것이 레거시의 결함 D-I13 이었다(핸들러
+        없는 담당자 추가·삭제 버튼). 같은 이유로 행 선택 체크박스도 아직 두지 않는다.
+        The legacy put a 등록/수정/중지/삭제 button row above the grid. Edit is reached through the
+        기관코드 link — as it was in the legacy, via fn_getDetail — and the other three arrive with
+        their operations in Sprint I2b. A button with no operation behind it is precisely defect
+        D-I13, which is also why row-selection checkboxes wait.
       */}
+
+      {/*
+        저장 결과는 <b>목록 화면에서</b> 알린다. 팝업 안에서 알리면 팝업이 닫히는 순간 함께
+        사라져 아무도 읽지 못한다. aria-live 영역이므로 스크린리더도 알림을 받는다.
+        The save outcome is announced <b>on the list</b>: announcing it inside the popup would take
+        the message away with the popup before anyone could read it. It is a live region, so a
+        screen reader is told too.
+      */}
+      {saved && (
+        <p role="status" className="lg-notice">
+          {saved} 이용기관이 저장되었습니다.
+        </p>
+      )}
 
       {error && (
         <p role="alert" className="field-error visible">
@@ -449,6 +479,25 @@ export function InstitutionPage({ onSelect }: Props) {
 
           <p className="lg-result-line">총 {result.totalCount} 건</p>
         </section>
+      )}
+
+      {/*
+        수정 팝업. 레거시는 별도 창({@code ap.openPop} → {@code biztalk_admin_01.act})이었고
+        저장 후 {@code popCallbackFn} 으로 부모의 조회를 다시 실행했다. 여기서는 같은 문서
+        안의 대화상자이며, 다시 조회하는 일은 쿼리 캐시 무효화가 대신한다 — 조회 조건은
+        URL 에 남아 있으므로 팝업에서 돌아와도 그대로다(NFR-USE-I01).
+
+        The edit popup. The legacy opened a separate window and re-ran the parent's search through a
+        callback; this is a dialog in the same document, and the re-query is handled by cache
+        invalidation. The criteria stay in the URL, so returning from the popup keeps them
+        (NFR-USE-I01).
+      */}
+      {editing !== null && (
+        <InstitutionEditDialog
+          code={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(row) => setSaved(row.code)}
+        />
       )}
     </section>
   );

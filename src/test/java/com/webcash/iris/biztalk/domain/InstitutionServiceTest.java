@@ -1,6 +1,7 @@
 package com.webcash.iris.biztalk.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -26,8 +27,18 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class InstitutionServiceTest {
 
-    /** 운영 화면에서 관찰된 형태의 인증키. / An 인증키 shaped like the ones seen in production. */
-    private static final String RAW_KEY = "6oG4mYDC6vrCLIyTzy8o";
+    /**
+     * 합성된 인증키 표본 — 레거시 키와 같은 모양(20자 영숫자)이되 실제 값이 아니다.
+     * A synthetic sample key: the shape of a legacy key (20 alphanumerics), not a real value.
+     *
+     * <p>여기에는 운영 화면에서 관찰된 값이 그대로 들어 있었다. 마스킹을 시험하는 데 실제
+     * 자격증명은 필요하지 않으며, 저장소에 두면 그것 자체가 노출 경로다 — gitleaks L1 훅도
+     * 이 값을 시크릿으로 탐지했다(SI2a-01, NFR-SEC-CRED-I01).</p>
+     * <p>This held a value observed on a live screen. Testing the mask needs no real credential, and
+     * keeping one in the repository is itself an exposure path — the gitleaks L1 hook flagged it as a
+     * secret (SI2a-01, NFR-SEC-CRED-I01).</p>
+     */
+    private static final String RAW_KEY = "SAMPLEsampleSAMPLE01";
 
     @Mock private InstitutionAdminMapper mapper;
     @InjectMocks private InstitutionService service;
@@ -56,7 +67,7 @@ class InstitutionServiceTest {
         // whole set with it.
         assertThat(result.rows()).singleElement()
                 .extracting(InstitutionRow::authKeyMasked)
-                .isEqualTo("****************zy8o");
+                .isEqualTo("****************LE01");
     }
 
     @Test
@@ -169,5 +180,37 @@ class InstitutionServiceTest {
         assertThat(service.search(criteria()).rows()).singleElement()
                 .extracting(InstitutionRow::authKeyMasked)
                 .isNull();
+    }
+
+    @Test
+    @DisplayName("상세조회도 인증키를 마스킹한다 / the detail read masks the 인증키 too")
+        // req: FR-INSTC-010, FR-ATK-002, D-I20, TC-I002-21
+    void masksAuthKeyOnDetail() {
+        when(mapper.findByCode("K00001")).thenReturn(entity("K00001", "쿠콘", "Y"));
+
+        // D-I20. 레거시 상세조회(biztalk_admin_01_l002)는 계약의 out 규칙에 ATK 를 선언하고
+        // 평문을 돌려주었으며, 팝업이 그것을 입력칸에 넣었다. 목록(D-I5)·중복검사(D-I3)에
+        // 이은 세 번째 노출 경로이고 첫 분석에서 기록되지 않았다.
+        // D-I20. The legacy detail service declared ATK in its contract and returned the plaintext,
+        // which the popup put into a field — the third exposure path after the list (D-I5) and the
+        // duplicate check (D-I3), and unrecorded by the first analysis.
+        var row = service.findByCode("K00001");
+
+        assertThat(row.authKeyMasked()).isEqualTo("****************LE01");
+        assertThat(row.toString()).doesNotContain(RAW_KEY);
+    }
+
+    @Test
+    @DisplayName("없는 기관은 예외가 된다 / an absent institution raises")
+        // req: FR-INSTC-004, ADR-INST-014
+    void throwsWhenAbsent() {
+        when(mapper.findByCode("K09999")).thenReturn(null);
+
+        // null 을 돌려주면 호출자가 "빈 폼" 으로 해석할 여지가 생기고, 그 폼을 저장하면
+        // 레거시의 UPSERT 와 같은 결과가 된다 — 없는 기관이 생겨난다(D-I6).
+        // Returning null would let a caller read it as "an empty form", and saving that form would
+        // reproduce the legacy upsert: an institution that did not exist comes into being (D-I6).
+        assertThatThrownBy(() -> service.findByCode("K09999"))
+                .isInstanceOf(InstitutionNotFoundException.class);
     }
 }

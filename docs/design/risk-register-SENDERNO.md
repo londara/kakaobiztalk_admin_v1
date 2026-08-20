@@ -1,10 +1,10 @@
 # Risk Register — 발신번호 (Sender Number Management)
 
-> **Version**: 1.0
-> **Date**: 2026-08-17
-> **Predecessor**: [DEV-PLAN-SENDERNO.md](DEV-PLAN-SENDERNO.md)
+> **Version**: 1.1 — write-path pass, 2026-08-20
+> **Date**: 2026-08-17 (v1.0) · 2026-08-20 (v1.1)
+> **Predecessor**: [DEV-PLAN-SENDERNO.md](DEV-PLAN-SENDERNO.md) v1.1
 > **Siblings**: [risk-register.md](risk-register.md), [risk-register-LOGIN.md](risk-register-LOGIN.md), [risk-register-INSTITUTION.md](risk-register-INSTITUTION.md)
-> **Count**: 13 (harness minimum 10)
+> **Count**: 14 (harness minimum 10)
 
 ---
 
@@ -22,9 +22,10 @@
 | RISK-S08 | Uniqueness check is a full scan at production volume | 기술 | M | M | 완화 |
 | RISK-S09 | Read auditing volume outruns an undecided retention policy | 운영 | M | M | 완화 |
 | RISK-S10 | Staging lacks `KAKAOTALK`/`AOA_ADMIN`, blocking the coexistence suite | 일정 | M | M | 완화 |
-| RISK-S11 | The special-number list is unspecified | 외부 | M | M | 완화 |
-| RISK-S12 | G1 not approved while S2 commits to schema change | 일정 | M | L | 회피 |
+| RISK-S11 | The special-number list may be incomplete *(v1.1: downgraded from "unspecified")* | 외부 | M | M | 완화 |
+| RISK-S12 | G1 not approved while S2a commits to schema change | 일정 | M | **M** *(v1.1: raised)* | 회피 |
 | RISK-S13 | **Docker prohibited; no DB-backed verification path confirmed** | 기술 | **H** | **H** (realised) | 완화 |
+| RISK-S14 | **Numbers outlive their institution; a re-issued 기관코드 would inherit them** *(new at v1.1)* | 보안 | **H** | L | 완화 |
 
 ---
 
@@ -111,19 +112,34 @@
 - **대응 계획**: Confirm staging availability during S1, not S2. C-S01 can run as raw SQL against a shared schema if a full deployment is unavailable, which is a weaker but sufficient check; C-S04 cannot be substituted and gates S2.
 - **담당자**: qa-engineer + infra · **모니터링**: Sprint S1
 
-## RISK-S11 — The special-number list is unspecified
+## RISK-S11 — The special-number list may be incomplete
+
+> **Downgraded 2026-08-20.** Was "the list is unspecified". PM ruling AMB-S06 specified it: the 14 values now in `SenderNumberValidator` are adopted, and [ADR-SND-021](adr/ADR-SND-021-barred-number-list.md) moves them out of compiled code so a correction is a config change and a restart.
 
 - **영역**: 외부 · **영향**: M · **발생 확률**: M · **전략**: 완화
-- **설명**: FR-SNDC-006 bars special and emergency numbers. The legacy UI names 112, 114 and 1335 as examples and implements none of them; no authoritative list exists in code. Shipping a guessed list either blocks legitimate numbers or admits barred ones.
-- **대응 계획**: AMB-S06 — adopt the published KISA/KAIT special-number list, held as configuration rather than compiled in so it can be updated without a release. Working assumption proceeds; domain owner confirms during S2.
-- **담당자**: domain owner · **모니터링**: Sprint S2
+- **설명**: FR-SNDC-006 bars special and emergency numbers. What remains at risk is **coverage, not enforcement** — the 14 adopted values are the legacy screen's three examples plus widely known emergency numbers, and no authoritative KISA/KAIT list has been obtained. An incomplete list admits a number that should have been barred.
+- **대응 계획**: The residual is bounded by the correction cost, which CONST-BIZ-D03 reduces to a config edit. Two properties keep the mitigation honest: an empty or malformed list **fails startup** rather than silently disabling the rule (which is D-S12's exact failure mode), and 112/114/119/1335 are asserted in tests independently of configuration so no edit can drop them. Domain owner still to confirm completeness against the published list.
+- **담당자**: domain owner · **모니터링**: task S2a-02, then annually with the published list
 
-## RISK-S12 — G1 not approved while S2 commits to schema change
+## RISK-S12 — G1 not approved while S2a commits to schema change
 
-- **영역**: 일정 · **영향**: M · **발생 확률**: L · **전략**: 회피
-- **설명**: S2 creates a table and an index. CONFLICT-S01 (DDL vs CONST-DATA-01) is still awaiting explicit G1 sign-off. Building the write path before that decision risks rework of the delete mechanism and the constraint.
-- **대응 계획**: S1 contains no DDL and no schema dependency, so the first two weeks are unaffected. G1 is needed **before S2-02**, not before the sprint starts. Design has already narrowed what G1 must approve: additive DDL only, no alteration of `KKB_DPNO_LDGR`'s meaning to existing readers, no legacy application changed.
-- **담당자**: PM · **모니터링**: end of Sprint S1
+> **Probability raised L → M, 2026-08-20.** Not because approval looks less likely, but because S2a's exposure to it is much larger than S1's was: 8 of ~10 critical-path days sit downstream of the DDL.
+
+- **영역**: 일정 · **영향**: M · **발생 확률**: M · **전략**: 회피
+- **설명**: S2a-03 creates a table and an index. CONFLICT-S01 (DDL vs CONST-DATA-01) is still awaiting explicit G1 sign-off. Building the write path before that decision risks rework of the delete mechanism and the constraint.
+- **대응 계획**: S1 contained no DDL and was unaffected. For S2a, the G1-independent tasks (S2a-02 barred list, S2a-04 request models, S2a-06 institution context — about 2 days) are sequenced first. **If G1 is still pending when they finish, Sprint S2b is pulled forward rather than S2a-03 being started on assumption** (DEV-PLAN §10). Design has already narrowed what G1 must approve: additive DDL only, no alteration of `KKB_DPNO_LDGR`'s meaning to existing readers, no legacy application changed.
+- **담당자**: PM · **모니터링**: end of Sprint S1, then weekly through S2a
+
+## RISK-S14 — Numbers outlive their institution, and a re-issued 기관코드 would inherit them
+
+- **영역**: 보안 · **영향**: **H** · **발생 확률**: L · **전략**: 완화
+- **설명**: PM ruling AMB-S08 (CONST-BIZ-D04) leaves `KKB_DPNO_LDGR` rows in place when an institution is logically deleted — sending is barred one level up by the institution's own state (ADR-INST-014), so moving the numbers buys nothing. The ledger keys on `IS_CD` and carries no reference to the institution's lifecycle, so **if a 기관코드 is ever re-issued to a different institution, that institution silently acquires the previous holder's sender numbers** — and acquires them as *live* rows, which is exactly the capability §1 of the threat model says this slice protects.
+- **왜 낮은 확률인가**: 기관코드 is `K0` + 4 alphanumerics (FR-INSTC-014) — a large enough space that reuse would be a deliberate administrative act rather than an accident. Nothing observed in the institution slice reuses one.
+- **대응 계획**:
+  1. Confirm with the institution slice's owner whether 기관코드 reuse is possible at all. If it is structurally impossible, this risk closes.
+  2. If it is possible, the mitigation is a check at institution *creation* — not at deletion — refusing or flagging a code that already has ledger rows. That check belongs to the institution slice, so it is raised there rather than built here.
+  3. Either way, TC-S004-27 asserts the ruled behaviour (rows remain; sending refused by institution state) so the premise stays visible.
+- **담당자**: architect + domain owner · **모니터링**: before cutover; re-checked if the institution slice adds a code-reuse path
 
 ---
 
