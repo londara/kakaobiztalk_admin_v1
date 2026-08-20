@@ -6,7 +6,7 @@
 > **Predecessors**: [PROJECT-PROPOSAL.md](../planning/PROJECT-PROPOSAL.md), [BUSINESS-REQUIREMENTS.md](../planning/BUSINESS-REQUIREMENTS.md)
 > **Sibling specs**: [REQUIREMENTS-SPEC.md](REQUIREMENTS-SPEC.md) (문자내역), [REQUIREMENTS-SPEC-LOGIN.md](REQUIREMENTS-SPEC-LOGIN.md) (로그인), [REQUIREMENTS-SPEC-INSTITUTION.md](REQUIREMENTS-SPEC-INSTITUTION.md) (이용기관관리), [REQUIREMENTS-SPEC-SENDERNO.md](REQUIREMENTS-SPEC-SENDERNO.md) (발신번호)
 > **Traceability matrix**: [requirements-matrix.csv](requirements-matrix.csv)
-> **Question log**: [questions-log.md](questions-log.md) — Part 5
+> **Question log**: [questions-log.md](questions-log.md) — Part 7
 > **Status**: **APPROVED — G1, PM, 2026-08-19** (see §6.4)
 
 ---

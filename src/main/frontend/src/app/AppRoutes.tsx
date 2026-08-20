@@ -9,6 +9,8 @@ import { LoginRoute } from './routes/LoginRoute';
 import { MessageHistoryRoute } from './routes/MessageHistoryRoute';
 import { OtpRegisterRoute } from './routes/OtpRegisterRoute';
 import { PasswordChangeRoute } from './routes/PasswordChangeRoute';
+import { ReportRoute } from './routes/ReportRoute';
+import { TalkHistoryRoute } from './routes/TalkHistoryRoute';
 
 /**
  * 경로 표. / The route table.
@@ -25,6 +27,9 @@ import { PasswordChangeRoute } from './routes/PasswordChangeRoute';
  *       ─ RequireOperator
  *           /institutions  이용기관 관리
  *           /senders       발신번호 관리
+ *           /reports       이용기관 보고서
+ *           /talk-history  톡전송 내역
+ *           /alimtalk      템플릿 샘플 검증
  *   *                  / 로 되돌림
  * </pre>
  *
@@ -67,6 +72,8 @@ export function AppRoutes() {
           <Route element={<RequireOperator />}>
             <Route path="/institutions" element={<InstitutionPage />} />
             <Route path="/senders" element={<SenderNumberPage />} />
+            <Route path="/reports" element={<ReportRoute />} />
+            <Route path="/talk-history" element={<TalkHistoryRoute />} />
             <Route path="/alimtalk" element={<AlimTalkPage />} />
           </Route>
         </Route>

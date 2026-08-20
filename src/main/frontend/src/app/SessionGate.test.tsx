@@ -127,7 +127,7 @@ describe('SessionGate', () => {
     // 운영자로 복원되었으므로 운영자 전용 화면이 열리고 메뉴도 모두 보인다.
     // Restored as an operator, so the operator-only screen opens and every menu item shows.
     expect(await screen.findByRole('heading', { name: '서비스 관리' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '발신번호 관리' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '이용기관 정보 관리' })).toBeInTheDocument();
   });
 
   it('비운영자로 복원되면 운영자 화면은 열리지 않는다 / a restored non-operator still cannot open operator screens', async () => {

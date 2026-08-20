@@ -121,4 +121,91 @@ public record AuditEvent(
     /** 발신번호 상세 열람 / sender-number detail view. */
     // req: FR-SND-011, ADR-SND-019
     public static final String ACTION_SENDER_NUMBER_VIEW = "biztalk.sender-number.view";
+
+    /**
+     * 이용기관 보고서 조회 / institution usage report query.
+     *
+     * <p>이 화면에는 개인정보가 없다. 그럼에도 감사가 필수인 이유는 노출되는 것이
+     * <b>고객사별 발송량</b>이기 때문이다 — 캠페인 시기, 고객 규모, 성장률을 추론할 수 있는
+     * 상업적으로 민감한 자료다. 레거시에는 이 기록이 전혀 없었고, 조회 서비스는 인증조차
+     * 요구하지 않았다(D-R1, D-R17).</p>
+     * <p>This screen holds no personal data. Auditing is still mandatory because what it exposes
+     * is <b>each customer's send volume</b> — enough to infer campaign timing, customer base and
+     * growth. The legacy recorded none of it, and its query service required no session at all
+     * (D-R1, D-R17).</p>
+     *
+     * <p>기록에는 행위자·범위·기간·건수만 남기고 <b>수치 자체는 남기지 않는다</b>(T-R15).</p>
+     * <p>Actor, scope, period and counts only — <b>never the figures themselves</b> (T-R15).</p>
+     *
+     * // req: FR-AZ-R05, NFR-OPS-AUDIT-R01
+     */
+    public static final String ACTION_REPORT_QUERY = "biztalk.report.query";
+
+    /**
+     * 이용기관 보고서 내보내기 / institution usage report export.
+     *
+     * <p>실제로 쓴 행 수를 함께 기록한다 — 누군가 보고서를 열었다는 사실과, 고객사 발송량
+     * 9만 행을 시스템 밖으로 가져갔다는 사실은 다른 사건이다(FR-RPTX-012).</p>
+     * <p>Recorded with the row count actually written: someone opening the report and someone
+     * taking 90,000 rows of customer volume off the system are different events (FR-RPTX-012).</p>
+     *
+     * // req: FR-RPTX-012, NFR-OPS-AUDIT-R01
+     */
+    public static final String ACTION_REPORT_EXPORT = "biztalk.report.export";
+
+    /**
+     * 톡전송 거래내역 조회 / 톡전송 transaction-history query.
+     *
+     * <p>레거시에는 이 기록이 없었다. {@code mntLogYn=Y} 가 Jex 서비스 모니터 행을 남겼을
+     * 뿐이고 그것은 Jex 와 함께 사라진다(BR-002…005). 이 화면이 노출하는 것은 <b>전 기관의
+     * 거래 내역</b>이며, 기관 술어가 아예 없었으므로(D-T2) 누가 무엇을 보았는지에 대한 기록
+     * 없이 모든 고객사의 거래가 한 그리드에 있었다.</p>
+     * <p>The legacy recorded none of this: {@code mntLogYn=Y} produced a Jex service-monitor row that
+     * disappears with Jex (BR-002…005). What this screen exposes is <b>every institution's
+     * transactions</b> — there was no institution predicate at all (D-T2) — so every customer's
+     * activity sat in one grid with no record of who looked at it.</p>
+     *
+     * <p>행위자·범위·조건·건수만 남기고 <b>거래 내용은 남기지 않는다</b>.</p>
+     * <p>Actor, scope, criteria and row count only — <b>never the transaction contents</b>.</p>
+     *
+     * // req: FR-AZ-T05, NFR-OPS-AUDIT-T01
+     */
+    public static final String ACTION_TALK_HISTORY_QUERY = "biztalk.talk-history.query";
+
+    /**
+     * 톡전송 거래 상세내역 열람 / 톡전송 transaction-detail view.
+     *
+     * // req: FR-AZ-T05, NFR-OPS-AUDIT-T01
+     */
+    public static final String ACTION_TALK_DETAIL_VIEW = "biztalk.talk-history.detail.view";
+
+    /**
+     * 톡전송 메시지 상세 열람 / talk message-detail view.
+     *
+     * <p>이 슬라이스에서 가장 민감한 열람이다 — 메시지 본문, 템플릿 코드, 수신자 번호가 함께
+     * 나온다. 레거시 질의는 {@code REQDATE + STATUS + MSGKEY} 만으로 키가 만들어져 <b>메시지
+     * 키만 알면 다른 기관의 메시지 본문을 읽을 수 있었다</b>(D-T5).</p>
+     * <p>The most sensitive read in the slice — message body, template code and recipient number
+     * together. The legacy query was keyed on {@code REQDATE + STATUS + MSGKEY} alone, so <b>a
+     * message key was sufficient to read another institution's message body</b> (D-T5).</p>
+     *
+     * // req: FR-AZ-T04, FR-AZ-T05, NFR-OPS-AUDIT-T01
+     */
+    public static final String ACTION_TALK_MESSAGE_VIEW = "biztalk.talk-history.message.view";
+
+    /**
+     * 톡전송 거래내역 내보내기 / 톡전송 transaction-history export.
+     *
+     * <p>실제로 쓴 행 수를 함께 기록한다. 레거시 다운로드는 화면과 <b>다른 테이블</b>을 조회해
+     * 모든 기관의 메시지를 평문 전화번호와 함께 반환했고(D-T1), 그 반출에 대한 기록은 어디에도
+     * 없었다. 파일은 복사되고 전달되고 보관된다 — 조회 기록과 반출 기록이 구분되지 않으면
+     * 사후에 찾아낼 수 없다.</p>
+     * <p>Recorded with the row count actually written. The legacy download queried <b>different
+     * tables</b> than the screen and returned every institution's messages with plaintext phone
+     * numbers (D-T1), with no record of the extraction anywhere. Files are copied, forwarded and
+     * kept: if extraction is indistinguishable from browsing it cannot be found afterwards.</p>
+     *
+     * // req: FR-TLKX-007, NFR-OPS-AUDIT-T01
+     */
+    public static final String ACTION_TALK_HISTORY_EXPORT = "biztalk.talk-history.export";
 }

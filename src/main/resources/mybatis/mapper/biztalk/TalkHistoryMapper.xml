@@ -1,0 +1,296 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  ============================================================================
+  톡전송 거래내역 조회 / 톡전송 transaction-history queries          [BIZTALK_DB]
+  ============================================================================
+  원본 / origin: IDO.KKB_APITR_HSTR_L001, IDO.KKB_OPENAPI_INFO_L002
+
+  이식 원칙은 앞선 슬라이스와 같다: SQL 을 near-verbatim 으로 옮기고, 변경한 줄에는
+  `FIX D-Tn:` SQL 주석을 남긴다.
+  Same porting principle as the earlier slices: carry the SQL across near-verbatim and mark
+  every altered line with a `FIX D-Tn:` comment.
+
+  ============================================================================
+  적용한 수정 / corrections applied
+  ============================================================================
+  D-T2   기관 술어가 전혀 없었다. 한 그리드가 모든 고객사의 거래를 보여주었다.
+         이제 범위는 세션에서 결정되어(PrincipalScope) 술어로 들어온다.
+         No institution predicate at all: one grid showed every customer's transactions. The
+         scope now arrives as a predicate, decided from the session (PrincipalScope).
+
+  D-T10  ORDER BY 가 RGDT 하나뿐이어서 동시각 행의 순서가 정의되지 않았다. 운영 화면
+         캡처에서 11개 행이 같은 초를 공유하므로 이것은 예외가 아니라 정상이다 —
+         페이징과 결합되면 행이 중복되거나 사라진다. IS_TUNO 를 동순위 결정자로 추가한다.
+         ORDER BY named only RGDT, leaving tied rows unordered. The production screenshot shows
+         eleven rows sharing one second, so ties are normal here, not an edge case — under paging
+         rows duplicate or vanish. IS_TUNO is added as the tiebreaker.
+
+  D-T11  전체 건수를 반환하지 않았다. countAll 을 별도 질의로 둔다 — 같은 술어를 <sql>
+         조각으로 공유하므로 목록과 건수가 다른 조건을 볼 수 없다.
+         No total count was returned. countAll is a separate statement sharing the same predicate
+         via an <sql> fragment, so the page and the count cannot see different criteria.
+
+  D-T15  술어는 API_CD 를, 그리드는 API_SVC_CD 를 썼다 — 서로 다른 코드 체계다.
+         이제 양쪽 모두 API_SVC_CD 다.
+         The predicate used API_CD while the grid displayed API_SVC_CD — different code systems.
+         Both are API_SVC_CD now.
+
+  D-T24  TRDD = :TRDD 로 하루만 조회할 수 있었고, 종료시각을 비우면 자바스크립트가 999999
+         라는 존재하지 않는 시각을 보냈다. 질의가 동작한 이유는 RGDT 가 문자 컬럼이어서
+         BETWEEN 이 사전순으로 처리되었기 때문이다. 이제 일자는 범위(31일 상한)이고
+         시각은 실제 시각만 바인딩된다.
+         TRDD = :TRDD allowed one day only, and a blank end time made the JavaScript send 999999 —
+         not a time. It worked only because RGDT is a character column, so BETWEEN compared
+         lexically. The date is now a capped range and only real times are bound.
+
+  D-T26  기관명을 행마다 상관 서브쿼리로 조회했고, 일치하지 않으면 NULL 이 되어 빈 칸으로
+         보였다. 조인으로 바꾼다. 미해석은 애플리케이션이 표식과 함께 표시한다.
+         The institution name came from a per-row correlated subquery, and an unmatched code
+         rendered as a blank cell. Replaced with a join; the application marks an unresolved name.
+
+  D-T27  API 선택기 질의가 드롭다운 하나를 채우려고 API 당 21개 컬럼을 반환했다 —
+         등록·수정 운영자의 ID 와 이름까지. 선택기는 이제 레지스트리가 만들고, 이 매퍼는
+         선택기 질의를 갖지 않는다.
+         The selector query returned 21 columns per API to fill one dropdown, including the ids and
+         names of the operators who registered and edited it. The selector is built from the
+         registry, and this mapper has no selector query.
+
+  D-T31  CASE WHEN :x = '' THEN 1=1 ELSE col = :x END 형태를 쓰지 않는다. 조건이 없으면
+         술어 자체를 만들지 않는다 — 그 형태는 인덱스를 쓸 수 없게 만든다.
+         The CASE WHEN :x = '' THEN 1=1 form is not used: an absent filter produces no predicate at
+         all. That form prevents index use.
+
+  ============================================================================
+  일부러 하지 않은 것 / what was deliberately not done
+  ============================================================================
+  · SELECT * 를 쓰지 않는다. FT_APITR_HSTR 는 전체 핀테크 API 의 거래 로그이며
+    FIN_ACNO / ACNO / CANO / FIN_CARD / TRAM / BRNO / INTT_DMND_TTNO / RSPN_TLGR_CNTN 을
+    담고 있다. 이 화면은 그중 무엇과도 관계가 없다(CONST-SEC-T01). 프로젝션은 9개 컬럼으로
+    닫혀 있고 정적 검사가 이 패키지의 SELECT * 를 금지한다.
+    No SELECT *. FT_APITR_HSTR is the whole fintech estate's transaction log and carries account,
+    card, amount, business-number and raw-telegram columns. This screen has business with none of
+    them (CONST-SEC-T01). The projection is closed at nine columns and a static check prohibits
+    SELECT * in this package.
+
+  · 쓰기 문장을 두지 않는다. 이 테이블은 API 게이트웨이가 쓴다(CONST-DATA-T01).
+    No write statements: the table is written by the API gateway (CONST-DATA-T01).
+
+  · LPAD 를 술어에 두지 않는다. 레거시 상세 질의의 LPAD(:SERIALNUM,10,'0') 은 잘림 결함
+    (D-T9)이므로, 패딩은 TransactionSerial 이 자바에서 한다(ADR-TLK-025).
+
+    정정 2026-08-19 (부하 측정, 회고 액션 B1): 이 주석은 원래 그 LPAD 가 "동시에 인덱스를 쓸 수
+    없게 만들었다"고도 적었다. 그것은 거짓이다 — 함수가 컬럼이 아니라 파라미터에 적용되었으므로
+    PostgreSQL 이 계획 시점에 상수로 접어 넣고 인덱스를 그대로 쓴다.
+    TalkHistoryLoadTest#lpadOnAParameterDoesNotPreventIndexUse 가 세 형태(자바 패딩 / 파라미터에
+    LPAD / 컬럼에 LPAD)의 실행 계획을 나란히 출력하며, 순차 스캔이 되는 것은 마지막 하나뿐이다.
+    잘림은 실재하고 LpadTruncationTest 가 실행으로 증명하므로 결정은 바뀌지 않는다.
+
+    No LPAD in a predicate: the legacy detail query's LPAD(:SERIALNUM,10,'0') truncated an over-width
+    input and matched a different transaction (D-T9), so padding happens in Java, in TransactionSerial
+    (ADR-TLK-025).
+
+    Correction 2026-08-19 (load measurement, retrospective action B1): this comment also claimed that
+    LPAD "prevented index use". That is false — the function was applied to the parameter rather than
+    the column, so PostgreSQL folds it to a constant at plan time and the index is used normally.
+    TalkHistoryLoadTest#lpadOnAParameterDoesNotPreventIndexUse prints all three plans (Java-padded,
+    LPAD on the parameter, LPAD on the column) and only the last falls back to a sequential scan. The
+    truncation is real and LpadTruncationTest proves it by execution, so the decision stands.
+
+  · detailAvailable 을 SQL 로 계산하지 않는다. 그 값은 레지스트리가 결정하며, SQL 이
+    계산하면 레지스트리와 어긋날 수 있는 두 번째 구현이 된다 — D-T13 이 정확히 그 형태다.
+    detailAvailable is not computed in SQL. It is the registry's decision; computing it here would
+    create a second implementation able to disagree — exactly D-T13's shape.
+  ============================================================================
+-->
+<mapper namespace="com.webcash.iris.biztalk.infra.db.TalkHistoryMapper">
+
+  <!--
+    9개 컬럼으로 닫힌 프로젝션. 컬럼을 추가하면 계약 테스트가 실패한다(CONST-SEC-T01).
+    The projection, closed at nine columns. Adding one fails the contract test (CONST-SEC-T01).
+  -->
+  <resultMap id="talkHistoryRow"
+             type="com.webcash.iris.biztalk.infra.db.TalkHistoryMapper$TalkHistoryRowRecord">
+    <constructor>
+      <arg column="TRDD"          javaType="java.lang.String"/>
+      <arg column="FINTECH_ISCD"  javaType="java.lang.String"/>
+      <arg column="ISNM"          javaType="java.lang.String"/>
+      <arg column="IS_TUNO"       javaType="java.lang.String"/>
+      <arg column="API_SVC_CD"    javaType="java.lang.String"/>
+      <arg column="PRSU"          javaType="java.lang.String"/>
+      <arg column="FINTECH_RPCD"  javaType="java.lang.String"/>
+      <arg column="RGDT"          javaType="java.lang.String"/>
+      <arg column="LAST_AMDT"     javaType="java.lang.String"/>
+    </constructor>
+  </resultMap>
+
+  <resultMap id="observedApiService"
+             type="com.webcash.iris.biztalk.infra.db.TalkHistoryMapper$ObservedApiService">
+    <constructor>
+      <arg column="API_SVC_CD" javaType="java.lang.String"/>
+      <!--
+        원시형 long 은 MyBatis 에서 _long 이다. javaType="long" 은 java.lang.Long 을 뜻하고,
+        레코드가 원시형이면 생성자를 찾지 못해 조회 전체가 실패한다 — 이용기관 보고서
+        슬라이스에서 실제로 발생한 결함이며 AggregateMapperXmlTest 가 그 회귀 테스트다.
+        Primitive long is _long in MyBatis. javaType="long" means java.lang.Long, and a record over
+        the primitive then has no findable constructor, failing the whole read — the defect that
+        actually occurred in the 이용기관 보고서 slice, guarded by AggregateMapperXmlTest.
+      -->
+      <arg column="TR_CNT" javaType="_long"/>
+    </constructor>
+  </resultMap>
+
+  <!--
+    목록과 건수가 공유하는 술어. 조각으로 두는 이유는 두 문장이 <b>같은 조건</b>을 보게
+    하려는 것이다 — 페이지에는 있고 건수에는 없는 조건이 생기면 페이저가 조용히 틀린다.
+    The predicate shared by the page and the count. Kept as a fragment so both statements see the
+    <b>same</b> criteria: a condition present in one and absent in the other silently breaks the pager.
+  -->
+  <sql id="whereClause">
+    WHERE A.TRDD BETWEEN #{c.window.fromDateYyyymmdd} AND #{c.window.toDateYyyymmdd}
+      <!-- FIX D-T24: 일자 범위 + 실제 시각. 레거시는 TRDD = :TRDD 하루와 999999 센티널. -->
+      AND A.RGDT BETWEEN #{c.window.fromTimestamp} AND #{c.window.toTimestamp}
+      <!--
+        FIX D-T2: 기관 술어. 레거시에는 이 조건이 존재하지 않았다.
+        전체 조회는 <b>운영자만</b>이며 그 판단은 PrincipalScope 가 이미 끝냈다 — 여기서
+        institutionCode 가 null 인 것은 "조건 없음"이 아니라 "운영자가 전체를 요청함"이다.
+        FIX D-T2: the institution predicate, which did not exist in the legacy. 전체 is
+        operator-only and PrincipalScope has already decided it — a null institutionCode here means
+        "an operator asked for all", not "no filter was supplied".
+      -->
+      <if test="c.scope.institutionCode != null">
+        AND A.FINTECH_ISCD = #{c.scope.institutionCode}
+      </if>
+      <!--
+        FIX D-T15 / SCOPE-T01: 범위는 API_SVC_CD 로 판단한다. 레거시는 API_CD 로 걸러
+        API_SVC_CD 를 표시했다. 빈 집합은 "전체"가 아니라 "없음"이다 — 빈 값을 전체로 읽은
+        것이 D-T2 의 절반이었으므로, 여기서는 아무 행도 반환하지 않는다.
+        FIX D-T15 / SCOPE-T01: scope is decided on API_SVC_CD; the legacy filtered on API_CD and
+        displayed API_SVC_CD. An empty set means "none", not "all": reading a blank as "all" was half
+        of D-T2, so an empty set returns no rows.
+      -->
+      <choose>
+        <when test="c.inScopeApiCodes != null and !c.inScopeApiCodes.isEmpty()">
+          AND A.API_SVC_CD IN
+          <foreach item="code" collection="c.inScopeApiCodes" open="(" separator="," close=")">
+            #{code}
+          </foreach>
+        </when>
+        <otherwise>
+          AND 1 = 0
+        </otherwise>
+      </choose>
+      <!--
+        FIX D-T31: 조건이 없으면 술어를 만들지 않는다. 레거시는
+        CASE WHEN :x = '' THEN 1=1 ELSE col = :x END 로 무력화했고, 그 형태는 인덱스를 쓸 수
+        없게 만든다.
+        FIX D-T31: an absent filter produces no predicate. The legacy neutralised it with
+        CASE WHEN :x = '' THEN 1=1 ELSE col = :x END, a shape that prevents index use.
+      -->
+      <if test="c.apiServiceCode != null">
+        AND A.API_SVC_CD = #{c.apiServiceCode}
+      </if>
+      <if test="c.statusCode != null">
+        AND A.PRSU = #{c.statusCode}
+      </if>
+      <!--
+        FIX D-T9 / D-T25: 패딩은 자바에서 끝났다. 술어에는 LPAD 가 없다 — 레거시의
+        LPAD(:SERIALNUM,10,'0') 은 20자리 값을 10자리로 잘라 다른 거래에 일치시켰고,
+        동시에 인덱스를 쓸 수 없게 만들었다.
+        FIX D-T9 / D-T25: padding is done in Java and there is no LPAD in the predicate. The legacy's
+        LPAD(:SERIALNUM,10,'0') cut a 20-character value to ten, matching another transaction, and
+        prevented index use at the same time.
+      -->
+      <if test="c.serialForMapper != null">
+        AND A.IS_TUNO = #{c.serialForMapper}
+      </if>
+  </sql>
+
+  <select id="findPage" resultMap="talkHistoryRow">
+    SELECT /* TalkHistoryMapper.findPage */
+           A.TRDD,
+           A.FINTECH_ISCD,
+           <!--
+             FIX D-T26: 상관 서브쿼리 대신 조인. 레거시는 행마다
+             (SELECT B.ISNM FROM FT_FTIS_INFO B WHERE A.FINTECH_ISCD = B.FINTECH_ISCD) 을
+             평가했고, 일치하지 않으면 NULL 이 되어 빈 칸으로 보였다. COALESCE 를 두지 않는
+             것은 의도다 — 미해석을 애플리케이션이 표식과 함께 표시해야 하므로 NULL 을
+             그대로 넘긴다.
+             FIX D-T26: a join replaces the correlated subquery the legacy evaluated per row. No
+             COALESCE here, deliberately: the application must mark an unresolved name, so NULL is
+             passed through rather than hidden behind a default.
+           -->
+           B.ISNM,
+           A.IS_TUNO,
+           A.API_SVC_CD,
+           A.PRSU,
+           A.FINTECH_RPCD,
+           A.RGDT,
+           A.LAST_AMDT
+      FROM FT_APITR_HSTR A
+      LEFT JOIN FT_FTIS_INFO B
+        ON B.FINTECH_ISCD = A.FINTECH_ISCD
+    <include refid="whereClause"/>
+     <!--
+       FIX D-T10: 전순서. RGDT 만으로는 동시각 행의 순서가 정의되지 않으며, 이 화면에서
+       동시각은 정상이다(대량 API 호출이 같은 초에 도착한다). IS_TUNO 는 거래일 안에서
+       유일하므로 두 컬럼의 짝이 전순서가 된다.
+       FIX D-T10: a total order. RGDT alone leaves tied rows unordered, and ties are normal on this
+       screen — bulk API calls arrive in the same second. IS_TUNO is unique within a transaction day,
+       so the pair is total.
+     -->
+     ORDER BY A.RGDT DESC, A.IS_TUNO DESC
+     <!--
+       오프셋 페이징이며 keyset 이 아니다 — 이유는 ADR-TLK-028. 요약하면 이 화면의 페이저는
+       번호식(운영 캡처의 "1 2 3")이고, 번호로 뛰려면 총건수와 오프셋이 필요하다. keyset 은
+       이용기관 보고서 슬라이스가 두 데이터베이스를 병합해야 해서 필요했던 것이고, 여기는
+       데이터소스가 하나다. 오프셋 값은 자바에서 계산한다.
+       Offset paging rather than keyset — see ADR-TLK-028. In short: this screen's pager is numbered
+       ("1 2 3" in the production screenshot), and jumping to a number needs a total and an offset.
+       Keyset was required in the 이용기관 보고서 slice because it merges two databases; here there is
+       one datasource. The offset value is computed in Java.
+     -->
+     LIMIT #{c.size} OFFSET #{c.offset}
+  </select>
+
+  <select id="countAll" resultType="int">
+    SELECT /* TalkHistoryMapper.countAll */
+           count(1)
+      FROM FT_APITR_HSTR A
+    <include refid="whereClause"/>
+    <!--
+      FIX D-T11: 레거시는 페이지 정보를 넘기고도 건수를 되 읽지 않았고, 계약의 <out> 에도
+      그런 필드가 없었다. 같은 폴더의 biztalk_admin_32_l001 은 이것을 올바르게 했다.
+
+      조인을 두지 않는 것은 의도다 — LEFT JOIN 은 건수를 바꾸지 않고, 여기서 기관명은
+      필요하지 않다. 술어 조각이 A 별칭만 쓰는 것이 이것을 가능하게 한다.
+
+      FIX D-T11: the legacy passed page info and never read the count back, and its contract declared
+      no such output. Its sibling biztalk_admin_32_l001 did this correctly.
+
+      The join is deliberately absent: a LEFT JOIN cannot change the count and the name is not needed
+      here. The predicate fragment referencing only the A alias is what makes that possible.
+    -->
+  </select>
+
+  <select id="findObservedApiServices" resultMap="observedApiService">
+    <!--
+      대조 보고서(T1-14). SCOPE-T01 이 만든 새 실패 양식 — 과소 포함 — 을 드러내기 위한
+      질의다. 구간을 반드시 받는 이유는 이 테이블이 전체 API 거래 로그이므로 무한정
+      DISTINCT 를 뜨면 안 되기 때문이다.
+      The reconciliation report's query (T1-14), which exists to surface the failure mode SCOPE-T01
+      introduced: under-inclusion. A window is mandatory because this table is the whole API
+      transaction log and an unbounded DISTINCT is not acceptable on it.
+    -->
+    SELECT /* TalkHistoryMapper.findObservedApiServices */
+           A.API_SVC_CD AS API_SVC_CD,
+           count(1)     AS TR_CNT
+      FROM FT_APITR_HSTR A
+     WHERE A.TRDD BETWEEN #{fromDate} AND #{toDate}
+     GROUP BY A.API_SVC_CD
+     ORDER BY count(1) DESC
+  </select>
+
+</mapper>

@@ -19,6 +19,7 @@
 **Candidates.** A: server-enforced from session · B: + operator dropdown · C: keep client-supplied
 **PM response.** **A — server-enforced from session.**
 **Effect.** FR-TEN-001…004, NFR-SEC-TENANT. Client-supplied tenant identifiers are ignored, not merely validated.
+> **Refined 2026-08-18 (CONFLICT-R01, Part 5).** As written this ruling is too broad: it was raised about external self-service and cannot govern internal operator screens, of which 이용기관 보고서 (screen 20) is the first encountered. It governs **tenant principals**. An operator role may request 전체 or any institution; tenant users are narrowed from the session exactly as ruled here. No requirement written under AMB-02 changes — 문자내역 is a tenant-facing screen and is unaffected. See FR-AZ-R03/R04.
 
 ### AMB-03 — Paging and range limits *(superseded)*
 **Question.** Pagination is commented out and no maximum period exists; the query unions 8 tables and decrypts every row before filtering.
@@ -337,13 +338,288 @@ The admin consoles declare `BIZTALK_DB`; `KAKAOTALK` declares `BIZ_DB` for the s
 
 ---
 
-# Part 5 — 카카오 알림톡 템플릿 / 발송 (AlimTalk Compose · Send · Template Validation), 2026-08-18
+# Part 5 — 이용기관 보고서 (Institution Usage Report), 2026-08-18
+
+> **Slice**: legacy screen 20 and its Excel export. Specification: [REQUIREMENTS-SPEC-REPORT.md](REQUIREMENTS-SPEC-REPORT.md).
+> Twenty-seven defects — twenty-five in the slice, two upstream in `BATCH_BIZTALK_DAILY`. Four questions put to the PM, one of them a conflict with a standing G1 ruling. All four answered 2026-08-18.
+
+## 19. Resolved
+
+### CONFLICT-R01 — a cross-institution report vs server-derived tenancy
+**Conflict.** AMB-02 was ruled at G1 as "institution scope is server-enforced from the session; a client-supplied `IS_CD` is ignored, not merely validated." Screen 20 exists to compare institutions and its selector defaults to 전체. Under AMB-02 as written the screen cannot exist at all. Raised under harness §3 (충돌 식별 → PM 결재 의무) before any requirement was written.
+**Candidates.** A: operator role sees 전체 and any institution, tenant users narrowed from session · B: apply AMB-02 unchanged, drop 전체, build a separate operator report · C: keep legacy behaviour, waive AMB-02 here
+**PM response.** **A — operator role only.**
+**Effect.** FR-AZ-R03, FR-AZ-R04. AMB-02 is **refined, not superseded**: it governs *tenant* principals, which was always its intent — it was raised about external self-service, and screen 20 is an internal operator tool. The dropdown is filtered by role, and 전체 is a permission rather than a default.
+
+### AMB-R01 — two databases, and a report that only reads both in production
+**Question.** The report reads `BIZTALK_DB` (API 발송) and `BIZTALK_BULK_DB` (대량발송). The legacy queries the bulk source **only when `TSTCL_DV=REAL`**, then concatenates the two row sets under a 구분 column and writes them to separate Excel sheets. Should the new system merge them, and what happens to the environment flag?
+**Candidates.** A: merge with a 발송구분 filter, flag removed · B: keep rows separate, remove only the flag · C: exclude bulk entirely
+**PM response.** **A — merge, with an API / 대량 / 전체 filter defaulting to the summed total.**
+**Effect.** FR-RPTS-001…005. The `TSTCL_DV` branch is removed rather than repaired, which is the point: it appears in **four** places (both actions, the export view, and the batch) and each one silently changes what the system does. FR-RPTS-004 is therefore written as a property — *no configuration flag varies the read path* — instead of as four fixes.
+**Consequence not anticipated when the question was asked.** Merging plus server-side pagination plus a total order cannot all hold across two physical databases. That is CONFLICT-R02, below.
+
+### AMB-R02 — a fourth counter that nothing displays
+**Question.** `KKB_APITR_SMTN` stores four counters per channel — 전체 / 성공 / 실패 / **처리중**. The grid shows three, the Excel summary sheet shows two. `*_PCSNG_CNT` is declared on both service contracts, returned by both queries, and rendered nowhere. So 전체 ≠ 성공 + 실패 on any row with messages in flight, and a reader who adds the columns up finds the report wrong.
+**Candidates.** A: add 처리중 columns and assert the identity · B: keep the display, add an explanatory note · C: add a success-rate metric instead
+**PM response.** **A — add 처리중.**
+**Effect.** FR-RPT-009, FR-RPT-010, FR-RPTX-007. FR-RPT-010 goes further than the ruling and makes the identity an **asserted** rule with a standing reconciliation check, so a row that fails it is reported as a data-quality error rather than displayed as fact. That is deliberate: §7 shows the aggregate can be wrong in ways nothing currently detects, and the arithmetic identity is the cheapest detector available.
+
+### AMB-R03 — no cap on the query period
+**Question.** The only period check is `Number(startDt) > Number(endDt)` in the browser. The contract declares `START_DT`/`END_DT` with neither length nor type and the action validates nothing, so a direct call scans both tables end to end. The 문자내역 slice was capped at 31 days (AMB-06), but this is a daily-aggregate report with monthly and yearly comparison needs.
+**Candidates.** A: 366 days · B: 92 days · C: 31 days, consistent with AMB-06
+**PM response.** **A — 366 days.**
+**Effect.** FR-RPT-002, NFR-PERF-R02. The cap is larger than 문자내역's because the row grain is different — one row per 일자 × 기관 rather than one per message — so a year here is smaller than a month there. **Server-side pagination stops being optional**: at the cap, 전체 over 366 days is on the order of 366 × the institution count, which is exactly the unbounded fetch D-R8 already permits.
+
+## 20. Conflicts raised
+
+### CONFLICT-R02 — cross-source merge vs server-side pagination *(open, blocks Skill 3)*
+**Conflict.** Three requirements cannot all hold if `BIZTALK_DB` and `BIZTALK_BULK_DB` are separate physical databases: FR-RPTS-003 (전체 sums both sources into one row), FR-RPT-005 (pagination is server-side), FR-RPT-006 (ordering is total and deterministic across the merged set). Neither database can produce a merged, ordered, paginated result alone.
+**Candidates.** A: fetch both fully and merge in the application — reinstates the unbounded fetch D-R8 exists to remove · B: federated query (FDW / linked server) — pushes the merge into the database, adds an infrastructure dependency · C: consolidated read store fed by the batch — clean, but needs DDL and collides with CONST-DATA-R02
+**Working assumption.** A, with the cap and pagination applied per source before merging — correct whenever a single institution is selected, degrading only for 전체 over a wide range.
+**Status.** **Gated on AMB-R04.** Checked for reality before escalation, per the CONFLICT-I02 precedent: the two IDOs declare different `<target>` values, which proves two configured *datasources*, not two physical *databases*. If they resolve to one instance the conflict dissolves into an ordinary `UNION ALL` + `GROUP BY`. This is the same unknown, in the same shape, as the `BIZ_DB` vs `BIZTALK_DB` question carried out of the 발신번호 slice — and it should be settled by the same check rather than twice.
+
+## 21. Open
+
+| ID | Question | Candidates | Working assumption | Owner | Needed by |
+|----|----------|-----------|--------------------|-------|-----------|
+| ~~AMB-R04~~ | ~~One physical database or two?~~ **RESOLVED at design — assumed two (inference, SEC-002 blocks the authoritative file); CONFLICT-R02 dissolved regardless, §24** | A: one instance, merge in SQL · B: two instances, merge in the application | A — same working assumption as the `BIZ_DB` question, and settled by the same check | Architect | Skill 3 |
+| ~~AMB-R05~~ | ~~Async export threshold~~ **RESOLVED at design — cap enforced, async deferred (ADR-RPT-023); value set by load test L-R03/L-R04, §24** | A: 50,000 rows · B: derived from the measured 60 s target (NFR-PERF-R03) | B — set from measurement rather than guessed | PM | Skill 3 |
+| AMB-R06 | May tenant users see 처리중 counts, or operators only? In-flight figures expose queue state and therefore backlog | A: visible to both · B: operators only | A — the tenant's own in-flight count is their own data | PM | Skill 3 |
+| ~~AMB-R07~~ | ~~Where is the batch watermark recorded?~~ **RESOLVED at design — derived as max(TRDD) per source; batch run history rejected as untrustworthy per D-R27 (ADR-RPT-022), §24** | A: batch writes a run-status row (needs DDL — see CONST-DATA-R02) · B: derive from `max(TRDD)` per source | B until AMB-R04 and the DDL question settle; B cannot distinguish "aggregated, genuinely zero" from "not aggregated" | Architect | Skill 3 |
+| AMB-R08 | Must the merged 전체 view retain a per-source breakdown for billing reconciliation (BR-012 수수료)? | A: 발송구분 filter is sufficient · B: breakdown always retained in the export | A | Domain owner | Skill 3 |
+| OI-R01 | Ownership and repair of D-R26 / D-R27 in `BATCH_BIZTALK_DAILY`, and whether the T-4 lag is deliberate | A: batch slice takes both · B: T-4 confirmed as intended, only D-R27 repaired | A | PM | Before cutover |
+
+Carried and still open: **OI-02** (audit retention term) blocks NFR-OPS-AUDIT-R01.
+
+## 22. Corrections to earlier analysis
+
+| Item | Correction |
+|------|-----------|
+| AMB-02 (Part 1) | Recorded as "institution scope is server-enforced from the session" without qualification. **Too broad as written** — it was raised about external self-service and cannot govern internal operator screens, of which screen 20 is the first encountered. Refined by CONFLICT-R01 to apply to tenant principals. No requirement written under it changes; the 문자내역 slice is a tenant-facing screen and is unaffected |
+| BR-011 (Skill 01) | Recorded as "search results on list screens are exportable to Excel … screens 20/30". Accurate, but it does not convey that on screen 20 the export is a **second, separately-implemented data path** with its own contract, its own parameter handling and its own defects (D-R3, D-R4, D-R10). Export is not a rendering of the list; it is a parallel service that must carry every rule the list carries |
+
+## 23. Method note
+
+Twenty-seven defects, and a fifth distinct signature.
+
+- 문자내역 defects sat in **gaps between layers**.
+- 로그인 defects were **deliberately disabled controls**.
+- 이용기관관리 defects were **controls that exist only in the browser**.
+- 발신번호 defects were **layers that were each changed correctly and are now wrong together**.
+- 이용기관 보고서 defects are **behaviour that differs between environments** — so the system that was tested is not the system that shipped.
+
+`JexConst.getProperty("TSTCL_DV")` is consulted in four places in this slice: both action JSPs, the export view, and the daily batch. Each one decides whether bulk data exists. The consequences compound rather than repeat:
+
+- Off production the response carries `REC` (a record list); on production it carries `REC2` (a string built by `Arrays.toString` and parsed with `JSON.parse`). **Two different contracts under one service id** (D-R5, D-R6).
+- Off production rows are ordered by SQL `ORDER BY TRDD` ascending; on production by a Java comparator descending. **Two different orderings** (D-R7).
+- Off production the export view iterates `REC2`/`REC3` that the action never created, because the view's guard is `if(true)` while the action's is the flag. **The export is broken everywhere except production** (D-R4).
+
+The practical consequence is stark and worth stating plainly: **no test environment can exercise the production code path of this screen.** Whatever verification preceded any release, it did not verify what shipped. This is why the AMB-R01 ruling removes the flag rather than correcting its four call sites, and why FR-RPTS-004 is phrased as a property of the system — *no configuration flag varies the read path* — which a code review can check once instead of four times.
+
+**A new standing check for the remaining screens.** The 발신번호 slice produced "for every value that leaves the server and comes back, ask whether it came back in the same form it left." This slice adds: **for every branch on an environment or configuration property, ask what the other branch does — and whether anyone has ever run it.** A flag consulted in one place is a feature toggle; a flag consulted in four is a second implementation nobody maintains.
+
+**The silent-success class is now confirmed in four consecutive slices.** D-I1 (institution disabled, still active), D-S1 (number deleted, still live), and now D-R27: the bulk aggregation deletes a day, fails to reinsert it, catches its own exception, logs it, and **reports success**. The report then renders the missing day as zero, which is indistinguishable from a genuinely quiet day. Three different mechanisms, one shape: *the system reports that an operation succeeded when its effect is absent.* It is no longer reasonable to treat these as separate findings — the pattern should be assumed present in every remaining slice until a specific check disproves it.
+
+**Two findings came from outside the slice's declared inputs.** `BATCH_BIZTALK_DAILY` was not listed as an artifact of screen 20 — it is a batch, and screen 20 is a report. But it is the *only* writer of the only table the report reads, and reading it explained something no amount of screen analysis could: why the production screenshot shows "조회된 내용이 없습니다" for the default date range. The batch's default run aggregates one day, four days back (D-R26), so the screen's own defaults — today to today — target a window that by construction contains nothing. The screen is not broken; it is honest about data that does not exist yet, and it fails to say so.
+
+This continues the pattern the 발신번호 slice recorded at design time: **when a table is written by one system and read by another, the other system is part of the specification.** There it was a downstream reader that selected between two designs. Here it is an upstream writer that bounds what the report can truthfully promise — which is why FR-RPT-013 exists at all, and why it is a Must rather than a nicety.
+
+**One observation on severity.** This is the first slice with **no PII**, and it would be easy to read that as lower risk. The opposite is true. D-R1 and D-R2 combine into an unauthenticated, single-request dump of every customer's message volume by day and channel — enough to infer each institution's customer base, campaign calendar and growth rate. No slice so far has produced a disclosure of comparable commercial value, and none has made it this easy to obtain. **Absence of personal data is not absence of confidentiality**, and RISK-R04 asks for the access logs to be reviewed on the assumption that it may already have been taken.
+
+## 24. Design-time resolutions (Skill 3, 2026-08-18)
+
+One conflict dissolved, one open item answered without reading protected configuration, and two PM rulings that set scope. The first is the significant one: it removed work rather than adding it.
+
+### CONFLICT-R02 — dissolved, not resolved
+**Original conflict.** Merging both sources (FR-RPTS-003), server-side pagination (FR-RPT-005) and a total deterministic order (FR-RPT-006) appeared mutually unsatisfiable across two physical databases. Skill 2 escalated it as blocking Skill 3, with three candidate shapes and a working assumption of the weakest — fetch both sources fully and merge in the application, which is the unbounded fetch D-R8 exists to remove.
+**What design found.** A fourth shape none of the three considered. Both sources carry the same table, the same primary key and the same sort key, so two identically ordered streams can be **merge-joined with keyset pagination**: each source seeks independently in SQL using its own index, and the application holds at most two page-buffers. No DDL, no federated link, no new infrastructure.
+**Candidates put to design.** A: fetch both fully · B: postgres_fdw / dblink · C: consolidated read store fed by the batch · D: keyset-paginated streaming merge
+**Resolution.** **D.** [ADR-RPT-021](../design/adr/ADR-RPT-021-cross-source-aggregation.md).
+**Why it dissolves rather than resolves.** **The design is correct under both answers to AMB-R04.** Two databases → the merge ships as designed. One database → identical semantics collapse to `UNION ALL … GROUP BY` behind the same interface, same sort key, same page contract, and only the mapper changes. No requirement, test or API shape is contingent on the answer, so the conflict has no remaining decision content and does not reach G2 as a condition.
+**A side effect worth recording.** FR-RPT-006 is promoted from a display property to a **correctness precondition** — the merge is only right if both streams arrive in the same order. In the legacy, ordering was cosmetic and differed by environment (D-R7). It is now load-bearing, and the property suite tests it as such.
+
+### AMB-R04 — answered by inference, because the authoritative answer is protected
+**Question.** Are `BIZTALK_DB` and `BIZTALK_BULK_DB` one physical database or two?
+**Why it was not simply looked up.** The datasource definitions live in `jex.iris_admin.xml`, which is declared under `JEX.config.file` in `jex.prop`. **SEC-002 applies and the file was not read.**
+**What source alone shows.** Four IDOs target the bulk datasource against one table; sixty target `BIZTALK_DB`. None of the four references `FT_FTIS_INFO`. Decisively, the bulk aggregate query is character-for-character identical to the non-bulk one **except** that it replaces the correlated 기관명 subquery with `'' AS IS_NM` — and then Java patches the names back in from a `BIZTALK_DB` query. Nobody writes that if the master table is reachable from the bulk datasource.
+**Resolution.** **Working assumption flips from A (one instance) to B (two).** Confirmed empirically by task R1-01, which asks the DBA rather than reading protected configuration.
+**Effect.** None on design, by construction (above). R1-01 decides whether the merge iterator is built or deleted — simplicity, not viability. This is the material difference from RISK-S01 in the 발신번호 slice, where the equivalent unknown was a hard gate that could have forced ADR-SND-017 to be re-derived.
+
+### OI-R01 — the batch stays out of slice
+**Question.** D-R26 (data at best T-4; a single day cannot be re-aggregated) and D-R27 (bulk failures swallowed while the batch reports success) belong to `BATCH_BIZTALK_DAILY`. FR-RPT-013 also needs a completion watermark the batch records nowhere. Does the report slice take the batch?
+**Candidates.** A: report-side only, degrade honestly · B: take the batch, add a run-status table (DDL) and fix both defects · C: watermark only, defer the fixes
+**PM response.** **A — report-side only.**
+**Effect.** [ADR-RPT-022](../design/adr/ADR-RPT-022-aggregation-freshness.md). Watermark derived as `max(TRDD)` per source; days above it are 미집계 rather than 0; a wholesale source gap is flagged heuristically (FR-RPTS-005). **The blind spot is documented rather than papered over**: `max(TRDD)` cannot detect an *interior* day that D-R27 deleted and failed to reinsert, because it sits below the watermark and is indistinguishable from a quiet day.
+**One rejected option is worth recording.** Sourcing the watermark from the batch's own run history was considered and rejected **because D-R27 means that history lies** — it records success for runs whose bulk aggregation failed. An unreliable narrator is worse than an admitted gap, and this is the first time in the programme that an existing record was rejected as a data source specifically because a known defect makes it untrustworthy.
+
+### AMB-R05 / FR-RPTX-010 — enforce the cap, defer async
+**Question.** FR-RPTX-010 (Should) wants oversized exports generated asynchronously with notification. The programme has no job store, no queue and no notification channel.
+**Candidates.** A: streamed synchronous export with a hard row ceiling, async deferred · B: build async infrastructure now · C: synchronous with no ceiling, relying on the 366-day cap alone
+**PM response.** **A.**
+**Effect.** [ADR-RPT-023](../design/adr/ADR-RPT-023-export-generation.md). SXSSF streaming, bounded window, hard ceiling; oversize requests refused with an actionable message naming a range that fits — **never a truncated file**, since a silently short workbook is the export form of the silent-success failure this programme has now met four times. **AMB-R05's value is measured, not decided**: the ceiling is the largest export holding NFR-PERF-R03 with a flat heap, fixed by load tests L-R03/L-R04. RISK-R07 asks for those tests early in R2 so a low result leaves room to reopen the async decision.
+**FR-RPTX-010 stays in the specification at `Should`, unbuilt, with the ADR named as the reason** — not quietly downgraded.
+
+### New finding — the export could not have reported its own failure
+Not an open question, but it changed the delivery mechanism and is worth recording. D-R16 was written up in Skill 2 as "export failures are invisible — the download posts to a hidden iframe." Design found that this is **not fixable by adding error handling**: a form posted to an invisible iframe gives the browser no handle on the response, so a server error is structurally unreachable by the page. FR-RPTX-011 therefore forced the delivery mechanism to change to `fetch` + blob, which was not anticipated in the requirement.
+
+Worth generalising: **a requirement that says "surface the error" is a requirement about the transport, not about the handler**, whenever the existing transport discards the response.
+
+### Method note
+Two of the four resolutions above came from re-reading what the slice already had rather than from new investigation — CONFLICT-R02 dissolved by noticing that two sorted streams with a shared key admit a merge-join, and the watermark's rejected option identified by noticing that a defect already recorded in Skill 2 disqualifies a data source Skill 3 wanted to use.
+
+That is now the third slice where escalating a conflict and then re-examining its premise produced a materially better answer than the escalation's own candidates (CONFLICT-I02, CONFLICT-S01 narrowed, now CONFLICT-R02 dissolved). The institution slice's note said **"a conflict between two constraints deserves one pass to check whether it is real before it is escalated."** This slice refines it: the premise here was *true* — there really are two databases — but the conclusion did not follow from it. **Check the inference, not only the premise.**
+
+
+---
+
+# Part 6 — 톡전송 내역 (BizTalk Transaction History), 2026-08-19
+
+> **Slice**: legacy screens 30, 32, 31 and the 30_spreadsheet export. Specification: [REQUIREMENTS-SPEC-TALK.md](REQUIREMENTS-SPEC-TALK.md).
+> Thirty-four defects, five of them Critical — the highest count and the highest severity of any slice so far. Four questions put to the PM, one of them a conflict with an approved planning document. All four answered 2026-08-19.
+
+## 25. Resolved
+
+### SCOPE-T01 — what this screen actually is
+**Question.** The menu reads 톡전송 내역 and the heading reads BizTalk 내역, but `IDO.KKB_APITR_HSTR_L001` selects from `FT_APITR_HSTR` — the shared Open-API transaction log for every fintech API — with no predicate restricting it to BizTalk, and `IDO.KKB_OPENAPI_INFO_L002` fills the API selector from `FT_OPENAPI_INFO` with `WHERE 1=1`. The production screenshot supplied with the request shows rows whose API is `ADV_COM_GET_STATUS`, which is not a talk-send service. Until this is settled, "parity" has no definition: reproducing the query contradicts the name, and honouring the name changes the result set.
+**Candidates.** A: BizTalk-only, filter to talk APIs · B: general API log, rename the menu · C: one screen with an 업무구분 selector
+**PM response.** **A — BizTalk-only.**
+**Effect.** FR-TLK-002. Rows visible today whose API is not a talk service disappear from the rebuilt screen — an accepted, visible deviation from literal parity, recorded as CONFLICT-T02 and mitigated by RISK-T05. It also creates a new problem the legacy did not have: the BizTalk code set must be *defined*, and it is data rather than code (AMB-T03).
+
+### CONFLICT-T01 — PROJECT-PROPOSAL §5.1 vs. what screen 30 is
+**Conflict.** The approved proposal classifies legacy 30 (거래내역조회) as a **[Tenant]** screen — one of the four client-facing menus carrying the self-service value proposition. Static analysis shows the screen has no institution input, no institution predicate, and reads `FT_APITR_HSTR`, whose columns include `FIN_ACNO`, `ACNO`, `CANO`, `FIN_CARD`, `TRAM`, `BRNO` and `RSPN_TLGR_CNTN`. Building it as a tenant screen would mean inventing tenant scoping the legacy never had, on the most sensitive table in the slice, for an internet-facing audience. Raised under harness §3 before any requirement was written.
+**Candidates.** A: operator-only · B: both, tenant-scoped from session · C: tenant-only
+**PM response.** **A — operator-only.**
+**Effect.** FR-AZ-T02, NFR-SEC-AUTHZ-T01. §5.1's `[Tenant]` label is corrected. The MVP's tenant-facing surface narrows from four legacy menus to three (40, 50, 60); the proposal's §4 core scenario 3 is served by the 문자내역 slice alone. AMB-02 as refined by CONFLICT-R01 is not overturned — it governs tenant principals, and this slice now has none.
+
+### EXPORT-T01 — the download button
+**Question.** 다운로드 does not export the grid. It posts to `biztalk_admin_30_spreadsheet`, which runs `IDO.KKB_MSG_L001` over `KKO_MSG`/`KKF_MSG` and their archives — a different table set at a different grain, sharing no key with the list. `fn_makeExcel()` gathers its filters from `#IS_LIST`, `#MSGKEY`, `#PHONE`, `#CALLBACK`, `#RSLT`, `#STATUS` and `#MSG_TYPE`, none of which exist in `biztalk_admin_30_view.jsp`; all resolve to `''`, every `CASE WHEN :X = ''` branch opens, and the file is every institution's messages in the window with `decrypt(CALLBACK)`/`decrypt(PHONE)` and no masking.
+**Candidates.** A: export the grid's own result set · B: keep both as two labelled buttons · C: drop export from the slice
+**PM response.** **A — export the grid's own result set.**
+**Effect.** FR-TLKX-001…008. The message-level export is not carried forward as an implicit side effect of this button; whether it returns as its own function is AMB-T01. The acceptance test asserts the exported row set equals the paged list row set, filter for filter — a test the legacy could never have passed.
+
+### PII-T01 — masking in the detail screens
+**Question.** `KKB_AT_MSG_L001`, `KKB_FT_MSG_L001`, `KKO_MSG_L002`, `KKF_MSG_L002` and `KKO_MSG_LOG_L001` all apply `decrypt()` with no `masking()`. The 문자내역 slice applied `decrypt()` then `masking()` on the same columns of the same tables. BR-007 requires masking in UI lists.
+**Candidates.** A: masked always · B: masked with an audited unmask action · C: plaintext for operators
+**PM response.** **A — masked always.**
+**Effect.** FR-TLKD-008, FR-TLKM-002, FR-TLKX-008, NFR-SEC-PII-T01, CONST-LEGAL-T01. Consistency with 문자내역 is restored, and the slice has no unmasked path to defend at audit.
+
+---
+
+## 26. Conflicts raised
+
+| ID | Conflict | Status |
+|----|----------|--------|
+| CONFLICT-T01 | PROJECT-PROPOSAL §5.1 `[Tenant]` vs. a screen with no tenant concept, over a table holding account and card numbers | **Resolved 2026-08-19** — operator-only. §5.1 corrected |
+| CONFLICT-T02 | The menu's name vs. the query's scope | **Resolved 2026-08-19** — BizTalk-only (SCOPE-T01). Accepted visible deviation from literal parity |
+
+---
+
+## 27. Open
+
+| ID | Question | Candidates | Working assumption | Owner | Needed by |
+|----|----------|-----------|--------------------|-------|-----------|
+| AMB-T01 | Should the message-level export dropped by EXPORT-T01 return as its own function? | A: no · B: yes, on screen 32 with its own filters and masking | A — not built unless requested | PM | Skill 3 |
+| AMB-T02 | Period cap for the 요청일자 range | A: 31 days (AMB-06 precedent) · B: 92 days · C: keep single-day parity | A — 31 days | PM | Skill 3 |
+| AMB-T03 | Which `API_CD` values constitute BizTalk? A source scan yields five literals (`ADV_KKO_AT_SEND`, `_SEND2`, `_SEND_M`, `ADV_KKO_FT_SEND`, `_SEND_M`), but `FT_OPENAPI_INFO` holds codes no source file names — `ADV_COM_GET_STATUS` appears only in the production screenshot | A: the five literals · B: a classification column on `FT_OPENAPI_INFO` the domain owner maintains | B, seeded from A | Domain owner | Skill 3 |
+| AMB-T04 | Is `FT_APITR_HSTR.IS_TUNO` genuinely the same identifier as `KKO_MSG.SERIALNUM`, and at what stored width? Three different normalisations exist in the legacy | A: same identifier, one width · B: related but not equal — needs a mapping | A | Domain owner | Skill 3 — **blocks FR-TLKD-009** |
+| AMB-T05 | Does 처리중 / 오류 detail exist to be shown? FR-TLK-013 offers a link for those rows; whether the message tables hold rows for a failed API call is unverified | A: show what exists, with an explicit empty state · B: keep them unlinked | A | Domain owner | Skill 3 |
+| OI-T01 | Historical exposure from D-T1 — files already extracted contain unmasked cross-institution recipient numbers | — | Raised to 정보보호; retroactive remediation is out of slice | 정보보호 | — |
+
+Carried from Skill 01 and still open: **OI-02** (audit retention term) blocks NFR-OPS-AUDIT-T01.
+
+---
+
+## 28. Corrections to earlier analysis
+
+| Item | Correction |
+|------|-----------|
+| PROJECT-PROPOSAL §5.1 | Lists legacy 30 as `[Tenant] 거래내역조회`. Both halves are wrong: the screen is not tenant-scoped in any sense, and 거래내역조회 describes the API transaction log, not a customer-facing send history. Corrected by CONFLICT-T01 (audience) and SCOPE-T01 (content). The proposal is not edited retroactively; this log and the specification are the authority |
+| BR-011 (Skill 01) | Recorded as "search results on list screens are exportable to Excel … screens 20/30". Part 5 already noted that the export is a *parallel data path* rather than a rendering of the list. Screen 30 shows the end state of that pattern: the export is not merely a second path with its own defects, it queries **different tables** than the list it sits on. BR-011's "results are exportable" is not satisfied by the presence of a download button |
+| Part 1 §1.2 (문자내역 data sources) | Recorded `KKO_MSG_LOG` etc. as archive tables read by screen 40. They are also read by screens 30/31/32 and by the screen-30 export, through five further IDOs the 문자내역 analysis did not enumerate. The tables have more readers than any single slice's artifact list suggests — which is why CONST-SEC-T01 is written as a property of *this slice's queries* rather than of the tables |
+
+---
+
+## 29. Method note
+
+Thirty-four defects, five Critical, and a sixth distinct signature.
+
+- 문자내역 defects sat in **gaps between layers**.
+- 로그인 defects were **deliberately disabled controls**.
+- 이용기관관리 defects were **controls that exist only in the browser**.
+- 발신번호 defects were **layers that were each changed correctly and are now wrong together**.
+- 이용기관 보고서 defects were **behaviour that differs between environments**.
+- 톡전송 내역 defects are **code that was copied from a neighbouring screen and never adapted**.
+
+The copy signature is visible at every layer and is the direct cause of eleven findings:
+
+- `biztalk_admin_30_spreadsheet_view.jsp` declares `@JexDataInfo(id="biztalk_admin_20_spreadsheet")` — screen 20's contract, in screen 30's export (D-T16).
+- `IDO.KKB_FT_MSG_L001` is `KKB_AT_MSG_L001` with the table names changed and `'AT' AS MSG_TYPE` left behind, so every 친구톡 row identifies as 알림톡 — and the *next* screen branches on that value, so 친구톡 detail queries the 알림톡 table (D-T7). One unchanged literal, two screens wrong.
+- The same copy dropped the `??` dynamic placeholder, so four filters silently do nothing for one of the two channels (D-T8).
+- `biztalk_admin_31_view.jsp` is titled `기본 컨텐츠 관리`; its header comment reads `biWztalk` (D-T34).
+- `fn_makeExcel()` is screen 40's export function, kept whole on a screen that has none of its input fields (D-T1).
+
+The practical consequence is that **the layer-cross-check that found defects in the five earlier slices is not sufficient here.** Cross-checking view against contract against query finds disagreements; it does not find a query that agrees with its own contract perfectly and describes the wrong screen. The check that works is different: **for every artifact, ask which screen it was written for.** A file's own header comment, its `@JexDataInfo` id, and its literal constants are three independent statements of provenance, and on this screen they disagree with each other.
+
+**The 다운로드 finding deserves separate comment.** D-T1 is not a defect in the export; it is a *different feature* wearing the export's button. Every individual piece is locally reasonable — `KKB_MSG_L001` is a valid query, `fn_makeExcel` is a working function, the contract declares its twelve parameters — and the composition is a single-click, single-request extraction of every institution's recipient phone numbers in plaintext. No layer disagrees with its neighbour. The only way to see it is to ask what the button *means* and compare that to what it *does*, which no structural check performs. This is why FR-TLKX-001's verification is written as an equality between two result sets rather than as a list of properties: the assertion has to be about meaning, and an equality is the only form of that a test can hold.
+
+**The dead-but-live class is new and worth naming.** `biztalk_admin_30_l002` is registered, authenticated, monitored and reachable, and returns unmasked recipient and sender numbers over an arbitrary date range with no institution requirement and no pagination. Its only client is commented out. Commenting out `getDat2()` removed the *use* and left the *capability* — and removed, with it, any user who would have noticed the endpoint behaving badly. The 발신번호 slice's standing check was "for every value that leaves the server and comes back, ask whether it came back in the same form it left." This slice adds: **for every commented-out client, ask whether its service was retired with it.** A service with no caller is not dormant; it is unobserved.
+
+**The silent-success class holds for a sixth consecutive slice**, in a new shape. D-T13: clicking a 상세 link on a KKO transaction the action does not map leaves `idoIn1` null, so the action puts no `REC1`, throws nothing, and calls `setResult` on an empty domain. The popup opens, the grid renders empty, and the operator concludes the transaction has no messages. Nothing failed; nothing was reported; the answer is wrong. Six slices, six mechanisms, one shape — the assumption is now that this pattern is present in any remaining screen until a specific check disproves it.
+
+**One observation on severity.** The five Critical findings are not five independent problems. D-T2 (no institution scoping) makes D-T1 (the export's true blast radius) and D-T5 (message keys addressable without an institution) matter; D-T3 provides a second, quieter route to the same data; D-T4 turns the export endpoint into a header-injection primitive. Taken together they describe a screen where any authenticated principal can obtain, in one request, every customer's recipient phone numbers in plaintext. RISK-T02 and OI-T01 ask 정보보호 to proceed on the assumption that this may already have happened, because unlike the 이용기관 보고서 exposure, this one leaves a file behind.
+
+## 30. Design-time resolutions (Skill 3, 2026-08-19)
+
+Three of the five open items were answered by design rather than by asking, and one new item was raised. The pattern is now consistent across the last three slices: **an open item that can be measured should be a task, not an agenda item.**
+
+### AMB-T03 — answered operationally, not documentarily
+**Original question.** Which `API_CD` values constitute BizTalk? A source scan yields five literals; `ADV_COM_GET_STATUS` is in production and in no source file, so the set is data the codebase cannot enumerate.
+**What design found.** The question has no answer that a document can hold, because the authoritative list lives in `FT_OPENAPI_INFO` and changes without a release. Asking the domain owner produces a snapshot that is stale the next time an API is registered.
+**Resolution.** Config-held allow-list, startup-validated, plus a **standing reconciliation report** counting transactions per unclassified `API_SVC_CD` whose institution has BizTalk service registered ([ADR-TLK-024](../design/adr/ADR-TLK-024-biztalk-api-classification.md), task T1-14).
+**Why this is the answer and not a workaround.** SCOPE-T01 introduces a failure mode the legacy did not have. Over-inclusion — the legacy's behaviour — is visible: an operator sees a row that does not belong. Under-inclusion is invisible: a real transaction is absent and nothing says a filter removed it. The reconciliation report exists to make the new failure mode as loud as the old one. **The domain owner is still asked, but the design does not wait**, and when the answer arrives it is checked against the report rather than trusted.
+**Successor recorded.** A classification column on `FT_OPENAPI_INFO` is the structurally correct answer and is blocked only by CONST-DATA-T02 (no DDL on a table this project does not own). If it is ever added, `BizTalkApiRegistry` reads it and the config list is deleted; nothing above that interface changes.
+
+### AMB-T04 — converted to a measurement (task T1-01)
+**Original question.** Is `FT_APITR_HSTR.IS_TUNO` the same identifier as `KKO_MSG.SERIALNUM`, and at what width? Three legacy code paths normalise it three different ways, one of them lossy.
+**Resolution.** Task **T1-01** measures the widths and the join cardinality on production-like data before any mapper is written, and configures a single `TransactionSerial` type from the result ([ADR-TLK-025](../design/adr/ADR-TLK-025-transaction-message-identity.md)). FR-TLKD-009 stays `BLOCKED-AMB-T04` in the matrix and is unblocked by that task.
+**Why it is not blocking G2.** The requirement's text — lossless for identifiers of any length — is correct under every answer the question can have. Only the widths are unknown, and they are measurable in half a day. If the relationship turns out not to be plain equality, the type's two renderers become a lookup and nothing above the domain boundary changes.
+**A performance property came free.** Removing `lpad` from the predicate makes an index on `SERIALNUM` usable. TC-LOAD-02 measures both forms so the improvement is recorded rather than claimed.
+
+### AMB-T05 — dissolved
+**Original question.** Do 처리중 / 오류 transactions have messages to show? FR-TLK-013 offers them a detail link and the legacy did not.
+**What design found.** The question was a premise the design did not need. Once `TalkDetailRegistry` decides serviceability and the detail service distinguishes *no messages* from *cannot be queried* ([ADR-TLK-026](../design/adr/ADR-TLK-026-detail-serviceability.md)), both answers render correctly and neither requires knowing in advance which one is true. The screen observes it.
+**Resolution.** Closed. Not an open item at G2.
+
+### AMB-T06 — new, raised by design, not blocking
+**Question.** What is the relationship between `KKO_MSG` / `KKF_MSG` and `KKO_SMS_MSG` / `KKO_MMS_MSG` / `KKF_SMS_MSG` / `KKF_MMS_MSG`?
+**Why it was raised.** Design set out to reuse `MessageDetailMapper` from the 문자내역 slice and discovered the two slices read **disjoint table families** — twelve message tables, no overlap. The corroboration is upstream: `IDO.KKB_APITR_SMTN_C001`, the daily aggregation batch, computes `AT_CNT` (알림톡) from `KKO_MSG` + `KKO_MSG_LOG`, and the column sets differ exactly as that reading implies — `TEMPLATE_CODE`, `PROFILE_KEY`, `BUTTON_JSON` and the `FAILED_*` group exist only in the talk family. The working interpretation is that `KKO_MSG` holds the talk message and `KKO_SMS_MSG`/`KKO_MMS_MSG` hold its SMS/MMS failback, which is what a `FAILED_TYPE` column on the former implies.
+**Candidates.** A: failback relationship, joined by `SERIALNUM` · B: independent record sets with no join
+**Working assumption.** A.
+**Not blocking.** This slice reads only its own four tables. The question matters for a future cross-channel message search, and for anyone who reads the two specifications side by side.
+**Owner** Domain owner · **Needed by** whenever a cross-channel search is proposed.
+
+### A qualification to an approved document — not a correction
+REQUIREMENTS-SPEC.md §1.2 tabulates `MSG_TYPE=AT` against `KKO_SMS_MSG` / `KKO_MMS_MSG`. **That is accurate for what screen 40 reads**, and no requirement in that slice changes. It is not, however, the complete set of 알림톡 message records: `KKO_MSG` also holds them and screen 40 never touches it. Recorded here rather than edited there, because the statement was true about its own scope and only reads as incomplete once this slice exists.
+
+### One programme-level change: `ReportScope` becomes `common.tenant.PrincipalScope`
+Not an open item, but a design decision that reaches into an already-approved slice and therefore belongs in this log. `ReportScope` already encodes exactly the operator/tenant distinction CONFLICT-T01 needs, including the two properties that carry the security: a tenant's blank value does not mean "all", and a tenant's supplied value is **ignored rather than validated-then-rejected**, so the error message cannot become an institution-enumeration oracle. Copying it would put two implementations of one authorization rule in the codebase.
+
+Task T1-04 moves it and **re-runs the 보고서 slice's authorization tests unchanged**. The exit condition is that suite going green; if it does not, the move is reverted to a duplicated class with a comment. An authorization rule on shipped code is not something a refactor gets to adjust.
+
+### Method note — what changed about how open items are handled
+Six slices in, three of the last five open items were closed by design without asking anyone, and the reason each time was the same: **the question was phrased as something a person knows, when it was actually something the system can be asked.** AMB-R04 (two databases or one) became a probe. AMB-T04 (identifier widths) became a probe. AMB-T03 (which APIs) became a standing report, because unlike the other two its answer changes over time and a one-off measurement would have been stale immediately.
+
+The residual — AMB-T06 — is genuinely a person's knowledge, and it is the one that stays open. That is the distinction worth carrying to the two remaining slices: **before escalating an open item, ask whether the database already knows.**
+
+---
+
+# Part 7 — 카카오 알림톡 템플릿 / 발송 (AlimTalk Compose · Send · Template Validation), 2026-08-18
 
 **Slice**: legacy screen 61, plus screen 50's send path (pulled in by AMB-A00)
 **Spec**: [REQUIREMENTS-SPEC-ALIMTALK.md](REQUIREMENTS-SPEC-ALIMTALK.md)
 **Defects**: D-A1…D-A35 (23 in screen 61, 12 in screen 50)
 
-## 19. Resolved
+## 31. Resolved
 
 ### AMB-A00 — migration scope for a screen registered as a "sample"
 **Question.** `WSVC.biztalk_admin_61` is named `BIZTALK(템플릿 샘플)`, declares `actUseYn=N`, and has no action class in any layer. The screen composes a JSON payload into a read-only textarea for the operator to copy by hand. Is it migrated as a developer utility, upgraded into a real send screen, promoted to full template management, or dropped?
@@ -373,7 +649,7 @@ The admin consoles declare `BIZTALK_DB`; `KAKAOTALK` declares `BIZ_DB` for the s
 **Question.** `msg_data` has no maximum; screen 50 chunks at 1000 per vendor call as an invisible implementation detail.
 **Candidates.** A: configurable cap, value supplied later · B: no cap
 **PM response.** **A.**
-**Effect.** FR-ATS-014, NFR-SCALE-A01. Value open as AMB-A03 in §21.
+**Effect.** FR-ATS-014, NFR-SCALE-A01. Value open as AMB-A03 in §33.
 
 ### AMB-A05a — 이미지형 is selectable but unfillable
 **Question.** `msg_type=AI` auto-syncs with `emphasis_type=image`, yet no image field exists anywhere in the screen, so the option can only produce a payload with no image (D-A8).
@@ -387,7 +663,7 @@ The admin consoles declare `BIZTALK_DB`; `KAKAOTALK` declares `BIZ_DB` for the s
 **PM response.** **A only.** B and C explicitly declined.
 **Effect.** NFR-SEC-PII-A01, FR-AZ-A04. The two declines are recorded as accepted risks, not deferrals: RESIDUAL-A01 (unaudited clipboard egress) and RESIDUAL-A02 (operator-supplied `tran_id`).
 
-## 20. Conflicts raised
+## 32. Conflicts raised
 
 ### CONFLICT-A01 — a second writer on one vendor contract
 **Origin.** AMB-A00 was answered on the stated premise that screen 61 sends nothing. That premise was correct about screen 61 and incomplete about the system: `biztalk_admin_50_s001_act.jsp` **already sends** against the same `IMO.ADV_KKO_AT_SEND`, carrying twelve defects of its own (D-A24…D-A35) including a hardcoded vendor credential and a `tran_id` that collides by construction.
@@ -407,7 +683,7 @@ PM declined option B of AMB-A02b. Copy remains a path by which an operator can e
 ### RESIDUAL-A02 — accepted: tran_id remains operator-supplied
 PM declined option C of AMB-A02b, resolving idempotency by dedupe instead. Because CONST-DATA-A04 makes `tran_id` a primary-key component, an operator can still trigger a *rejection* by reusing a value — dedupe converts a data-integrity failure into a usability one, which is the right trade. But FR-ATS-008's uniqueness requirement now depends on a client-side scheme the operator can override. Revisit if operators report spurious duplicate rejections.
 
-## 21. Open
+## 33. Open
 
 | ID | Item | Candidates | Working assumption | Owner | Needed by |
 |----|------|-----------|--------------------|-------|-----------|
@@ -421,13 +697,13 @@ PM declined option C of AMB-A02b, resolving idempotency by dedupe instead. Becau
 
 Carried and still open: **OI-02** (audit retention term) blocks NFR-OPS-AUDIT-A02 and CONST-LEGAL-02.
 
-## 22. Corrections to earlier analysis
+## 34. Corrections to earlier analysis
 
 - **"Screen 61 sends nothing" was true of the screen and misleading about the feature.** It was the premise on which AMB-A00 was put to PM, and it held — `actUseYn=N`, no action class, no AJAX call. But the *feature* has a send path, in screen 50, and the question would have been better framed as "which of the two send paths survives". The answer PM gave is unaffected; the scope implication was not surfaced until CONFLICT-A01. **The framing error was asking about a screen when the unit of decision was a capability.**
 - **"No limits exist in the legacy" was wrong.** Stated while raising AMB-A02, on the basis of screen 61 and screen 50 alone. The limits were in the interface contract the whole time — twelve of them, per field. CONFLICT-A02 exists because the ruling was sought before the contract had been read.
 - **The reservation asymmetry was misdiagnosed as a possible design decision.** It was put to PM as a choice between enabling batch reservation and deliberately keeping it single-only. The contract settles it: `ADV_KKO_AT_SEND_M` declares `reqdate` on every `msg_data` item, so batch reservation was always available and screen 61 simply never collected it (D-A14). PM selected neither option, and the working assumption in AMB-A04 now rests on the contract rather than on a preference.
 
-## 23. Method note
+## 35. Method note
 
 Screen 61 has three client-side files and no server side, so a conventional four-layer read (view → client → action → query) terminates after two layers with almost nothing to say. Everything of consequence in this slice came from reading **what consumes the screen's output**:
 
@@ -441,4 +717,4 @@ Screen 61 has three client-side files and no server side, so a conventional four
 >
 > That is not an abstraction. `ADV_KKO_AT_SEND_M` is **called by no code in this repository**, and screen 61's output is **consumed by no code at all**. Neither the missing `order` nor the misnamed `failback_data` had any path by which it could ever fail visibly, which is precisely why both survived into a file stamped `20250428`. The three Critical contract defects in this slice were not hard to find; they were impossible to find *from inside the screen*, and nothing outside the screen was looking.
 >
-> **Practical consequence for the remaining slices:** for any screen whose output crosses a system boundary, read the boundary contract *before* putting scope or limit questions to the PM. Both corrections in §22 trace to having asked first and read second.
+> **Practical consequence for the remaining slices:** for any screen whose output crosses a system boundary, read the boundary contract *before* putting scope or limit questions to the PM. Both corrections in §34 trace to having asked first and read second.

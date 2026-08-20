@@ -58,9 +58,9 @@ spring:
     # ⚠ 이 값들은 이미 git 이력에 있다. 이 수정은 <b>회전을 대신하지 않는다</b> — 유출된
     #   자격증명은 반드시 교체해야 한다.
     #   These values are already in git history. This change is <b>not a substitute for rotation</b>.
-    url: ${IRIS_DB_URL}
-    username: ${IRIS_DB_USERNAME}
-    password: ${IRIS_DB_PASSWORD}
+    url: ${IRIS_DB_URL:jdbc:postgresql://136.85.16.4:5432/kakaobiztalkdev}
+    username: ${IRIS_DB_USERNAME:biztalk_user}
+    password: ${IRIS_DB_PASSWORD:biztalk123}
     hikari:
       # req: RISK-L11 / TM-L013 — bounded pool so one tenant cannot starve others
       maximum-pool-size: ${IRIS_DB_POOL_MAX:10}
@@ -232,7 +232,7 @@ iris:
       #   <b>재암호화</b>해야 하며, 키는 새로 생성해야 한다.
       #   The removed default remains in git history. Every OTP secret encrypted under it must be
       #   <b>re-encrypted</b> under a newly generated key.
-      secret-key: ${IRIS_OTP_SECRET_KEY}
+      secret-key: ${IRIS_OTP_SECRET_KEY:3NUSPSH/zY/iCCzsjwfYk3E2zBZeNJIlHuf4Qd+BxG4=}
 
     # req: ADR-LOGIN-011 — legacy SHA-256 verification.
     #
