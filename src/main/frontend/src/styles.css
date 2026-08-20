@@ -484,7 +484,20 @@ tbody tr:hover {
   order: -1;                /* 왼쪽 배치 / place on the left */
   position: sticky;
   top: 0;
-  align-self: stretch;
+  /*
+    sticky 는 요소가 담긴 블록보다 낮을 때에만 움직일 여지가 생긴다. align-self:stretch 는
+    내비를 콘텐츠와 같은 높이로 늘려 버리므로 붙어 있을 자리가 없어지고, 결국 본문과 함께
+    밀려 올라갔다. flex-start 로 그 높이를 풀고 뷰포트 높이로 고정한다.
+    Sticky only has room to move when the element is shorter than its containing block.
+    align-self:stretch made the nav exactly as tall as the content, so it had nowhere to stick
+    and scrolled away with the page. flex-start releases that height; 100vh pins it instead.
+  */
+  align-self: flex-start;
+  height: 100vh;
+  /* 메뉴가 화면보다 길어지면 본문이 아니라 내비 안에서 스크롤한다.
+     A menu taller than the screen scrolls inside the nav, not the page. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 16px 12px;
   background: #f5f7fa;
   border-right: 1px solid var(--border);
@@ -540,6 +553,8 @@ tbody tr:hover {
     border-right: none;
     border-bottom: 1px solid var(--border);
     position: static;
+    height: auto;
+    overflow-y: visible;
   }
   .app-nav ul { flex-direction: row; flex-wrap: wrap; }
 }
