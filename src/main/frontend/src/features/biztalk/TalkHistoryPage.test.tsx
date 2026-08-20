@@ -10,7 +10,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import { TalkHistoryPage } from './TalkHistoryPage';
@@ -126,6 +126,13 @@ describe('TalkHistoryPage', () => {
     expect(status).toHaveTextContent('처리완료');
     expect(status).toHaveTextContent('기처리');
     expect(status).toHaveTextContent('오류');
+    // 레거시 배치는 라디오 한 줄이었다. 선택지는 여전히 서버가 정하므로 전체 + 서버 목록
+    // 개수만큼 라디오가 선다 — 하드코딩한 목록이면 서버가 코드를 하나 늘려도 늘지 않는다.
+    // The legacy arrangement was an inline radio row. The options are still the server's, so there
+    // is one radio for 전체 plus one per server option — a hardcoded list would not grow when the
+    // server adds a code.
+    expect(within(status).getAllByRole('radio')).toHaveLength(FILTERS.statuses.length + 1);
+    expect(within(status).getByLabelText('전체')).toBeChecked();
   });
 
   it('API 선택지에 레거시가 빠뜨린 코드가 포함된다 — D-T13', async () => {
@@ -293,7 +300,10 @@ describe('TalkHistoryPage', () => {
 
     await userEvent.clear(screen.getByTestId('talk-serial'));
     await userEvent.type(screen.getByTestId('talk-serial'), '142813');
-    await userEvent.selectOptions(screen.getByTestId('talk-status'), '9');
+    // 상태는 라디오 한 줄이다 — 레거시 배치이며, 고른 값은 조회와 내보내기에 똑같이 실린다.
+    // The status filter is an inline radio row, the legacy arrangement; the chosen value rides on
+    // the query and the export alike.
+    await userEvent.click(within(screen.getByTestId('talk-status')).getByLabelText('오류'));
     await userEvent.click(screen.getByTestId('talk-search'));
 
     await waitFor(() => expect(screen.getByTestId('talk-download')).toBeEnabled());

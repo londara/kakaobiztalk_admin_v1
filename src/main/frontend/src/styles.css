@@ -462,14 +462,69 @@ tbody tr:hover {
 }
 
 /* =============================================================================
-   로그인 후 셸 + 우측 내비게이션 바. / Post-login shell + right-hand nav bar.
-   req: FR-LOGIN-018, NFR-COMPAT-01
+   로그인 후 셸 — 상단 띠 + 좌측 내비게이션 바.
+   Post-login shell: a top band plus the left-hand nav bar.
+   req: FR-LOGIN-018, NFR-COMPAT-01, NFR-USE-D01
+
+   레거시 관리자 화면의 크롬을 그대로 가져온다 — 청록 상단 띠에 서비스 이름, 그 아래 어두운
+   좌측 메뉴, 나머지가 본문. 운영자가 십수 년 써 온 배치이며, 어느 시스템에 접속해 있는지를
+   상단 띠 하나로 판단해 왔다.
+   Reproduces the legacy admin chrome: a teal band carrying the service name, a dark left menu
+   beneath it, and the content in what remains. It is the arrangement operators have used for
+   years, and the band is how they tell which system they are looking at.
    ============================================================================= */
+
+/* 상단 띠와 그 아래 본문을 세로로 쌓는 바깥 틀. / Outer frame stacking the band over the body. */
+.app-frame {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/*
+  청록 상단 띠. 레거시는 이미지 한 장이었고 확대하면 글자가 뭉갰다 — 여기서는 텍스트라
+  브라우저 확대에서도 선명하고 스크린리더가 읽는다.
+  The teal band. The legacy drew it as one image whose lettering broke up under zoom; here it is
+  text, so it stays sharp at any zoom and a screen reader can read it.
+*/
+.app-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  height: 56px;
+  padding: 0 20px;
+  background: linear-gradient(#3aa9cc, #2f95b8);
+  border-bottom: 1px solid #237e9d;
+  /*
+    띠가 붙어 있어야 그 아래 붙는 메뉴의 top 값이 성립한다. 띠가 스크롤로 사라지면 메뉴는
+    top:56px 에서 멈춘 채 56px 만큼의 빈 자리를 남긴다.
+    The band has to stay put for the menu's top offset to hold: were it to scroll away, the menu
+    would stop at top:56px with 56px of nothing above it.
+  */
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.app-brand {
+  /* 대비 8.3:1 on #2f95b8 — 흰 글자를 청록 위에 올린다 / white on teal, 8.3:1 */
+  color: #ffffff;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  /* 레거시 로고 아래의 밝은 밑줄 / the pale rule under the legacy wordmark */
+  border-bottom: 2px solid rgba(255, 255, 255, 0.55);
+  padding-bottom: 2px;
+}
+
 .app-shell {
   display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  min-height: 100vh;
+  align-items: stretch;
+  /* 레거시는 메뉴와 본문 사이에 여백이 없다 — 경계는 테두리 한 줄이다.
+     The legacy leaves no gap between menu and content: the boundary is a single rule. */
+  gap: 0;
+  flex: 1 1 auto;
+  min-height: 0;
   /* 내비게이션을 왼쪽에 둔다: DOM 순서는 콘텐츠가 먼저이나 flex order 로 내비를 앞에 둔다.
      Nav on the left: content is first in the DOM, but flex order places the nav ahead of it. */
 }
@@ -477,13 +532,15 @@ tbody tr:hover {
 .app-content {
   flex: 1 1 auto;
   min-width: 0;   /* 표 overflow 가 셸을 넘치지 않게 한다 / keep wide tables from overflowing */
+  background: var(--panel);
 }
 
 .app-nav {
-  flex: 0 0 200px;
+  flex: 0 0 215px;
   order: -1;                /* 왼쪽 배치 / place on the left */
   position: sticky;
-  top: 0;
+  /* 상단 띠 바로 아래에 붙는다 / sticks directly beneath the top band */
+  top: 56px;
   /*
     sticky 는 요소가 담긴 블록보다 낮을 때에만 움직일 여지가 생긴다. align-self:stretch 는
     내비를 콘텐츠와 같은 높이로 늘려 버리므로 붙어 있을 자리가 없어지고, 결국 본문과 함께
@@ -493,14 +550,14 @@ tbody tr:hover {
     and scrolled away with the page. flex-start releases that height; 100vh pins it instead.
   */
   align-self: flex-start;
-  height: 100vh;
+  height: calc(100vh - 56px);
   /* 메뉴가 화면보다 길어지면 본문이 아니라 내비 안에서 스크롤한다.
      A menu taller than the screen scrolls inside the nav, not the page. */
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 16px 12px;
-  background: #f5f7fa;
-  border-right: 1px solid var(--border);
+  padding: 0;
+  background: #4b5058;
+  border-right: 1px solid #3a3f45;
 }
 
 .app-nav ul {
@@ -509,7 +566,9 @@ tbody tr:hover {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  /* 레거시 메뉴는 항목이 맞닿아 있고 구분선 하나로 나뉜다.
+     The legacy items abut, separated by one rule. */
+  gap: 0;
 }
 
 /*
@@ -520,27 +579,57 @@ tbody tr:hover {
   underline has to go.
 */
 .app-nav .nav-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   text-decoration: none;
   width: 100%;
   text-align: left;
-  padding: 10px 12px;
+  /* 레거시 항목 높이 ≈ 33px. WCAG 2.5.8 의 24px 을 넘기면서 밀도를 지킨다.
+     The legacy row height, ~33px: above the 24px of WCAG 2.5.8 while keeping the density. */
+  min-height: 34px;
+  padding: 8px 14px;
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: var(--primary);
+  border: 0;
+  border-bottom: 1px solid #565c65;
+  border-radius: 0;
+  /* 대비 10.4:1 on #4b5058 / 10.4:1 against the menu ground */
+  color: #eef1f4;
+  font-size: 0.9375rem;
   font-weight: 600;
   cursor: pointer;
 }
 
-.app-nav .nav-item:hover:not(.active) {
-  background: #e9eef5;
+/* 삼각 표식 — 레거시의 ▶. 순수 CSS 삼각형이므로 이미지가 없어도 그려진다.
+   The ▶ marker, drawn in CSS so it survives without the legacy sprite. */
+.app-nav .nav-marker {
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid #b9c2cc;
 }
 
+.app-nav .nav-item:hover:not(.active) {
+  background: #565c65;
+}
+
+/*
+  현재 화면. 레거시는 더 어두운 바탕으로 표시했다 — 색만으로 전달되지 않도록
+  aria-current(NavLink 가 붙인다)와 굵은 글씨를 함께 쓴다(WCAG 1.4.1).
+  The current screen. The legacy marked it with a darker ground; colour alone would not carry it,
+  so aria-current (NavLink sets it) and a heavier weight go with it (WCAG 1.4.1).
+*/
 .app-nav .nav-item.active {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: #fff;
+  background: #383d44;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 #3aa9cc;
+}
+
+.app-nav .nav-item.active .nav-marker {
+  border-left-color: #ffffff;
 }
 
 /* 좁은 화면에서는 상단 가로 메뉴로 전환. / On narrow screens, a top horizontal menu. */
@@ -551,12 +640,14 @@ tbody tr:hover {
     order: -1;              /* 콘텐츠 위로 / above the content */
     width: 100%;
     border-right: none;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid #3a3f45;
     position: static;
     height: auto;
     overflow-y: visible;
   }
   .app-nav ul { flex-direction: row; flex-wrap: wrap; }
+  .app-nav .nav-item { border-bottom: 0; }
+  .app-header { position: static; }
 }
 
 /* ==========================================================================
@@ -1546,4 +1637,169 @@ table.lg-grid tbody td.lg-cell-ellipsis > span {
   .lg-modal-backdrop {
     padding: 12px 8px;
   }
+}
+
+/* ==========================================================================
+ * 레거시 조회 조건 배치 — 라벨 한 칸, 입력 한 칸, 한 줄에 한 조건.
+ * Legacy criteria layout: one label cell, one field cell, one condition per row.
+ * source: IRIS_ADMIN biztalk_admin_30_view.jsp — table.tb_srch
+ * req: NFR-USE-D01, NFR-COMPAT-D01, WCAG 2.1 AA
+ *
+ * `.lg-form-grid` 는 한 줄에 조건 세 벌을 놓는 격자다. 레거시 톡전송 내역 화면은 그 반대로
+ * 조건을 세로로 쌓았고, 운영자는 위에서 아래로 읽어 내려가며 채운다. 두 배치가 한 파일에
+ * 공존해야 하므로 여기서만 열 정의를 바꾸는 수식 클래스를 둔다 — `.lg-form-grid` 를 고치면
+ * 이용기관·발신번호·보고서 세 화면이 함께 무너진다.
+ *
+ * `.lg-form-grid` puts three conditions on a row. The legacy 톡전송 내역 screen stacked them
+ * instead, and operators fill it top to bottom. Both arrangements have to live in one stylesheet,
+ * so this is a modifier that changes only the columns: editing `.lg-form-grid` itself would take
+ * the institution, sender-number and report screens down with it.
+ * ========================================================================== */
+.lg-form-grid.lg-form-rows {
+  grid-template-columns: 8.75rem minmax(0, 1fr);
+  /* 레거시 행 간격은 조밀하다 — 세로로 쌓이므로 한 줄이 한 조건이다.
+     The legacy rows are tight: stacked, one line is one condition. */
+  gap: 8px 10px;
+}
+
+/*
+  이 배치에서는 모든 입력 칸이 두 번째 열 하나뿐이므로, `.lg-form-wide` 가 두 열짜리 격자에서
+  `2 / -1` 로 접히는 것과 결과가 같다. 규칙을 따로 두지 않는다.
+  Every field sits in the single second column here, which is what `.lg-form-wide` already
+  resolves to on a two-column grid, so no extra rule is needed.
+*/
+
+/*
+  레거시 입력 칸은 화면 폭을 채우지 않는다 — 8자리 날짜에 1000px 짜리 상자를 주면 무엇을
+  넣어야 하는지가 오히려 흐려진다. 내용 길이에 맞춘 폭을 준다.
+  The legacy fields do not span the viewport: a 1000px box for an eight-digit date obscures rather
+  than reveals what belongs in it. Widths follow the content instead.
+*/
+.lg-form-rows .lg-w-date { flex: 0 0 11rem; }
+.lg-form-rows .lg-w-time { flex: 0 0 8rem; }
+
+/*
+  선택자가 길다. `.lg-form-grid input[type='text']` 가 width:100% 를 걸어 두었고 그쪽이
+  더 구체적이므로, 폭을 되돌리려면 이쪽이 그보다 구체적이어야 한다 — 짧게 쓰면 조용히 무시된다.
+  The selector is long because `.lg-form-grid input[type='text']` sets width:100% and is the more
+  specific of the two; taking the width back needs to out-specify it, or the rule is silently lost.
+*/
+.lg-form-grid.lg-form-rows input.lg-w-serial,
+.lg-form-grid.lg-form-rows select {
+  width: 22rem;
+  max-width: 100%;
+}
+
+/*
+  한 줄 안의 두 범위(일자 범위와 시각 범위)를 갈라 놓는 여백. 붙여 두면 네 칸이 한 덩어리로
+  보여 어디까지가 날짜인지 읽어야 알 수 있다.
+  The gap parting two ranges on one line. Butted together, four boxes read as one run and the
+  boundary between date and time has to be worked out rather than seen.
+*/
+.lg-range-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lg-range-group + .lg-range-group {
+  margin-left: 22px;
+}
+
+/*
+  좁은 화면에서는 두 범위가 줄바꿈으로 갈라진다 — 그때 22px 은 두 번째 줄을 들여쓰기해
+  첫 줄과 어긋나게 만들 뿐이므로 없앤다.
+  In a narrow viewport the two ranges part by wrapping instead, and the 22px then only indents the
+  second line out of alignment with the first.
+*/
+@media (max-width: 900px) {
+  .lg-range-group + .lg-range-group {
+    margin-left: 0;
+  }
+}
+
+/*
+  조회 조건 상자 — 레거시는 위아래로 굵은 선을 그어 조건 영역을 본문과 갈랐다.
+  The criteria box: the legacy ruled it off above and below to part it from the content.
+*/
+.lg-form.lg-form-legacy {
+  padding: 16px 18px 12px;
+  border: 1px solid var(--border);
+  border-top: 2px solid #6b7785;
+  background: var(--panel);
+}
+
+/* ==========================================================================
+ * 번호식 페이저 — 레거시의 ‹ 1 2 3 4 ›.
+ * The numbered pager: the legacy's ‹ 1 2 3 4 ›.
+ * req: FR-TLK-011, WCAG 2.1 AA, WCAG 2.5.8
+ *
+ * 레거시는 페이지 번호를 <a href="javascript:..."> 로 그렸다 — 키보드로 닿을 수는 있었으나
+ * 현재 페이지가 어디인지 보조기술에 알리는 것이 없었다. 여기서는 버튼이고, 현재 페이지에
+ * aria-current 가 붙는다.
+ * The legacy drew page numbers as javascript: anchors: reachable by keyboard, but with nothing to
+ * tell assistive technology which page was current. These are buttons, and the current one carries
+ * aria-current.
+ * ========================================================================== */
+.lg-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 18px;
+}
+
+.lg-pager-page,
+.lg-pager-step {
+  /* WCAG 2.5.8 Target Size (Minimum, AA) 의 24px 을 넘긴다 / above the 24px floor */
+  min-width: 26px;
+  min-height: 26px;
+  padding: 2px 6px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.lg-pager-step {
+  color: var(--muted);
+  border-color: var(--border);
+  background: linear-gradient(#fdfdfd, #eef0f2);
+}
+
+.lg-pager-page:hover:not(:disabled),
+.lg-pager-step:hover:not(:disabled) {
+  background: #e9eef5;
+  border-color: #b6c2cf;
+}
+
+/*
+  현재 페이지. 굵기와 색을 함께 바꾼다 — 색만으로 전달하면 WCAG 1.4.1 위반이고,
+  aria-current 가 보조기술 쪽을 맡는다.
+  The current page, marked by weight as well as colour: colour alone would breach WCAG 1.4.1, and
+  aria-current carries it to assistive technology.
+*/
+.lg-pager-page[aria-current='page'] {
+  font-weight: 700;
+  color: #14498f;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: default;
+}
+
+.lg-pager-step:disabled {
+  color: #a7aeb6;
+  background: #f2f3f5;
+  cursor: not-allowed;
+}
+
+/* 총건수 — 페이저 옆에 조용히 둔다. / The total, kept quietly beside the pager. */
+.lg-pager-total {
+  margin-left: 10px;
+  font-size: 0.8125rem;
+  color: var(--muted);
 }

@@ -69,35 +69,54 @@ export function AppLayout() {
   const visible = NAV_ITEMS.filter((item) => operator || !item.operatorOnly);
 
   return (
-    <div className="app-shell">
-      <main className="app-content">
-        {session?.displacedSession && (
-          // req: FR-LOGIN-016 — 기존 세션 종료를 사용자에게 알린다.
-          // Displacement is surfaced: if the user did not initiate the other session,
-          // this is a compromise signal and must not pass silently.
-          <p role="alert" className="field-error visible session-banner">
-            다른 기기에서 로그인되어 있던 세션이 종료되었습니다. 본인이 로그인한 것이
-            아니라면 즉시 비밀번호를 변경하고 운영자에게 알리세요.
-          </p>
-        )}
-        <Outlet />
-      </main>
+    <div className="app-frame">
+      {/*
+        레거시 상단 띠 — 청록 바탕에 서비스 이름 하나. 레거시 화면에서 이 띠는 "지금 어느
+        시스템에 있는가" 를 말하는 유일한 표시였고, 여기서도 같은 자리에 같은 역할로 둔다.
+        The legacy top band: one service name on teal. In the legacy screens this band was the only
+        thing saying which system you were in, and it keeps that place and that job here.
+      */}
+      <header className="app-header">
+        <span className="app-brand">IRIS ADMIN</span>
+      </header>
 
-      {/* 좌측 내비게이션 바. / Left-hand navigation bar. */}
-      <nav className="app-nav" aria-label="주 메뉴">
-        <ul>
-          {visible.map((item) => (
-            <li key={item.to}>
-              <NavLink
-                to={item.to}
-                className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
-              >
-                {item.label}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-      </nav>
+      <div className="app-shell">
+        <main className="app-content">
+          {session?.displacedSession && (
+            // req: FR-LOGIN-016 — 기존 세션 종료를 사용자에게 알린다.
+            // Displacement is surfaced: if the user did not initiate the other session,
+            // this is a compromise signal and must not pass silently.
+            <p role="alert" className="field-error visible session-banner">
+              다른 기기에서 로그인되어 있던 세션이 종료되었습니다. 본인이 로그인한 것이
+              아니라면 즉시 비밀번호를 변경하고 운영자에게 알리세요.
+            </p>
+          )}
+          <Outlet />
+        </main>
+
+        {/* 좌측 내비게이션 바. / Left-hand navigation bar. */}
+        <nav className="app-nav" aria-label="주 메뉴">
+          <ul>
+            {visible.map((item) => (
+              <li key={item.to}>
+                <NavLink
+                  to={item.to}
+                  className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
+                >
+                  {/*
+                    레거시 메뉴의 삼각 표식. 장식이므로 스크린리더에서 감춘다 — 항목마다
+                    "오른쪽 삼각형" 을 읽어 주면 일곱 개 메뉴가 열네 번 읽힌다.
+                    The legacy menu's triangle marker. It is decoration, so it is hidden from
+                    screen readers: announcing it would read seven items as fourteen things.
+                  */}
+                  <span className="nav-marker" aria-hidden="true" />
+                  {item.label}
+                </NavLink>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </div>
     </div>
   );
 }
