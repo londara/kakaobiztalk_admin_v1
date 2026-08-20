@@ -1,0 +1,91 @@
+
+    /**
+     * 화면 32 의 요청 값. / Screen 32's request values.
+     *
+     * <p>이용기관을 <b>담지 않는다</b> — 서버가 원장에서 도출한다(FR-AZ-T03).</p>
+     * <p>Carries <b>no institution</b>: the server derives it from the ledger (FR-AZ-T03).</p>
+     *
+     * @param transactionDate 거래일자 / the transaction date
+     * @param serial          거래고유번호 / the transaction serial
+     * @param recipient       수신번호 부분 일치 / the recipient substring
+     * @param status          상태 코드 / the status code
+     * @param talkOutcome     톡결과 구분 / the talk-result classification
+     * @param smsOutcome      문자결과 구분 / the SMS-result classification
+     * @param page            페이지 번호 / the page number
+     * @param size            페이지 크기 / the page size
+     */
+    // req: FR-TLKD-001, FR-AZ-T03
+    public record MessageQueryRequest(
+            String transactionDate,
+            String serial,
+            String recipient,
+            String status,
+            String talkOutcome,
+            String smsOutcome,
+            int page,
+            Integer size
+    ) {
+    }
+
+    /**
+     * 화면 31 의 요청 값. / Screen 31's request values.
+     *
+     * <p>거래 키를 <b>함께</b> 받는다. 메시지 키만으로 조회할 수 있게 하면 D-T5 가 그대로
+     * 돌아온다 — 계층은 요청의 형태로 강제된다(CONST-BIZ-T01).</p>
+     * <p>The transaction key is required <b>alongside</b> the message key. Allowing a lookup by message key
+     * alone would restore D-T5: the hierarchy is enforced by the shape of the request (CONST-BIZ-T01).</p>
+     *
+     * @param transactionDate 거래일자 / the transaction date
+     * @param serial          거래고유번호 / the transaction serial
+     * @param messageKey      메시지키 / the message key
+     * @param tableType       {@code QUE}/{@code LOG} / live or archive
+     */
+    // req: FR-AZ-T04, CONST-BIZ-T01
+    public record DetailQueryRequest(
+            String transactionDate,
+            String serial,
+            String messageKey,
+            String tableType
+    ) {
+    }
+
+    /**
+     * 상세 조회를 지원하지 않는 API 서비스일 때 던진다.
+     * Thrown when the API service has no message detail.
+     *
+     * <p>빈 결과와 <b>구분되어야 한다</b>. 레거시는 이 경우 빈 그리드를 반환해 "메시지가 없다"와
+     * 구분할 수 없었다(D-T13, FR-TLKD-005).</p>
+     * <p>Must be <b>distinguishable from an empty result</b>: the legacy returned an empty grid here, which
+     * was indistinguishable from "there are no messages" (D-T13, FR-TLKD-005).</p>
+     */
+    // req: FR-TLKD-005
+    public static class UnsupportedTransactionException extends RuntimeException {
+
+        /**
+         * 예외를 생성한다. / Creates the exception.
+         *
+         * @param apiServiceCode 문제가 된 API 서비스 코드 / the API service code in question
+         */
+        public UnsupportedTransactionException(String apiServiceCode) {
+            super("상세 조회를 지원하지 않는 거래입니다 (API: " + apiServiceCode + "). / "
+                    + "This transaction has no message detail (API: " + apiServiceCode + ").");
+        }
+    }
+
+    /** 원장에 없는 거래일 때 던진다. / Thrown when the transaction is not in the ledger. */
+    // req: FR-AZ-T03
+    public static class TransactionNotFoundException extends RuntimeException {
+
+        /**
+         * 예외를 생성한다. / Creates the exception.
+         *
+         * @param key 조회한 키 / the key looked up
+         */
+        public TransactionNotFoundException(TalkTransactionKey key) {
+            super("거래를 찾을 수 없습니다: " + key.describe() + " / "
+                    + "Transaction not found: " + key.describe());
+        }
+    }
+
+    /**
+     * 범위 안에 없는 메시지일 때 던진다. / Thrown when the message is not within scope.

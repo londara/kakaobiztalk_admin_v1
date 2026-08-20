@@ -108,7 +108,7 @@ public class StreamingWorkbookWriter {
 
             int written = 0;
             int rowIndex = 1;
-            for (T row : rows) {
+            for (T row : rows) {  
                 Row bodyRow = sheet.createRow(rowIndex++);
                 List<String> cells = cellsOf.apply(row);
                 for (int i = 0; i < cells.size(); i++) {

@@ -1,0 +1,46 @@
+            Sheet sheet = workbook.createSheet(sheetName);
+            CellStyle headerStyle = headerStyle(workbook);
+
+            Row headerRow = sheet.createRow(0);
+            for (int i = 0; i < headers.size(); i++) {
+                // 셀을 <b>한 번만</b> 만든다. 레거시는 같은 인덱스에 createCell 을 두 번 호출해
+                // 첫 번째를 버렸다 — 모든 시트에서 반복되었다(D-T34).
+                // Each cell is created <b>once</b>. The legacy called createCell twice at the same index,
+                // discarding the first, repeated across every sheet (D-T34).
+                Cell cell = headerRow.createCell(i);
+                cell.setCellValue(headers.get(i));
+                cell.setCellStyle(headerStyle);
+            }
+
+            int written = 0;
+            int rowIndex = 1;
+            for (T row : rows) {  
+                Row bodyRow = sheet.createRow(rowIndex++);
+                List<String> cells = cellsOf.apply(row);
+                for (int i = 0; i < cells.size(); i++) {
+                    String value = cells.get(i);
+                    bodyRow.createCell(i).setCellValue(value == null ? "" : value);
+                }
+                written++;
+            }
+
+            workbook.write(output);
+            return written;
+
+        } finally {
+            // ⚠ dispose() 를 빠뜨리면 창 밖으로 밀려난 행의 임시 파일이 디스크에 남는다.
+            // 마스킹된 내용이라도 남겨 둘 이유가 없다.
+            // ⚠ Omitting dispose() leaves the temporary files holding flushed rows on disk. There is no
+            // reason to leave that behind, masked content or not.
+            workbook.dispose();
+            workbook.close();
+        }
+    }
+
+    private static CellStyle headerStyle(SXSSFWorkbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+        Font font = workbook.createFont();
+        font.setBold(true);
+        style.setFont(font);
+        style.setAlignment(HorizontalAlignment.CENTER);
+        style.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());

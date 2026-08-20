@@ -1,0 +1,51 @@
+     * @param request  요청 값 / the request values
+     * @param sourceIp 감사용 출처 주소 / the source address, for audit
+     * @return 한 페이지와 전체 건수 / one page plus the total count
+     * @throws UnsupportedTransactionException 상세를 지원하지 않는 API 서비스 / when the API service has no detail
+     * @throws TransactionNotFoundException    원장에 없는 거래 / when the transaction is not in the ledger
+     */
+    // req: FR-TLKD-001, FR-TLKD-002, FR-TLKD-005, FR-TLKD-007, FR-AZ-T03, FR-AZ-T05
+    @Transactional(readOnly = true)
+    public PagedResult<TalkMessageRow> messages(MessageQueryRequest request, String sourceIp) {
+
+        TenantContext.TenantPrincipal principal = TenantContext.require();
+        TalkTransactionKey key = TalkTransactionKey.of(request.transactionDate(), request.serial());
+
+        // 기관과 채널은 원장에서 온다. 요청은 둘 중 어느 것도 담지 않는다(FR-AZ-T03).
+        // The institution and the channel come from the ledger; the request carries neither (FR-AZ-T03).
+        TalkMessageMapper.TransactionOwner owner = mapper.findTransactionOwner(key);
+        if (owner == null) {
+            audit.recordAuth(principal.email(), AuditEvent.ACTION_TALK_DETAIL_VIEW,
+                    AuditEvent.Outcome.DENIED, "notFound " + key.describe(), sourceIp, null);
+            throw new TransactionNotFoundException(key);
+        }
+
+        TalkChannel channel = registry.channelOf(owner.apiServiceCode())
+                .orElseThrow(() -> {
+                    // ⚠ 레거시는 여기서 아무것도 하지 않았다. IDO 핸들이 null 로 남고, 예외도
+                    // 던지지 않고, REC1 없는 결과 도메인을 반환해 팝업이 빈 그리드로 열렸다 —
+                    // 운영자는 "이 거래에 메시지가 없다"고 결론지었다(D-T13).
+                    // The legacy did nothing here: the IDO handle stayed null, nothing threw, and a result
+                    // domain with no REC1 opened the popup on an empty grid — so the operator concluded the
+                    // transaction had no messages (D-T13).
+                    audit.recordAuth(principal.email(), AuditEvent.ACTION_TALK_DETAIL_VIEW,
+                            AuditEvent.Outcome.DENIED,
+                            "unsupported " + key.describe() + " api=" + owner.apiServiceCode(),
+                            sourceIp, null);
+                    return new UnsupportedTransactionException(owner.apiServiceCode());
+                });
+
+        TalkMessageCriteria criteria = new TalkMessageCriteria(
+                key,
+                channel,
+                owner.institutionCode(),
+                blankToNull(request.recipient()),
+                blankToNull(request.status()),
+                parseOutcome(request.talkOutcome()),
+                parseOutcome(request.smsOutcome()),
+                Math.max(0, request.page()),
+                TalkMessageCriteria.normaliseSize(request.size()));
+
+        try {
+            int total = mapper.countMessages(criteria);
+            List<TalkMessageRow> rows = mapper.findMessages(criteria).stream()
