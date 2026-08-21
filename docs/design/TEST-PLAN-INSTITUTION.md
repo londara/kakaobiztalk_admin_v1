@@ -4,7 +4,7 @@
 > **Date**: 2026-08-14 · **Revised**: 2026-08-20 (screen-01 gap pass — §3.1, §4.1; E-03 expanded, E-06 added)
 > **Predecessor**: [REQUIREMENTS-SPEC-INSTITUTION.md](../requirements/REQUIREMENTS-SPEC-INSTITUTION.md), [DEV-PLAN-INSTITUTION.md](DEV-PLAN-INSTITUTION.md)
 > **Companions**: [TEST-PLAN.md](TEST-PLAN.md) (문자내역), [TEST-PLAN-LOGIN.md](TEST-PLAN-LOGIN.md)
-> **Status**: DRAFT — awaiting G2
+> **Status**: **APPROVED (G2)** — 2026-08-21, PM
 
 ---
 

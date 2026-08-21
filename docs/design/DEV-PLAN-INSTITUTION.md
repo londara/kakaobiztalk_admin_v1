@@ -2,9 +2,9 @@
 
 > **Version**: 1.1
 > **Date**: 2026-08-14 · **Revised**: 2026-08-20 — Sprint I2 split into I2a/I2b (§4.4), ADR-INST-017 added, `InstitutionCacheNotifier` dropped per AMB-I11
-> **Predecessor**: [REQUIREMENTS-SPEC-INSTITUTION.md](../requirements/REQUIREMENTS-SPEC-INSTITUTION.md) — **G1 PENDING**
+> **Predecessor**: [REQUIREMENTS-SPEC-INSTITUTION.md](../requirements/REQUIREMENTS-SPEC-INSTITUTION.md) — **G1 APPROVED 2026-08-21**
 > **Companion plans**: [DEV-PLAN.md](DEV-PLAN.md) (문자내역), [DEV-PLAN-LOGIN.md](DEV-PLAN-LOGIN.md)
-> **Status**: DRAFT — awaiting G2
+> **Status**: **APPROVED (G2)** — 2026-08-21, PM
 
 ---
 
@@ -218,7 +218,7 @@ Top 3:
 
 | Gate | Timing | Approver | Artifact |
 |------|--------|----------|----------|
-| G1 Analysis | Skill 2 | PM | REQUIREMENTS-SPEC-INSTITUTION.md — **PENDING** (RESIDUAL-I01 only) |
+| G1 Analysis | Skill 2 | PM | REQUIREMENTS-SPEC-INSTITUTION.md ✅ **APPROVED 2026-08-21** — RESIDUAL-I01 수용 / accepted |
 | G2 Design | Skill 3 | PM + Architect | This document + TEST-PLAN + threat model + 4 ADRs |
 | Sprint gate | Each sprint end | PM | SPRINT-LOG |
 | G3 Release | Skill 5 | PM (+ 정보보호 **recommended**) | All verification reports |
@@ -247,6 +247,18 @@ Top 3:
 
 | Date | Approver | Comment | Status |
 |------|----------|---------|--------|
-| 2026-08-14 | PM | TM-I005 and TM-I007 are blocking conditions; RISK-I01 needs an owner and a date | PENDING |
-| 2026-08-14 | Architect | Design complete; 3 ADRs accepted; zero DDL confirmed. TM-I007 is not closable by code | PENDING |
-| 2026-08-20 | Architect | **Re-issued for the screen-01 gap pass.** ADR-INST-017 accepted; Sprint I2 split into I2a/I2b; `InstitutionCacheNotifier` dropped per AMB-I11 with FR-INSTC-008 rewritten. New threats TM-I021…I024 — TM-I022 and TM-I023 are mitigated **structurally** (the column and the value are absent from the statement), TM-I024 accepted with no dual control. Still zero DDL | PENDING |
+| 2026-08-21 | PM | 결재. **TM-I005 · TM-I007 은 해소되지 않았고**, 차단 조건에서 **수용된 잔존 위험으로 전환**한다(TM-I007 은 코드로 닫을 수 없다는 architect 의견 반영). **RISK-I01 의 담당자·기한은 여전히 미지정** — 결재로 채워지지 않는 항목이며 별도 지정이 필요하다. 구현(Sprint I1·I2a)이 결재에 선행한 **사후 결재** / Approved. **TM-I005 and TM-I007 are NOT resolved** — they are converted from blocking conditions to **accepted residual risks**. **RISK-I01 still has no owner or date**; approval does not supply them. Retrospective — Sprints I1/I2a preceded this signature | ✅ **APPROVED** |
+| 2026-08-14 | Architect | Design complete; 3 ADRs accepted; zero DDL confirmed. TM-I007 is not closable by code | **ADVISORY** — 결재란 아님 / not a signature row (see below) |
+| 2026-08-20 | Architect | **Re-issued for the screen-01 gap pass.** ADR-INST-017 accepted; Sprint I2 split into I2a/I2b; `InstitutionCacheNotifier` dropped per AMB-I11 with FR-INSTC-008 rewritten. New threats TM-I021…I024 — TM-I022 and TM-I023 are mitigated **structurally** (the column and the value are absent from the statement), TM-I024 accepted with no dual control. Still zero DDL | **ADVISORY** — 결재란 아님 / not a signature row (see below) |
+
+> **결재자 범위 (VS-009).** 하네스 표준의 G2 기본 결재자는 `PM + 아키텍트`이나, 본 프로젝트는
+> [PROJECT-PROPOSAL.md §12](../planning/PROJECT-PROPOSAL.md) 의 **single-approver model**(2026-08-19 PM 결재)에 따라
+> **전 슬라이스·전 게이트에서 PM 단독 결재**를 적용한다. 따라서 위 Architect 행은 **결재란이 아니라 설계 의견 기록**이며,
+> 공란이 게이트 미충족을 뜻하지 않는다. 다만 그 결과 **규제 수용 판단이 PM 1인에게 집중**된다는 점은
+> 제안서 §12 가 이미 수용된 거버넌스 결정으로 기록하고 있다.
+>
+> **Approver scope (VS-009).** The harness default for G2 is `PM + architect`, but this programme applies the
+> **single-approver model** recorded in [PROJECT-PROPOSAL.md §12](../planning/PROJECT-PROPOSAL.md) (PM-approved 2026-08-19)
+> across every slice and gate. The Architect rows above are therefore **design opinions of record, not signature rows** —
+> their blankness does not indicate an unmet gate. The concentration of regulatory acceptance in one person is itself
+> recorded there as an accepted governance decision.

@@ -2,7 +2,7 @@
 
 > **Version**: 1.1 — write-path pass, 2026-08-20 (§4.3 added)
 > **Date**: 2026-08-17 (v1.0) · 2026-08-20 (v1.1)
-> **Predecessor**: [REQUIREMENTS-SPEC-SENDERNO.md](../requirements/REQUIREMENTS-SPEC-SENDERNO.md) v1.1 — **G1 PENDING**
+> **Predecessor**: [REQUIREMENTS-SPEC-SENDERNO.md](../requirements/REQUIREMENTS-SPEC-SENDERNO.md) v1.1 — **G1 APPROVED 2026-08-21**
 > **Siblings**: [architecture-overview.md](architecture-overview.md) (문자내역), [architecture-overview-LOGIN.md](architecture-overview-LOGIN.md), [architecture-overview-INSTITUTION.md](architecture-overview-INSTITUTION.md)
 > **ADRs**: [ADR-SND-017](adr/ADR-SND-017-senderno-lifecycle.md), [ADR-SND-018](adr/ADR-SND-018-encrypted-number-uniqueness.md), [ADR-SND-019](adr/ADR-SND-019-senderno-read-audit.md), [ADR-SND-020](adr/ADR-SND-020-write-dialog-presentation.md), [ADR-SND-021](adr/ADR-SND-021-barred-number-list.md)
 

@@ -3,7 +3,8 @@
 > **Version**: 1.0
 > **Date**: 2026-08-14
 > **Scope**: 문자내역 (screens 40/41), the first vertical slice
-> **Stack**: ADR-001 · **Status**: DRAFT — awaiting G2
+> **Stack**: ADR-001 · **Status**: **APPROVED (G2)** — 2026-08-21, PM
+> **Note**: §6 망분리 topology remains unresolved (RISK-006 / OI-04) — approved as the intended shape, decision still required before the operator surface is built.
 
 ---
 

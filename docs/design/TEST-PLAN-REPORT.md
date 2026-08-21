@@ -4,6 +4,7 @@
 > **Date**: 2026-08-18
 > **Predecessor**: [DEV-PLAN-REPORT.md](DEV-PLAN-REPORT.md), [REQUIREMENTS-SPEC-REPORT.md](../requirements/REQUIREMENTS-SPEC-REPORT.md)
 > **Siblings**: [TEST-PLAN.md](TEST-PLAN.md), [-LOGIN](TEST-PLAN-LOGIN.md), [-INSTITUTION](TEST-PLAN-INSTITUTION.md), [-SENDERNO](TEST-PLAN-SENDERNO.md)
+> **Status**: **APPROVED (G2)** — 2026-08-21, PM · 사후 결재(구현·검증 선행) / retrospective
 
 ---
 

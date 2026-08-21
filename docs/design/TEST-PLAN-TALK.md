@@ -5,6 +5,7 @@
 > **Author**: `qa-engineer`
 > **Predecessor**: [REQUIREMENTS-SPEC-TALK.md](../requirements/REQUIREMENTS-SPEC-TALK.md)
 > **Companion**: [DEV-PLAN-TALK.md](DEV-PLAN-TALK.md), [threat-model-TALK.md](threat-model-TALK.md)
+> **Status**: **APPROVED (G2)** — 2026-08-21, PM · 사후 결재(구현·검증 선행) / retrospective
 
 ---
 

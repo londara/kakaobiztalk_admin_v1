@@ -7,7 +7,7 @@
 > **Sibling spec**: [REQUIREMENTS-SPEC.md](REQUIREMENTS-SPEC.md) (문자내역 slice, G1 approved 2026-08-14)
 > **Traceability matrix**: [requirements-matrix.csv](requirements-matrix.csv) — shared, LOGIN rows appended
 > **Question log**: [questions-log.md](questions-log.md)
-> **Status**: DRAFT — awaiting G1
+> **Status**: **APPROVED (G1)** — 2026-08-21, PM
 
 ---
 
@@ -209,4 +209,4 @@ Orphan check: every FR and NFR maps to at least one use case. **Orphan count: 0.
 
 | Date | Approver | Comment | Status |
 |------|----------|---------|--------|
-| 2026-08-14 | PM | | PENDING |
+| 2026-08-21 | PM | 결재. AMB-L03(IP allowlist 범위)은 **미결 상태로 이월** — 인터넷 노출 구성에서 이용기관까지 allowlist 를 적용할 수 없으므로 별도 결정이 필요하다. 구현(Sprint L1~L4)이 결재에 선행한 **사후 결재** / Approved. AMB-L03 (IP allowlist scope) is **carried forward unresolved** and still needs a ruling. Recorded as a **retrospective** approval — Sprints L1–L4 preceded this signature | ✅ **APPROVED** |

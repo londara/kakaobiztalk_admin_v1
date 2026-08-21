@@ -3,7 +3,7 @@
 > **Version**: 1.0
 > **Date**: 2026-08-14
 > **Predecessors**: [REQUIREMENTS-SPEC.md](../requirements/REQUIREMENTS-SPEC.md), [DEV-PLAN.md](DEV-PLAN.md)
-> **Status**: DRAFT — awaiting G2
+> **Status**: **APPROVED (G2)** — 2026-08-21, PM
 
 ---
 
@@ -183,5 +183,5 @@ Threshold **90/100**. Below → improve the weakest dimension → regenerate, ma
 
 | Date | Approver | Comment | Status |
 |------|----------|---------|--------|
-| 2026-08-14 | PM | | PENDING |
-| 2026-08-14 | QA Leader | Byte-parity replaced by spec-parity (§7) — requires explicit PM acceptance | PENDING |
+| 2026-08-21 | PM | 테스트계획 결재. §7 사양 패리티(spec-parity) 대체를 **명시적으로 수용** — 실행 가능한 레거시 환경이 없어 바이트 패리티는 측정 불가(PROJECT-PROPOSAL §8 KPI caveat 와 동일 근거) / Test plan approved; the §7 substitution of spec-parity for byte-parity is **explicitly accepted**, on the same grounds as the proposal's KPI caveat — no runnable legacy environment exists | ✅ **APPROVED** |
+| 2026-08-14 | QA Leader | Byte-parity replaced by spec-parity (§7) — requires explicit PM acceptance | ✅ 조건 충족 — 위 PM 수용으로 해소 / condition met by the PM acceptance above |

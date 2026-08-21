@@ -7,7 +7,7 @@
 > **Sibling specs**: [REQUIREMENTS-SPEC.md](REQUIREMENTS-SPEC.md) (문자내역), [REQUIREMENTS-SPEC-LOGIN.md](REQUIREMENTS-SPEC-LOGIN.md) (로그인), [REQUIREMENTS-SPEC-INSTITUTION.md](REQUIREMENTS-SPEC-INSTITUTION.md) (이용기관관리), [REQUIREMENTS-SPEC-SENDERNO.md](REQUIREMENTS-SPEC-SENDERNO.md) (발신번호)
 > **Traceability matrix**: [requirements-matrix.csv](requirements-matrix.csv)
 > **Question log**: [questions-log.md](questions-log.md) — Part 5
-> **Status**: **DRAFT — awaiting G1**
+> **Status**: **APPROVED (G1)** — 2026-08-21, PM (CONFLICT-R02 는 AMB-R04 확인까지 이월 / CONFLICT-R02 carried pending the AMB-R04 check)
 
 ---
 
@@ -327,4 +327,4 @@ Carried and still open: **OI-02** (audit retention term) blocks NFR-OPS-AUDIT-R0
 - [x] All 27 defects dispositioned (25 fixed, 2 raised out of slice)
 - [x] Four PM rulings recorded (§1.4)
 - [x] CONFLICT-R01 resolved; CONFLICT-R02 raised with candidates and a working assumption
-- [ ] **G1 analysis gate — PM approval**
+- [x] **G1 analysis gate — PM approval** — 2026-08-21. CONFLICT-R02 는 해소되지 않은 채 이월된다: 두 datasource alias 가 동일 물리 DB 인지(AMB-R04) 확인되면 충돌이 소멸하고 평범한 `UNION ALL` + `GROUP BY` 가 된다. 발신번호 슬라이스의 `BIZ_DB` vs `BIZTALK_DB` 미확인 사항과 같은 점검으로 함께 닫는다 / Approved 2026-08-21 with CONFLICT-R02 **carried unresolved**, to be settled by the same AMB-R04 datasource check as the 발신번호 slice

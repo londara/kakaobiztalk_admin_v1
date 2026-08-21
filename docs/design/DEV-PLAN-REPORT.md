@@ -5,6 +5,8 @@
 > **Predecessor**: [REQUIREMENTS-SPEC-REPORT.md](../requirements/REQUIREMENTS-SPEC-REPORT.md)
 > **Siblings**: [DEV-PLAN.md](DEV-PLAN.md), [-LOGIN](DEV-PLAN-LOGIN.md), [-INSTITUTION](DEV-PLAN-INSTITUTION.md), [-SENDERNO](DEV-PLAN-SENDERNO.md)
 > **Companion documents**: [TEST-PLAN-REPORT.md](TEST-PLAN-REPORT.md), [architecture-overview-REPORT.md](architecture-overview-REPORT.md), [threat-model-REPORT.md](threat-model-REPORT.md), [risk-register-REPORT.md](risk-register-REPORT.md), [sprint-R1-tasks.md](sprint-R1-tasks.md)
+> **Status**: **APPROVED (G2)** — 2026-08-21, PM · 사후 결재(구현·검증 선행) / retrospective
+> **이월 조건 / carried condition**: G1 결재 시 CONFLICT-R02 가 미해소로 이월되었다 — 두 datasource alias 가 동일 물리 DB 인지(AMB-R04) 확인해야 닫힌다 / CONFLICT-R02 remains open from G1, pending the AMB-R04 datasource check
 
 ---
 
@@ -170,7 +172,7 @@ See [risk-register-REPORT.md](risk-register-REPORT.md) — 12 risks. The three t
 
 | Gate | Skill | Approver | Status |
 |------|-------|----------|--------|
-| G1 Analysis | Skill 2 | PM | **PENDING** — CONFLICT-R01 ruled; no DDL condition attached |
+| G1 Analysis | Skill 2 | PM | ✅ **APPROVED 2026-08-21** — CONFLICT-R01 ruled; no DDL condition. **CONFLICT-R02 미결 이월** (AMB-R04 datasource 확인으로 해소) |
 | G2 Design | Skill 3 | PM + architect | This document |
 | G3 Release | Skill 5 | PM + security | Later |
 

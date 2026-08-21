@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.core.io.Resource;
@@ -95,6 +96,7 @@ public final class BarredNumbers {
      * @throws IllegalStateException 자원이 없거나 비었거나 형식이 아닐 때 / when it is missing, empty or malformed
      */
     // req: CONST-BIZ-D03, ADR-SND-021
+    @Autowired
     public BarredNumbers(ResourceLoader loader,
                          @Value("${biztalk.senderno.barred-numbers:" + DEFAULT_LOCATION + "}")
                          String location) {

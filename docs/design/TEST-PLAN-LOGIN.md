@@ -3,7 +3,7 @@
 > **Version**: 1.0
 > **Date**: 2026-08-14
 > **Predecessors**: [REQUIREMENTS-SPEC-LOGIN.md](../requirements/REQUIREMENTS-SPEC-LOGIN.md), [DEV-PLAN-LOGIN.md](DEV-PLAN-LOGIN.md)
-> **Status**: DRAFT — awaiting G2
+> **Status**: **APPROVED (G2)** — 2026-08-21, PM
 
 ---
 
@@ -185,5 +185,5 @@ Two behaviours are deliberately **not** reproduced and need explicit sign-off:
 
 | Date | Approver | Comment | Status |
 |------|----------|---------|--------|
-| 2026-08-14 | PM | | PENDING |
-| 2026-08-14 | QA Leader | 24 negative-path security tests are release-gating; 보안 dimension fails if any is skipped | PENDING |
+| 2026-08-21 | PM | 결재. QA Leader 조건을 **수용**한다 — negative-path 보안 시험 24건은 릴리즈 차단 조건이며 1건이라도 누락되면 보안 차원은 실패로 판정한다(G3 에서 확인). 구현(Sprint L1~L4)이 결재에 선행한 **사후 결재** / Approved, **accepting the QA Leader condition**: the 24 negative-path security tests are release-gating and the 보안 dimension fails if any is skipped — to be verified at G3. Retrospective — Sprints L1–L4 preceded this signature | ✅ **APPROVED** |
+| 2026-08-14 | QA Leader | 24 negative-path security tests are release-gating; 보안 dimension fails if any is skipped | ✅ 조건 수용 — 위 PM 결재로 확인 / condition accepted by the PM approval above |

@@ -7,7 +7,7 @@
 > **Sibling specs**: [REQUIREMENTS-SPEC.md](REQUIREMENTS-SPEC.md) (문자내역), [REQUIREMENTS-SPEC-LOGIN.md](REQUIREMENTS-SPEC-LOGIN.md) (로그인)
 > **Traceability matrix**: [requirements-matrix.csv](requirements-matrix.csv)
 > **Question log**: [questions-log.md](questions-log.md) — Part 3
-> **Status**: **DRAFT — awaiting G1**
+> **Status**: **APPROVED (G1)** — 2026-08-21, PM
 
 ---
 
@@ -291,4 +291,4 @@ Raised while specifying the edit popup in detail. Each was a **Must** requiremen
 
 | Date | Approver | Comment | Status |
 |------|----------|---------|--------|
-| — | PM | Pending. CONFLICT-I02 is **no longer a condition** — dissolved at Skill 3 with no schema change. Approval need only acknowledge **RESIDUAL-I01** (weak credentials retained for integration compatibility) | **PENDING** |
+| 2026-08-21 | PM | 결재. CONFLICT-I02 는 조건이 아니다(Skill 3 에서 스키마 변경 없이 해소). **RESIDUAL-I01**(연계 호환을 위해 잔존하는 취약 자격증명)을 **수용**한다. 구현(Sprint I1·I2a)이 결재에 선행한 **사후 결재** / Approved. CONFLICT-I02 is not a condition. **RESIDUAL-I01 is accepted**. Recorded as a **retrospective** approval — Sprint I1/I2a preceded this signature | ✅ **APPROVED** |

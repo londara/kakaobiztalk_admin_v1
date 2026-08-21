@@ -81,5 +81,11 @@ The legacy has all of these controls; three of them do nothing because the code 
 
 | Date | Role | Name | Status |
 |------|------|------|--------|
-| 2026-08-14 | PM | | PENDING |
-| 2026-08-14 | Build Team Leader | `code-reviewer` | PENDING |
+| 2026-08-21 | PM | | ✅ **AGREED** — G2 결재와 동시 승인 / approved together with G2 |
+| 2026-08-14 | Build Team Leader | `code-reviewer` | **미기록** — 아래 참조 / not recorded, see below |
+
+> **Leader 합의 (VS-009).** `sprint-1-tasks.md` 와 동일 사유. Sprint 단위 합의는 Leader 자율 항목이고 착수 전
+> 조정 장치이므로, 완료된 스프린트(L1~L4 진행 완료)에 소급 서명하지 않고 누락을 기록한다.
+>
+> **Leader agreement (VS-009).** Same reasoning as `sprint-1-tasks.md`: a pre-kickoff coordination step, not
+> back-signed after the sprint has already shipped. The omission is recorded instead.

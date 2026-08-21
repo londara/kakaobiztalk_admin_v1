@@ -3,7 +3,7 @@
 > **Sprint**: I1 (weeks 1–2)
 > **Predecessor**: [DEV-PLAN-INSTITUTION.md](DEV-PLAN-INSTITUTION.md)
 > **Goal**: A correct, authorized, paginated registry read path — and repair of the delivered code that queries a table which does not exist
-> **Status**: DRAFT — awaiting G2 + PM/Leader agreement
+> **Status**: **G2 APPROVED** — 2026-08-21, PM · **Leader 합의 미기록 / Leader agreement not recorded**
 
 ---
 

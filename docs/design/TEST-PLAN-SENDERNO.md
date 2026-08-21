@@ -4,6 +4,7 @@
 > **Date**: 2026-08-17 (v1.0) · 2026-08-20 (v1.1)
 > **Predecessor**: [REQUIREMENTS-SPEC-SENDERNO.md](../requirements/REQUIREMENTS-SPEC-SENDERNO.md) v1.1, [DEV-PLAN-SENDERNO.md](DEV-PLAN-SENDERNO.md) v1.1, [sprint-S2a-tasks.md](sprint-S2a-tasks.md)
 > **Siblings**: [TEST-PLAN.md](TEST-PLAN.md), [TEST-PLAN-LOGIN.md](TEST-PLAN-LOGIN.md), [TEST-PLAN-INSTITUTION.md](TEST-PLAN-INSTITUTION.md)
+> **Status**: **APPROVED (G2)** — 2026-08-21, PM · 사후 결재(구현·검증 선행) / retrospective
 
 ---
 

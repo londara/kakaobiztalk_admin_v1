@@ -2,11 +2,13 @@
 
 > **Version**: 1.1 — write-path pass, 2026-08-20
 > **Date**: 2026-08-17 (v1.0) · 2026-08-20 (v1.1)
-> **Predecessor**: [REQUIREMENTS-SPEC-SENDERNO.md](../requirements/REQUIREMENTS-SPEC-SENDERNO.md) v1.1 — **G1 PENDING**
+> **Predecessor**: [REQUIREMENTS-SPEC-SENDERNO.md](../requirements/REQUIREMENTS-SPEC-SENDERNO.md) v1.1 — **G1 APPROVED 2026-08-21**
 > **Siblings**: [DEV-PLAN.md](DEV-PLAN.md) (문자내역), [DEV-PLAN-LOGIN.md](DEV-PLAN-LOGIN.md), [DEV-PLAN-INSTITUTION.md](DEV-PLAN-INSTITUTION.md)
 > **Design**: [architecture-overview-SENDERNO.md](architecture-overview-SENDERNO.md), [threat-model-SENDERNO.md](threat-model-SENDERNO.md), [TEST-PLAN-SENDERNO.md](TEST-PLAN-SENDERNO.md), [risk-register-SENDERNO.md](risk-register-SENDERNO.md)
 > **Sprint task lists**: [sprint-S1-tasks.md](sprint-S1-tasks.md) (delivered), [sprint-S2a-tasks.md](sprint-S2a-tasks.md)
 > **ADRs**: [ADR-SND-017](adr/ADR-SND-017-senderno-lifecycle.md), [ADR-SND-018](adr/ADR-SND-018-encrypted-number-uniqueness.md), [ADR-SND-019](adr/ADR-SND-019-senderno-read-audit.md), [ADR-SND-020](adr/ADR-SND-020-write-dialog-presentation.md), [ADR-SND-021](adr/ADR-SND-021-barred-number-list.md)
+> **Status**: **APPROVED (G2)** — 2026-08-21, PM · 사후 결재(구현·검증 선행) / retrospective
+> **이월 조건 / carried conditions**: G1 결재는 CONFLICT-S01 · RESIDUAL-S01 을 수용했고, AMB-S07 과 OI-02 는 미결로 이월했다. §214 의 "G1 미결이 부과하는 비용" 서술은 G1 결재(2026-08-21) 로 해소되었다 / G1 accepted CONFLICT-S01 and RESIDUAL-S01; AMB-S07 and OI-02 remain open. The §214 note about pending G1 is now resolved
 
 ---
 
@@ -207,10 +209,16 @@ See [risk-register-SENDERNO.md](risk-register-SENDERNO.md) — **14 risks** at v
 
 | Gate | Skill | Approver | Status |
 |------|-------|----------|--------|
-| G1 Analysis | Skill 2 | PM | **PENDING** — must cover CONFLICT-S01 and RESIDUAL-S01. **Blocks S2a-03 and the 8 of 10 critical-path days downstream of it** |
+| G1 Analysis | Skill 2 | PM | ✅ **APPROVED 2026-08-21** — CONFLICT-S01 · RESIDUAL-S01 수용. **S2a-03 차단 해제** (AMB-S07 · OI-02 는 미결 이월) |
 | G2 Design | Skill 3 | PM + architect | This document (v1.1) |
 | G3 Release | Skill 5 | PM + security | Later |
 
+> **⚠ 2026-08-21 갱신 — 아래 단락은 해소되었다.** G1 이 결재되어 S2a-03 의 DDL 의존 차단이 풀렸고,
+> "G1 이 여전히 미결이면 S2b 를 앞당긴다"는 지침은 **더 이상 적용되지 않는다**. 단락은 당시 판단 근거로
+> 보존한다.
+> **Superseded 2026-08-21.** G1 is approved, so S2a-03's DDL dependency is unblocked and the
+> "pull S2b forward" instruction below no longer applies. Retained as a record of the reasoning.
+>
 > **What G1's status now costs.** Sprint S1 was designed to be independent of G1 and was. Sprint S2a cannot be: logical delete requires the archive table, and the archive table is the DDL. Of S2a's ~10 critical-path days, S2a-02, S2a-04 and S2a-06 (≈2 days) are genuinely G1-independent and are sequenced first for that reason. If G1 is still pending after those, **S2b should be pulled forward rather than S2a-03 started on assumption.**
 
 **What G1 now needs to cover, restated after design.** CONFLICT-S01 could not be dissolved the way CONFLICT-I02 was — `KKB_DPNO_LDGR` genuinely has no column that can carry state. But design **narrowed it substantially**: all DDL is additive (one new table, one index), `KKB_DPNO_LDGR` is never altered in a way that changes what an existing reader sees, and no legacy application requires modification. The precedent G1 is being asked to set is *"this programme may add tables"*, not *"this programme may alter shared schema"*.

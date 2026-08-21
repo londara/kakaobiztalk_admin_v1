@@ -28,6 +28,12 @@ jobs:
           fetch-depth: 0
       - name: gitleaks
         uses: gitleaks/gitleaks-action@v2
+        with:
+          # VS-006 수정. 패키지가 배포하는 룰셋을 명시한다. 지정하지 않으면 기본 룰만
+          # 적용되어, 저장소에 체크인된 커스텀 룰이 L1·CI 어디에서도 쓰이지 않는다.
+          # VS-006: name the shipped ruleset explicitly; without it only the built-in rules run
+          # and the checked-in custom rules are used nowhere.
+          config-path: hooks/gitleaks.toml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -287,3 +293,144 @@ jobs:
         with:
           name: sbom
           path: target/*bom*
+
+  # ---------------------------------------------------------------------------
+  # L2 — SAST (CodeQL).
+  # req: HARNESS-PROCESS-STANDARD §5.4 (L2 Hook), TEST-PLAN-LOGIN §5
+  #
+  # VS-004 수정. 이 job 은 hooks/ci-security-auditor.yml 에만 존재하고 활성 워크플로에는
+  # 없었다. 표준이 요구하는 L2 3종(시크릿·의존성·SAST) 중 SAST 가 <b>실행되지 않는</b>
+  # 상태였다 — 설계 문서에는 있고 CI 에는 없는, 존재하지 않는 통제였다.
+  #
+  # VS-004: this job existed only in hooks/ci-security-auditor.yml and never ran. Of the three
+  # L2 scans the standard mandates, SAST was documented but absent from CI.
+  # ---------------------------------------------------------------------------
+  sast:
+    name: L2 SAST (CodeQL)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # CodeQL 은 분석 결과를 업로드하므로 이 권한이 필요하다. 최상위 permissions 는
+      # contents:read 뿐이므로 job 단위로만 승격한다(최소 권한).
+      # CodeQL uploads its results, so this is required; granted per-job to keep least privilege.
+      security-events: write
+    strategy:
+      matrix:
+        language: [java]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+      - name: Build (Java)
+        run: mvn -B -ntp -DskipTests package
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  # ---------------------------------------------------------------------------
+  # L2 — AI security-auditor 감사.
+  # req: HARNESS-PROCESS-STANDARD §5.4, .claude/agents/security-auditor.md
+  #
+  # VS-004 수정. 표준 §2.4 는 "L2 AI 감사가 TODO 로 조용히 통과하지 않을 것"을 요구한다.
+  # 따라서 스크립트가 등록되지 않은 상태는 <b>skip 이 아니라 실패</b>다 — 미설정을 통과로
+  # 처리하면 통제가 있는 것처럼 보이면서 아무것도 검사하지 않는다.
+  #
+  # VS-004: §2.4 requires that the AI audit not pass silently as a TODO, so an unconfigured
+  # script is a <b>failure, not a skip</b>. Treating "unset" as "pass" is a control that looks
+  # present and checks nothing.
+  # ---------------------------------------------------------------------------
+  security-auditor-agent:
+    name: L2 AI security audit
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run security-auditor agent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          HARNESS_AI_AUDIT_SCRIPT: ${{ vars.HARNESS_AI_AUDIT_SCRIPT }}
+          HARNESS_AI_AUDIT_CMD: ${{ vars.HARNESS_AI_AUDIT_CMD }}
+          HARNESS_AI_AUDIT_OUTPUT: security/audit-pr-${{ github.event.pull_request.number }}.md
+          HARNESS_PR_BASE_REF: ${{ github.base_ref }}
+          HARNESS_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ -n "${HARNESS_AI_AUDIT_CMD:-}" ] && [ -z "${HARNESS_AI_AUDIT_SCRIPT:-}" ]; then
+            echo "HARNESS_AI_AUDIT_CMD 는 더 이상 직접 실행하지 않습니다."
+            echo "체크인된 래퍼 스크립트를 만들고 HARNESS_AI_AUDIT_SCRIPT 로 교체하세요."
+            exit 1
+          fi
+          if [ -z "${HARNESS_AI_AUDIT_SCRIPT:-}" ]; then
+            echo "HARNESS_AI_AUDIT_SCRIPT 미설정 — AI security-auditor 감사가 TODO 상태로 통과할 수 없어 L2를 차단합니다."
+            exit 1
+          fi
+          case "${HARNESS_AI_AUDIT_SCRIPT}" in
+            *[!A-Za-z0-9._/-]*)
+              echo "HARNESS_AI_AUDIT_SCRIPT 값이 안전한 파일 경로 형식이 아닙니다: ${HARNESS_AI_AUDIT_SCRIPT}"
+              exit 1
+              ;;
+          esac
+          if [ ! -f "${HARNESS_AI_AUDIT_SCRIPT}" ]; then
+            echo "AI 감사 스크립트가 없습니다: ${HARNESS_AI_AUDIT_SCRIPT}"
+            exit 1
+          fi
+          if [ ! -x "${HARNESS_AI_AUDIT_SCRIPT}" ]; then
+            echo "AI 감사 스크립트에 실행 권한이 없습니다: ${HARNESS_AI_AUDIT_SCRIPT}"
+            exit 1
+          fi
+          mkdir -p security
+          echo "Running ${HARNESS_AI_AUDIT_SCRIPT}..."
+          "${HARNESS_AI_AUDIT_SCRIPT}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-audit-report
+          path: security/
+
+  # ---------------------------------------------------------------------------
+  # L2 종합 판정 — 이 job 이 실패하면 merge 를 차단한다.
+  # req: HARNESS-PROCESS-STANDARD §5.4
+  #
+  # if: always() 로 두는 이유: 선행 job 이 실패해 skip 되면 판정 자체가 사라지고,
+  # 그 부재가 통과로 읽힌다. 항상 실행해 명시적으로 판정한다.
+  # Runs with always(): if it were skipped when an upstream job fails, the missing verdict
+  # would read as a pass. It always runs and always states a verdict.
+  # ---------------------------------------------------------------------------
+  l2-verdict:
+    name: L2 verdict
+    runs-on: ubuntu-latest
+    needs: [secrets, build, static-rules, dependencies, sast, security-auditor-agent]
+    if: always()
+    steps:
+      - name: Verdict
+        run: |
+          fail=0
+          for r in "${{ needs.secrets.result }}" \
+                   "${{ needs.build.result }}" \
+                   "${{ needs.static-rules.result }}" \
+                   "${{ needs.dependencies.result }}" \
+                   "${{ needs.sast.result }}"; do
+            [ "$r" = "success" ] || fail=1
+          done
+          # AI 감사는 pull_request 에서만 실행되므로 push 에서의 skipped 는 허용한다.
+          # 그 외의 skipped/failure 는 차단한다.
+          # The AI audit only runs on pull_request, so 'skipped' is tolerated on push; any
+          # other non-success is blocking.
+          agent="${{ needs.security-auditor-agent.result }}"
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "$agent" != "success" ]; then
+            fail=1
+          fi
+          if [ "$fail" -ne 0 ]; then
+            echo "L2 보안 Hook 실패 — merge 차단 (표준 §5.4)"
+            echo "  secrets=${{ needs.secrets.result }} build=${{ needs.build.result }} static-rules=${{ needs.static-rules.result }}"
+            echo "  dependencies=${{ needs.dependencies.result }} sast=${{ needs.sast.result }} ai-audit=$agent"
+            exit 1
+          fi
+          echo "L2 보안 Hook PASS"

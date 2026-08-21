@@ -25,6 +25,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -122,16 +123,18 @@ class CsrfIntegrationTest {
         // ★ 이것이 수정의 핵심 검증이다.
         //
         // CookieCsrfTokenRepository 로 저장소를 바꾸는 것만으로는 부족하다. Spring Security 6 은
-        // 토큰을 지연 로딩하므로 CsrfCookieFilter 가 getToken() 을 호출하지 않으면 쿠키가
-        // <b>발행되지 않는다</b>. 그 경우 증상은 수정 전과 완전히 동일하다.
+        // 토큰을 지연 로딩하므로, 누구도 토큰을 해소하지 않으면 쿠키가 <b>발행되지 않는다</b>.
+        // 그 경우 증상은 수정 전과 완전히 동일하다.
         //
-        // 이 어서션이 CsrfCookieFilter 의 존재와 필터 순서를 동시에 검증한다 — 런타임에서만
-        // 확인 가능한 두 가지다.
+        // 지연 로딩을 해제하는 것은 plainCsrfTokenHandler() 의
+        // setCsrfRequestAttributeName(null) 이다 — 그 설정이 사라지면 이 어서션이 깨진다.
+        // 런타임에서만 확인 가능한 배선이다.
         //
         // Switching the repository alone is insufficient: Spring Security 6 defers token loading,
-        // so without CsrfCookieFilter calling getToken() no cookie is issued and the symptom is
-        // identical to the unfixed state. This assertion verifies both the filter's presence and
-        // its position — neither of which is checkable without running.
+        // so if nothing resolves the token no cookie is issued and the symptom is identical to the
+        // unfixed state. Deferred loading is disabled by setCsrfRequestAttributeName(null) in
+        // plainCsrfTokenHandler(); drop that and this assertion fails. Only a running chain shows
+        // it.
         MvcResult result = mvc.perform(post(SEARCH)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(BODY))
@@ -211,6 +214,22 @@ class CsrfIntegrationTest {
     @Test
     @DisplayName("Spring 의 csrf() 후처리기로도 통과한다 / passes with Spring csrf() post-processor")
     @WithMockUser
+    // CR-02 — 이 메서드는 컨텍스트를 오염시킨다. csrf() 후처리기는
+    // WebTestUtils.setCsrfTokenRepository() 로 <b>공유 컨텍스트의 CsrfFilter 싱글턴</b>의
+    // tokenRepository 필드를 CookieCsrfTokenRepository → TestCsrfTokenRepository
+    // (HttpSessionCsrfTokenRepository 래핑) 로 바꿔치기하며, 그 변경은 메서드가 끝나도
+    // 되돌아가지 않는다. 이후 실행되는 테스트는 세션 저장소를 쓰게 되어 XSRF-TOKEN 쿠키를
+    // 받지 못한다 — echoingCookieValueInHeaderPasses 가 단독 실행 시 통과하고 클래스
+    // 전체 실행 시 실패한 이유가 이것이다. AFTER_METHOD 로 컨텍스트를 재생성해 격리한다.
+    //
+    // CR-02: this method pollutes the shared context. The csrf() post-processor uses
+    // WebTestUtils.setCsrfTokenRepository() to swap the tokenRepository field on the
+    // <b>singleton CsrfFilter</b> from CookieCsrfTokenRepository to a TestCsrfTokenRepository
+    // wrapping HttpSessionCsrfTokenRepository, and never restores it. Tests running afterwards
+    // get the session repository and receive no XSRF-TOKEN cookie — which is why
+    // echoingCookieValueInHeaderPasses passed alone and failed in a full-class run. Rebuilding
+    // the context after this method isolates the mutation.
+    @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
     // req: NFR-SEC-CSRF
     void passesWithFrameworkCsrfPostProcessor() throws Exception {
         mvc.perform(post(SEARCH)

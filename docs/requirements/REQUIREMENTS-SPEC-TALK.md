@@ -7,7 +7,7 @@
 > **Sibling specs**: [REQUIREMENTS-SPEC.md](REQUIREMENTS-SPEC.md) (문자내역), [REQUIREMENTS-SPEC-LOGIN.md](REQUIREMENTS-SPEC-LOGIN.md) (로그인), [REQUIREMENTS-SPEC-INSTITUTION.md](REQUIREMENTS-SPEC-INSTITUTION.md) (이용기관관리), [REQUIREMENTS-SPEC-SENDERNO.md](REQUIREMENTS-SPEC-SENDERNO.md) (발신번호), [REQUIREMENTS-SPEC-REPORT.md](REQUIREMENTS-SPEC-REPORT.md) (이용기관 보고서)
 > **Traceability matrix**: [requirements-matrix.csv](requirements-matrix.csv)
 > **Question log**: [questions-log.md](questions-log.md) — Part 6
-> **Status**: **DRAFT — awaiting G1**
+> **Status**: **APPROVED (G1)** — 2026-08-21, PM (AMB-T01…T05 작업 가정 수용 / working assumptions accepted)
 
 ---
 
@@ -322,4 +322,4 @@ Carried from Skill 01 and still open: **OI-02** (audit retention term) blocks NF
 - [x] `[AMBIGUOUS]` items either ruled (SCOPE-T01, CONFLICT-T01, EXPORT-T01, PII-T01) or recorded with a working assumption (AMB-T01…T05)
 - [x] Traceability matrix updated — 63 rows
 - [x] 금융권 점검 §7: NFR-SEC-PII-T01 (PII), NFR-SEC-AUTHZ-T01 / NFR-SEC-TENANT-T01 (인증·인가), NFR-OPS-AUDIT-T01 (감사 로그) written
-- [ ] **G1 분석 게이트 통과** — awaiting PM approval
+- [x] **G1 분석 게이트 통과** — 2026-08-21, PM 결재. AMB-T01…T05 의 작업 가정을 그대로 **수용**한다. 구현(Sprint T1·T2)이 결재에 선행한 **사후 결재** / Approved 2026-08-21; the AMB-T01…T05 working assumptions are accepted as recorded. Retrospective — Sprints T1/T2 preceded this signature

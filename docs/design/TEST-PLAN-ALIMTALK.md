@@ -5,6 +5,7 @@
 > **Slice**: legacy screens 61, 50
 > **Requirements**: [REQUIREMENTS-SPEC-ALIMTALK.md](../requirements/REQUIREMENTS-SPEC-ALIMTALK.md) · 72 scenarios across [UC-ATK-001…004](../requirements/use-cases/)
 > **Plan**: [DEV-PLAN-ALIMTALK.md](DEV-PLAN-ALIMTALK.md) · **Threats**: [threat-model-ALIMTALK.md](threat-model-ALIMTALK.md)
+> **Status**: **APPROVED (G2)** — 2026-08-21, PM · 사후 결재(구현·검증 선행) / retrospective
 
 ---
 

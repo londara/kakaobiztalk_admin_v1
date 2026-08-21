@@ -5,6 +5,8 @@
 > **Predecessor**: [REQUIREMENTS-SPEC-TALK.md](../requirements/REQUIREMENTS-SPEC-TALK.md)
 > **Siblings**: [DEV-PLAN.md](DEV-PLAN.md), [-LOGIN](DEV-PLAN-LOGIN.md), [-INSTITUTION](DEV-PLAN-INSTITUTION.md), [-SENDERNO](DEV-PLAN-SENDERNO.md), [-REPORT](DEV-PLAN-REPORT.md)
 > **Companion documents**: [TEST-PLAN-TALK.md](TEST-PLAN-TALK.md), [architecture-overview-TALK.md](architecture-overview-TALK.md), [threat-model-TALK.md](threat-model-TALK.md), [risk-register-TALK.md](risk-register-TALK.md), [sprint-T1-tasks.md](sprint-T1-tasks.md)
+> **Status**: **APPROVED (G2)** — 2026-08-21, PM · 사후 결재(구현·검증 선행) / retrospective
+> **이월 조건 / carried condition**: G1 결재는 AMB-T01…T05 의 작업 가정을 수용했다. TEST-PLAN §D-T6 의 masking 출력 형식 미검증은 G3 기록 대상으로 남는다 / G1 accepted the AMB-T01…T05 working assumptions; D-T6's unverified masking output format remains for G3 to record
 
 ---
 

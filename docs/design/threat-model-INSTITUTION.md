@@ -5,7 +5,7 @@
 > **Method**: STRIDE across every trust-boundary-crossing flow + attack surface analysis
 > **Predecessor**: [REQUIREMENTS-SPEC-INSTITUTION.md](../requirements/REQUIREMENTS-SPEC-INSTITUTION.md)
 > **Companions**: [threat-model.md](threat-model.md) (문자내역), [threat-model-LOGIN.md](threat-model-LOGIN.md)
-> **Status**: DRAFT — awaiting G2
+> **Status**: **APPROVED (G2)** — 2026-08-21, PM (TM-I005 · TM-I007 수용된 잔존 위험 / accepted as residual)
 
 ---
 

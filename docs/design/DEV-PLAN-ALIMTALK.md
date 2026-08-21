@@ -2,10 +2,12 @@
 
 > **Version**: 1.0
 > **Date**: 2026-08-18
-> **Predecessor**: [REQUIREMENTS-SPEC-ALIMTALK.md](../requirements/REQUIREMENTS-SPEC-ALIMTALK.md) — **G1 PENDING**
+> **Predecessor**: [REQUIREMENTS-SPEC-ALIMTALK.md](../requirements/REQUIREMENTS-SPEC-ALIMTALK.md) — **G1 APPROVED 2026-08-19**
 > **Siblings**: [DEV-PLAN.md](DEV-PLAN.md) (문자내역), [DEV-PLAN-LOGIN.md](DEV-PLAN-LOGIN.md), [DEV-PLAN-INSTITUTION.md](DEV-PLAN-INSTITUTION.md), [DEV-PLAN-SENDERNO.md](DEV-PLAN-SENDERNO.md)
 > **Design**: [architecture-overview-ALIMTALK.md](architecture-overview-ALIMTALK.md), [threat-model-ALIMTALK.md](threat-model-ALIMTALK.md), [TEST-PLAN-ALIMTALK.md](TEST-PLAN-ALIMTALK.md), [risk-register-ALIMTALK.md](risk-register-ALIMTALK.md)
 > **ADRs**: [ADR-ATK-021](adr/ADR-ATK-021-outbound-contract-conformance.md) · [022](adr/ADR-ATK-022-template-matching.md) · [023](adr/ADR-ATK-023-send-consistency-outbox.md) · [024](adr/ADR-ATK-024-vendor-credential-management.md) · [025](adr/ADR-ATK-025-http-client-resilience.md) · [026](adr/ADR-ATK-026-tran-id-idempotency.md)
+> **Status**: **APPROVED (G2)** — 2026-08-21, PM · 사후 결재(구현·검증 선행) / retrospective — implementation and verification preceded the signature
+> **결재 이력 / approval history**: 이 문서는 Status 줄이 없어 2026-08-21 1차 결재 범위에서 제외되었다가(VS-008), 같은 날 PM 지시로 결재되었다 / had no Status line and was excluded from the first pass that day (VS-008), then approved on PM instruction
 
 ---
 
@@ -220,7 +222,7 @@ See [risk-register-ALIMTALK.md](risk-register-ALIMTALK.md) — 14 risks. The fou
 
 | Gate | Skill | Approver | Status |
 |------|-------|----------|--------|
-| G1 Analysis | Skill 2 | PM | **PENDING** — must cover CONFLICT-A01, CONFLICT-A02, RESIDUAL-A01, RESIDUAL-A02 |
+| G1 Analysis | Skill 2 | PM | ✅ **APPROVED 2026-08-19** — CONFLICT-A01/A02, RESIDUAL-A01/A02 covered (see [REQUIREMENTS-SPEC-ALIMTALK.md](../requirements/REQUIREMENTS-SPEC-ALIMTALK.md) §6.4) |
 | G2 Design | Skill 3 | PM + architect | This document |
 | G3 Release | Skill 5 | PM + security | Later — **blocked on key rotation**, not only on code |
 

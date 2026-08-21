@@ -127,6 +127,7 @@
 
 - **영역**: 일정 · **영향**: M · **발생 확률**: M · **전략**: 회피
 - **설명**: S2a-03 creates a table and an index. CONFLICT-S01 (DDL vs CONST-DATA-01) is still awaiting explicit G1 sign-off. Building the write path before that decision risks rework of the delete mechanism and the constraint.
+- **상태 (2026-08-21)**: **해소** — G1 결재 완료로 DDL 의존 차단이 풀렸다. 아래 대응 계획의 "S2b 앞당기기" 조건은 발동하지 않는다 / **Closed**: G1 approved, so the "pull S2b forward" condition below never triggers.
 - **대응 계획**: S1 contained no DDL and was unaffected. For S2a, the G1-independent tasks (S2a-02 barred list, S2a-04 request models, S2a-06 institution context — about 2 days) are sequenced first. **If G1 is still pending when they finish, Sprint S2b is pulled forward rather than S2a-03 being started on assumption** (DEV-PLAN §10). Design has already narrowed what G1 must approve: additive DDL only, no alteration of `KKB_DPNO_LDGR`'s meaning to existing readers, no legacy application changed.
 - **담당자**: PM · **모니터링**: end of Sprint S1, then weekly through S2a
 

@@ -31,3 +31,22 @@ target
 # .gitignore would not apply and the rule would only create a false sense of protection.
 src/main/resources/application-secrets.yml
 src/main/resources/application-secrets-*.yml
+
+# req: VS-001, SEC-S2a-01 — .env 는 실제 자격증명을 담으며 커밋되어서는 안 된다.
+#
+# 이 규칙은 뒤늦게 추가되었다. `.env` 는 커밋 `0acfb39` 부터 <b>추적되고 있었고</b>, 파일
+# 자신의 머리말은 "git-ignored" 라고 적어 두었다 — 규칙이 없는데 보호받는다고 적혀 있었다.
+# 그 상태에서 `IRIS_DB_PASSWORD` 와 `IRIS_OTP_SECRET_KEY` 가 모든 clone·fork·CI 아티팩트에
+# 실려 나갔다(CVSS 9.8).
+#
+# ⚠ 이 규칙과 `git rm --cached` 는 <b>앞으로의 커밋</b>만 막는다. 이미 이력에 있는 값은
+#   그대로 남아 있으므로 <b>자격증명 회전이 반드시 선행</b>해야 한다. 이력 재작성
+#   (`git filter-repo`) 여부는 PM/임원 결재 사항이다.
+#
+# Added late: `.env` had been tracked since 0acfb39 while its own header claimed it was git-ignored
+# — protection was documented but no rule existed. This entry and `git rm --cached` stop future
+# commits only; the values remain in history, so rotation must come first and rewriting history is
+# a PM/executive decision.
+.env
+.env.*
+!.env.example

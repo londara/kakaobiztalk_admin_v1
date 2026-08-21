@@ -2,9 +2,9 @@
 
 > **Version**: 1.0
 > **Date**: 2026-08-14
-> **Predecessor**: [REQUIREMENTS-SPEC-LOGIN.md](../requirements/REQUIREMENTS-SPEC-LOGIN.md) — **G1 PENDING**
+> **Predecessor**: [REQUIREMENTS-SPEC-LOGIN.md](../requirements/REQUIREMENTS-SPEC-LOGIN.md) — **G1 APPROVED 2026-08-21**
 > **Companion plan**: [DEV-PLAN.md](DEV-PLAN.md) (문자내역 slice)
-> **Status**: DRAFT — awaiting G2
+> **Status**: **APPROVED (G2)** — 2026-08-21, PM
 
 ---
 
@@ -142,7 +142,7 @@ Top 3:
 
 | Gate | Timing | Approver | Artifact |
 |------|--------|----------|----------|
-| G1 Analysis | Skill 2 | PM | REQUIREMENTS-SPEC-LOGIN.md — **PENDING** |
+| G1 Analysis | Skill 2 | PM | REQUIREMENTS-SPEC-LOGIN.md ✅ **APPROVED 2026-08-21** — AMB-L03 (IP allowlist 범위) 미결 이월 / carried unresolved |
 | G2 Design | Skill 3 | PM | This document + TEST-PLAN-LOGIN + threat model |
 | Sprint gate | Each sprint end | PM | SPRINT-LOG |
 | G3 Release | Skill 5 | PM (+ 정보보호 recommended) | All verification reports |
@@ -171,5 +171,15 @@ Top 3:
 
 | Date | Approver | Comment | Status |
 |------|----------|---------|--------|
-| 2026-08-14 | PM | ADR-LOGIN-011 option and TM-L002/TM-L015 resolution required | PENDING |
-| 2026-08-14 | Architect | Design complete; ADR-LOGIN-011 blocked on a factual question about past data exposure | PENDING |
+| 2026-08-21 | PM | 결재. **ADR-LOGIN-011 의 안 선택과 TM-L002 · TM-L015 는 해소되지 않은 채 이월**한다 — ADR-LOGIN-011 은 과거 데이터 노출 여부라는 **사실 확인**에 막혀 있어(architect 행 참조) 결재로 대체할 수 없다. 구현(Sprint L1~L4)이 결재에 선행한 **사후 결재** / Approved with **ADR-LOGIN-011's option choice and TM-L002/TM-L015 carried unresolved** — ADR-LOGIN-011 is blocked on a factual question about past data exposure, which approval cannot substitute for. Retrospective — Sprints L1–L4 preceded this signature | ✅ **APPROVED** |
+| 2026-08-14 | Architect | Design complete; ADR-LOGIN-011 blocked on a factual question about past data exposure | **ADVISORY** — 결재란 아님 / not a signature row (see below) |
+
+> **결재자 범위 (VS-009).** G2 표준 결재자는 `PM + 아키텍트`이나, 본 프로젝트는
+> [PROJECT-PROPOSAL.md §12](../planning/PROJECT-PROPOSAL.md) 의 **single-approver model**(2026-08-19 PM 결재)에 따라
+> 전 슬라이스에서 **PM 단독 결재**를 적용한다. 위 Architect 행은 설계 의견 기록이며 공란이 게이트 미충족을 뜻하지 않는다.
+> 단 ADR-LOGIN-011 은 **결재로 닫히지 않는 사실 확인** 대기 항목이므로, 결재자 범위와 무관하게 여전히 열려 있다.
+>
+> **Approver scope (VS-009).** Per the single-approver model in
+> [PROJECT-PROPOSAL.md §12](../planning/PROJECT-PROPOSAL.md), PM approval alone satisfies G2 across all slices; the
+> Architect row is a design opinion of record, not a signature. ADR-LOGIN-011 nevertheless remains open, because it
+> waits on a fact rather than on an approval.

@@ -5,7 +5,7 @@
 > **Scope**: login, OTP registration, operator OTP reset, password change
 > **Requirements**: [REQUIREMENTS-SPEC-LOGIN.md](../requirements/REQUIREMENTS-SPEC-LOGIN.md)
 > **ADRs**: ADR-001 (stack, inherited), ADR-LOGIN-010 (TOTP), ADR-LOGIN-011 (credential migration), ADR-LOGIN-012 (session)
-> **Status**: DRAFT — awaiting G2
+> **Status**: **APPROVED (G2)** — 2026-08-21, PM (ADR-LOGIN-011 안 선택은 미결 이월 / its option choice remains open)
 
 ---
 

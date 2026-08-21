@@ -72,5 +72,15 @@ Sprint 1 delivers no user-visible feature deliberately. It builds the controls t
 
 | Date | Role | Name | Status |
 |------|------|------|--------|
-| 2026-08-14 | PM | | PENDING |
-| 2026-08-14 | Build Team Leader | `code-reviewer` | PENDING |
+| 2026-08-21 | PM | | ✅ **AGREED** — G2 결재와 동시 승인 / approved together with G2 |
+| 2026-08-14 | Build Team Leader | `code-reviewer` | **미기록** — 아래 참조 / not recorded, see below |
+
+> **Leader 합의 (VS-009).** Sprint 단위 합의는 표준상 **Leader 자율 처리 항목**이며(§게이트표: "Sprint 단위 결재는
+> Leader 자율"), PM 게이트 결재로 대체되지 않는다. 이 행은 Sprint 1 실행 당시 기록되지 않았고, **스프린트가 이미 완료된
+> 지금 소급 서명하는 것은 의미가 없다** — 합의는 착수 전 조정 장치이지 사후 증적이 아니다. 따라서 공란을 유지하고
+> 누락 사실 자체를 기록한다. 향후 스프린트는 착수 시점에 기록한다.
+>
+> **Leader agreement (VS-009).** Sprint-level agreement is the Leader's own call under the standard and is not
+> substituted by the PM's gate approval. It was never recorded for Sprint 1, and back-signing it now would be
+> meaningless — the agreement is a coordination step before work starts, not an after-the-fact artifact. The blank is
+> therefore kept and the omission recorded. Future sprints record it at kickoff.

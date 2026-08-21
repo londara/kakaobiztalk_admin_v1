@@ -1,0 +1,70 @@
+# 하네스 프로젝트 상태파일 / harness project state
+#
+# 규칙 (HARNESS-PROCESS-STANDARD v1.5 / 08-harness §3):
+#   1. 게이트 approved + approver 는 사람이 직접 기록 (AI 임의 승인 금지 — §4.8 CQ3)
+#   2. 파일이 진실, 상태는 힌트 — /08-harness 가 실제 산출물과 교차 확인 후 교정 제안
+#   3. git 추적 대상 (팀 공유·이력)
+#
+# 최초 생성: 2026-08-21, /08-harness 감사 모드 [A-6].
+# 모든 값은 **실제 산출물에서 역산**했다(§3 [B-2] "파일이 진실"). 아래 gates 의 approved 는
+# AI 판단이 아니라 각 문서의 Status 줄·결재표에 사람이 기록한 결재를 전사한 것이며,
+# 근거 파일을 source 로 함께 적는다. G3 는 미결재이므로 pending 으로 남긴다.
+#
+# Created 2026-08-21 by /08-harness audit mode [A-6]. Every value is derived from actual
+# artifacts. The `approved` gate entries transcribe human approvals already recorded in the
+# documents (source noted per gate) — they are not AI determinations. G3 stays `pending`.
+
+harness_version: "1.5"          # HARNESS-PROCESS-STANDARD.md:3 과 일치 / matches
+project: "IRIS BizTalk Portal (문자내역·로그인·이용기관·발신번호·알림톡·톡전송내역·리포트)"
+current_step: "05"              # Skill 5 진행 중 (검증 산출물 40건 존재, G3 미통과)
+
+steps:
+  "01": { status: done, outputs_verified: true, at: "2026-08-19" }
+  # docs/planning/PROJECT-PROPOSAL.md (APPROVED 2026-08-19), BUSINESS-REQUIREMENTS.md
+
+  "02": { status: done, outputs_verified: true, at: "2026-08-21" }
+  # REQUIREMENTS-SPEC 7건 전부 G1 결재. requirements-matrix.csv 존재
+
+  "03": { status: done, outputs_verified: true, at: "2026-08-21" }
+  # DEV-PLAN 7건 · TEST-PLAN 7건 · ADR 38건 · threat-model 다수. G2 결재 완료
+
+  "04": { status: in_progress, outputs_verified: true }
+  # Sprint 로그 19건 완료: A1 I1 I2a L1~L8 M2~M4 R1 S1 S2a T1 T2
+  # 계획되었으나 미실행: S2b, I2b, R2 — 따라서 done 이 아니라 in_progress
+  # 19 sprints logged; S2b/I2b/R2 planned but not run, hence in_progress rather than done
+
+  "05": { status: in_progress, outputs_verified: true }
+  # reviews/ security/ qa/ 40건 존재(code-review·cross-validation·audit·test-report).
+  # G3 미통과이므로 done 아님 / not done because G3 has not passed
+
+  "06": { status: not_started }
+  # deliverables/ 미생성. 진입 조건은 G3 approved (08-harness §3.1)
+  # Skill 06 §1[A] 1:1 대화는 2026-08-21 완료 — 형식 md-only, 대상 4종, 보존 5년으로 확정.
+  # 조립([B])은 G3 대기로 보류.
+
+gates:
+  G1:
+    status: approved
+    approver: "PM"
+    at: "2026-08-21"            # 문자내역 08-14 · ALIMTALK 08-19 · 나머지 5 슬라이스 08-21
+    source: "docs/requirements/REQUIREMENTS-SPEC*.md (Status 줄 7/7)"
+  G2:
+    status: approved
+    approver: "PM"
+    at: "2026-08-21"
+    note: "single-approver model — PROJECT-PROPOSAL.md §12. Architect 행은 advisory"
+    source: "docs/design/DEV-PLAN*.md · TEST-PLAN*.md (Status 줄) · adr/ADR-001 ACCEPTED"
+  G3:
+    status: pending
+    # 차단 3건 (reviews/standard-validation-20260821.md Pass 3):
+    #   VS-001 CVSS 9.8 자격증명 노출 — 회전 미완료 (사람 조치 대기)
+    #   VS-010 커버리지 게이트 3건 미달 — auth.domain 44.9% (개발 대기)
+    #   VS-014 deliverables/·RUNBOOK 미작성 (운영팀 입력 필요)
+    # 결재자: PM + 정보보호 + 운영 (표준 §게이트표). 단 본 프로젝트는 single-approver model.
+
+last_audit:
+  date: "2026-08-21"
+  score: 86
+  verdict: FAIL                 # 차단 1건(VS-001) 유지 — CVSS ≥ 7.0 미해결
+  report: "reviews/standard-validation-20260821.md"
+  note: "같은 날 3회차(Pass 1 71 → Pass 2 81 → Pass 3 86). 차단 3 → 1"

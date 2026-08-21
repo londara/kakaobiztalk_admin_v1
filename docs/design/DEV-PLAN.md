@@ -4,7 +4,7 @@
 > **Date**: 2026-08-14
 > **Predecessor**: [REQUIREMENTS-SPEC.md](../requirements/REQUIREMENTS-SPEC.md) (G1 approved 2026-08-14)
 > **Scope**: 문자내역 (screens 40/41) only — per PM instruction "follow Skill 02 that complete only"
-> **Status**: DRAFT — awaiting G2
+> **Status**: **APPROVED (G2)** — 2026-08-21, PM
 
 ---
 
@@ -143,7 +143,7 @@ Top 3:
 | Gate | Timing | Approver | Artifact |
 |------|--------|----------|----------|
 | G1 Analysis | Skill 2 | PM | REQUIREMENTS-SPEC.md ✅ **APPROVED 2026-08-14** |
-| G2 Design | Skill 3 | PM | This document + TEST-PLAN + threat model |
+| G2 Design | Skill 3 | PM | This document + TEST-PLAN + threat model ✅ **APPROVED 2026-08-21** |
 | Sprint gate | Each sprint end | PM | SPRINT-N-LOG |
 | G3 Release | Skill 5 | PM | All verification reports |
 
@@ -171,5 +171,13 @@ Top 3:
 
 | Date | Approver | Comment | Status |
 |------|----------|---------|--------|
-| 2026-08-14 | PM | | PENDING |
-| 2026-08-14 | Architect | Design complete for the read-only slice; ADR-002/004/009 scoped and require superseding before the send path | PENDING |
+| 2026-08-21 | PM | 설계 게이트 결재. §10 (Skill 01 Q12a) 에 따라 PM 단독 결재. 구현(Skill 4)·검증(Skill 5)이 결재에 선행했음을 인지한 **사후 결재**이며, 그 순서 이탈은 아래 Architect 조건과 함께 유효하다 / Design gate approved. PM is sole approver per §10. Recorded as a **retrospective** approval: Skill 4 implementation and Skill 5 verification preceded this signature | ✅ **APPROVED** |
+| 2026-08-14 | Architect | Design complete for the read-only slice; ADR-002/004/009 scoped and require superseding before the send path | **ADVISORY** — 결재란 아님 / not a signature row (see below) |
+
+> **결재자 범위 (VS-009).** §10 의 "PM 단독 결재" 근거는 [PROJECT-PROPOSAL.md §12](../planning/PROJECT-PROPOSAL.md)
+> 의 **single-approver model** (2026-08-19 PM 결재) 이며, 이는 문자내역만이 아니라 **전 슬라이스·전 게이트**에 적용된다.
+> 위 Architect 행은 설계 의견 기록이며 공란이 게이트 미충족을 뜻하지 않는다.
+>
+> **Approver scope (VS-009).** The "PM is sole approver" basis in §10 is the single-approver model recorded in
+> [PROJECT-PROPOSAL.md §12](../planning/PROJECT-PROPOSAL.md), which applies programme-wide, not only to this slice.
+> The Architect row is a design opinion of record, not a signature.

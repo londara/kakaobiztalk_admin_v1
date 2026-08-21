@@ -7,7 +7,7 @@
 > **Sibling specs**: [REQUIREMENTS-SPEC.md](REQUIREMENTS-SPEC.md) (문자내역), [REQUIREMENTS-SPEC-LOGIN.md](REQUIREMENTS-SPEC-LOGIN.md) (로그인), [REQUIREMENTS-SPEC-INSTITUTION.md](REQUIREMENTS-SPEC-INSTITUTION.md) (이용기관관리)
 > **Traceability matrix**: [requirements-matrix.csv](requirements-matrix.csv)
 > **Question log**: [questions-log.md](questions-log.md) — Part 4
-> **Status**: **DRAFT — awaiting G1**
+> **Status**: **APPROVED (G1)** — 2026-08-21, PM (CONFLICT-S01 · RESIDUAL-S01 수용 / accepted; AMB-S07 · OI-02 이월 / carried)
 
 ---
 
@@ -313,6 +313,9 @@ Carried and still open: **OI-02** (audit retention term) blocks NFR-OPS-AUDIT-D0
 
 > **v1.1 status:** AMB-S05, S06, S08 and S09 are closed; **AMB-S07 alone remains open** and carries a stated working assumption. AMB-S10 was raised and resolved within this pass.
 > **G1 approval must explicitly cover CONFLICT-S01 and RESIDUAL-S01.**
+>
+> **G1 결재 — 2026-08-21, PM.** CONFLICT-S01 과 RESIDUAL-S01(AMB-S01 C안에 따라 발신번호 소유 검증 없음)을 **명시적으로 수용**한다. **AMB-S07** 은 작업 가정과 함께 미결로 이월하고, **OI-02**(감사 보존기간)도 여전히 미결로 NFR-OPS-AUDIT-D02·CONST-LEGAL-02 를 막는다 — 이 두 건은 결재 대상이 아니라 이월 항목이다. 구현(Sprint S1·S2a)이 결재에 선행한 **사후 결재**.
+> **G1 approved 2026-08-21 by PM**, explicitly accepting CONFLICT-S01 and RESIDUAL-S01 (no ownership verification, per AMB-S01 option C). **AMB-S07 and OI-02 remain open and are carried, not approved.** Retrospective — Sprints S1/S2a preceded this signature.
 
 ### 6.4 Operational action arising from D-S1
 
